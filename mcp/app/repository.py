@@ -19,6 +19,34 @@ class LumiaRepository:
             c.execute("SELECT * FROM lights ORDER BY name, id")
             return [self.serialize(row) for row in c.fetchall()]
 
+    @staticmethod
+    def room_key_for_name(name: str) -> str:
+        normalized = name.lower()
+        matches = (
+            (("bath", "washroom"), "bathroom"),
+            (("bed",), "bedroom"),
+            (("balcony", "terrace", "patio"), "balcony"),
+            (("kitchen",), "kitchen"),
+            (("dining",), "dining_room"),
+            (("office", "study", "desk"), "home_office"),
+            (("entrance", "entry", "hall", "foyer"), "entrance"),
+            (("living", "lounge",), "living_room"),
+        )
+        for keywords, room_key in matches:
+            if any(keyword in normalized for keyword in keywords):
+                return room_key
+        return "living_room"
+
+    def lights_with_room_images(self):
+        lights = self.list_lights()
+        images = {item["room_key"]: item["image_url"] for item in self.list_room_images()}
+        fallback = images.get("living_room") or next(iter(images.values()), None)
+        for light in lights:
+            room_key = self.room_key_for_name(light["name"])
+            light["room_key"] = room_key
+            light["effective_image_url"] = light.get("background_image_url") or images.get(room_key) or fallback
+        return lights
+
     def light(self, light_id: int):
         with self.database.cursor() as c:
             c.execute("SELECT * FROM lights WHERE id=%s", (light_id,))
@@ -42,6 +70,23 @@ class LumiaRepository:
     def rename_light(self, light_id: int, name: str):
         with self.database.cursor() as c:
             c.execute("UPDATE lights SET name=%s WHERE id=%s RETURNING *", (name, light_id))
+            return self.serialize(c.fetchone())
+
+    def update_light_image(self, light_id: int, image_url: str | None):
+        with self.database.cursor() as c:
+            c.execute("UPDATE lights SET background_image_url=%s WHERE id=%s RETURNING *", (image_url, light_id))
+            return self.serialize(c.fetchone())
+
+    def list_room_images(self):
+        with self.database.cursor() as c:
+            c.execute("SELECT room_key,image_url,updated_at FROM room_images ORDER BY room_key")
+            return [self.serialize(row) for row in c.fetchall()]
+
+    def update_room_image(self, room_key: str, image_url: str):
+        with self.database.cursor() as c:
+            c.execute("""INSERT INTO room_images(room_key,image_url) VALUES(%s,%s)
+                ON CONFLICT(room_key) DO UPDATE SET image_url=EXCLUDED.image_url,updated_at=NOW()
+                RETURNING *""", (room_key, image_url))
             return self.serialize(c.fetchone())
 
     def update_state(self, light_id: int, *, on=None, brightness=None, color=None, reachable=None):

@@ -13,6 +13,8 @@ Luna Visia and Luna Vita.
 - Set brightness and RGB color
 - Save and apply reusable color schemes
 - Organize lights into groups
+- Display room photography from Luna Visia on each light card
+- Switch between the URL-based Garden house and Sunset house themes
 - Create recurring on/off or color-scheme schedules and alarms in Asia/Kolkata
 - Control lights through the dashboard, REST endpoints, or MCP tools
 
@@ -22,6 +24,25 @@ The discovery scan is user-triggered and sends a WiZ `getPilot` request to each
 address on `192.168.1.1–254`. This works across Docker's bridge while accepting
 only valid WiZ replies; it does not probe unrelated TCP services or
 automatically save found devices.
+
+## Room-image themes
+
+Light-card backgrounds use immutable Luna Visia public image URLs. Lumia maps
+common room words in each light name (such as `Bathroom`, `Kitchen`, `Office`,
+or `Balcony`) to the matching image in the selected house theme and uses a safe
+theme fallback for unmatched rooms. A light-specific URL override takes
+priority over the selected theme.
+
+The MCP server exposes these image-management tools:
+
+- `list_house_themes`
+- `set_house_theme`
+- `update_room_theme_image`
+- `set_light_background_image`
+
+Only `http://` and `https://` image URLs are accepted. Passing `null` to
+`set_light_background_image` clears that light's override and returns it to the
+selected house theme.
 
 ## Run
 

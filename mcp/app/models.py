@@ -4,6 +4,17 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
+def validate_image_url(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if not cleaned.startswith(("http://", "https://")):
+        raise ValueError("Image URL must use http or https")
+    return cleaned
+
+
 class LightCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     ip_address: str = Field(pattern=r"^(?:\d{1,3}\.){3}\d{1,3}$")
@@ -44,6 +55,25 @@ class LightUpdate(BaseModel):
         if not name:
             raise ValueError("Light name cannot be blank")
         return name
+
+
+class LightImageUpdate(BaseModel):
+    image_url: str | None = Field(default=None, max_length=2048)
+
+    @field_validator("image_url")
+    @classmethod
+    def valid_image_url(cls, value: str | None) -> str | None:
+        return validate_image_url(value)
+
+
+class RoomImageUpdate(BaseModel):
+    room_key: str = Field(min_length=1, max_length=50, pattern=r"^[a-z0-9_-]+$")
+    image_url: str = Field(min_length=1, max_length=2048)
+
+    @field_validator("image_url")
+    @classmethod
+    def valid_image_url(cls, value: str) -> str:
+        return validate_image_url(value)  # type: ignore[return-value]
 
 
 class GroupCreate(BaseModel):

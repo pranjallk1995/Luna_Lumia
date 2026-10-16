@@ -21,3 +21,5 @@ class LumiaAPI:
     def delete(self, resource, item_id): return self.request("DELETE",f"/api/{resource}/{item_id}")
     def control(self, target_type, target_id=None, **state): return self.request("POST",f"/api/control/{target_type}",json={"target_id":target_id,"state":state})
     def apply_scene(self, scene_id, target_type="all", target_id=None): return self.request("POST",f"/api/scenes/{scene_id}/apply",json={"target_type":target_type,"target_id":target_id})
+    def set_light_background(self, light_id, image_url=None): return self.request("PUT",f"/api/lights/{light_id}/background",json={"image_url":image_url})
+    def update_room_image(self, room_key, image_url): return self.request("PUT","/api/room-image",json={"room_key":room_key,"image_url":image_url})

@@ -11,7 +11,16 @@ from starlette.responses import JSONResponse, Response
 
 from .database import Database
 from .devices import LightController, WizDiscovery
-from .models import GroupCreate, LightCreate, LightState, LightUpdate, SceneCreate, ScheduleCreate
+from .models import (
+    GroupCreate,
+    LightCreate,
+    LightImageUpdate,
+    LightState,
+    LightUpdate,
+    RoomImageUpdate,
+    SceneCreate,
+    ScheduleCreate,
+)
 from .repository import LumiaRepository
 from .services import LumiaService
 
@@ -48,6 +57,26 @@ class LumiaMCPAdapter:
         def list_lights():
             """List configured Luna Lumia lights and their last known states."""
             return repository.list_lights()
+
+        @server.tool()
+        def list_room_images():
+            """List the room background image URLs used by Lumia light cards."""
+            return repository.list_room_images()
+
+        @server.tool()
+        def update_room_image(room_key: str, image_url: str):
+            """Add or update the image URL used for a Lumia room type."""
+            entry = RoomImageUpdate(room_key=room_key, image_url=image_url)
+            return repository.update_room_image(entry.room_key, entry.image_url)
+
+        @server.tool()
+        def set_light_background_image(light_id: int, image_url: str | None = None):
+            """Set a custom image URL for one light, or clear it to use its room image."""
+            entry = LightImageUpdate(image_url=image_url)
+            light = repository.update_light_image(light_id, entry.image_url)
+            if not light:
+                raise ValueError("Light not found")
+            return light
 
         @server.tool()
         async def discover_lights_on_network(broadcast_space: str = "255.255.255.255"):
@@ -103,7 +132,13 @@ class LumiaHTTPAdapter:
         @server.custom_route("/api/dashboard", methods=["GET"])
         async def dashboard(request):
             del request
-            return self.response({"lights":repo.list_lights(),"groups":repo.list_groups(),"scenes":repo.list_scenes(),"schedules":repo.list_schedules()})
+            return self.response({
+                "lights":repo.lights_with_room_images(),
+                "groups":repo.list_groups(),
+                "scenes":repo.list_scenes(),
+                "schedules":repo.list_schedules(),
+                "room_images":repo.list_room_images(),
+            })
 
         @server.custom_route("/api/discovery", methods=["POST"])
         async def discovery(request):
@@ -126,6 +161,23 @@ class LumiaHTTPAdapter:
                 entry = await self.payload(request, LightUpdate)
                 result = repo.rename_light(int(request.path_params["item_id"]), entry.name)
                 return self.response(result) if result else self.response({"error":"Not found"},404)
+            except Exception as e:
+                return self.error(e)
+
+        @server.custom_route("/api/lights/{item_id}/background", methods=["PUT"])
+        async def update_light_background(request):
+            try:
+                entry = await self.payload(request, LightImageUpdate)
+                result = repo.update_light_image(int(request.path_params["item_id"]), entry.image_url)
+                return self.response(result) if result else self.response({"error":"Not found"},404)
+            except Exception as e:
+                return self.error(e)
+
+        @server.custom_route("/api/room-image", methods=["PUT"])
+        async def update_room_image(request):
+            try:
+                entry = await self.payload(request, RoomImageUpdate)
+                return self.response(repo.update_room_image(entry.room_key, entry.image_url))
             except Exception as e:
                 return self.error(e)
 

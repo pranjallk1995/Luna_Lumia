@@ -16,8 +16,24 @@ CREATE TABLE IF NOT EXISTS lights (
  last_seen TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ALTER TABLE lights ADD COLUMN IF NOT EXISTS mac_address TEXT;
+ALTER TABLE lights ADD COLUMN IF NOT EXISTS background_image_url TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS lights_mac_address_idx
     ON lights (mac_address) WHERE mac_address IS NOT NULL;
+CREATE TABLE IF NOT EXISTS room_images (
+ room_key TEXT PRIMARY KEY,
+ image_url TEXT NOT NULL,
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+INSERT INTO room_images (room_key, image_url) VALUES
+ ('bathroom','https://visia-mcp.lunaapps.fyi/api/public/images/bfd38d22-352c-401f-9ee6-9c986ae567ed'),
+ ('dining_room','https://visia-mcp.lunaapps.fyi/api/public/images/e8e72094-4572-4501-9545-509d6d81b368'),
+ ('entrance','https://visia-mcp.lunaapps.fyi/api/public/images/73e1e826-7679-42c3-bfe0-5425e3931230'),
+ ('home_office','https://visia-mcp.lunaapps.fyi/api/public/images/57f8631b-f52a-4e82-af16-b7806bfd967e'),
+ ('kitchen','https://visia-mcp.lunaapps.fyi/api/public/images/745604e7-a749-42fc-b546-bb9d64d4582b'),
+ ('living_room','https://visia-mcp.lunaapps.fyi/api/public/images/21b475c5-8168-47fe-bd27-dec8b3328d4e'),
+ ('balcony','https://visia-mcp.lunaapps.fyi/api/public/images/95fa3e80-2e6c-4f2c-8d19-9ca25d229294'),
+ ('bedroom','https://visia-mcp.lunaapps.fyi/api/public/images/2d77a066-d097-4b1b-9682-c9eb41538b26')
+ON CONFLICT (room_key) DO NOTHING;
 CREATE TABLE IF NOT EXISTS light_groups (
  id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

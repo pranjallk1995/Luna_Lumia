@@ -1,6 +1,6 @@
 import unittest
 from pydantic import ValidationError
-from app.models import LightCreate, LightUpdate, ScheduleCreate
+from app.models import LightCreate, LightImageUpdate, LightUpdate, RoomImageUpdate, ScheduleCreate
 
 
 class ModelTests(unittest.TestCase):
@@ -13,3 +13,8 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(light.mac_address,"98:77:D5:B7:28:72")
     def test_light_name_is_trimmed(self):
         self.assertEqual(LightUpdate(name="  Kitchen  ").name,"Kitchen")
+    def test_light_background_requires_http_url(self):
+        with self.assertRaises(ValidationError): LightImageUpdate(image_url="file:///private/room.png")
+    def test_room_image_accepts_visia_url(self):
+        entry=RoomImageUpdate(room_key="living_room",image_url="https://visia.example/api/public/images/123")
+        self.assertEqual(entry.room_key,"living_room")
