@@ -37,10 +37,14 @@ The MCP server exposes these image-management tools:
 - `list_room_images`
 - `update_room_image`
 - `set_light_background_image`
+- `clear_light_background_image`
 
-Only `http://` and `https://` image URLs are accepted. Passing `null` to
-`set_light_background_image` clears that light's override and returns it to the
-mapped room image.
+Only `http://` and `https://` image URLs are accepted. When
+`set_light_background_image` is called without an image URL, Lumia infers the
+room from the optional `room_name` argument or the light name, and selects the
+matching configured image while preserving the available image-source scheme.
+Use `clear_light_background_image` to remove the stored override and return to
+dynamic room-image resolution.
 
 ## Run
 

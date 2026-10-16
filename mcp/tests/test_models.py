@@ -1,6 +1,7 @@
 import unittest
 from pydantic import ValidationError
 from app.models import LightCreate, LightImageUpdate, LightUpdate, RoomImageUpdate, ScheduleCreate
+from app.repository import LumiaRepository
 
 
 class ModelTests(unittest.TestCase):
@@ -18,3 +19,7 @@ class ModelTests(unittest.TestCase):
     def test_room_image_accepts_visia_url(self):
         entry=RoomImageUpdate(room_key="living_room",image_url="https://visia.example/api/public/images/123")
         self.assertEqual(entry.room_key,"living_room")
+    def test_public_room_images_share_a_scheme_key(self):
+        first=LumiaRepository.image_scheme_key("https://visia.example/api/public/images/123")
+        second=LumiaRepository.image_scheme_key("https://visia.example/api/public/images/456")
+        self.assertEqual(first,second)

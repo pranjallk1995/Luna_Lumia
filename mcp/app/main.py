@@ -70,10 +70,24 @@ class LumiaMCPAdapter:
             return repository.update_room_image(entry.room_key, entry.image_url)
 
         @server.tool()
-        def set_light_background_image(light_id: int, image_url: str | None = None):
-            """Set a custom image URL for one light, or clear it to use its room image."""
+        def set_light_background_image(
+            light_id: int,
+            image_url: str | None = None,
+            room_name: str | None = None,
+        ):
+            """Assign a light image. Without a URL, infer it from room_name or the light name while preserving the available image scheme."""
             entry = LightImageUpdate(image_url=image_url)
+            if entry.image_url is None:
+                return repository.assign_inferred_light_image(light_id, room_name)
             light = repository.update_light_image(light_id, entry.image_url)
+            if not light:
+                raise ValueError("Light not found")
+            return light
+
+        @server.tool()
+        def clear_light_background_image(light_id: int):
+            """Clear a light-specific image override so the dashboard resolves its room image dynamically."""
+            light = repository.update_light_image(light_id, None)
             if not light:
                 raise ValueError("Light not found")
             return light

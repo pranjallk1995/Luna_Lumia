@@ -1,5 +1,7 @@
 from datetime import date
+from collections import Counter
 from typing import Any
+from urllib.parse import urlsplit
 
 from .database import Database
 from .models import GroupCreate, LightCreate, SceneCreate, ScheduleCreate
@@ -76,6 +78,64 @@ class LumiaRepository:
         with self.database.cursor() as c:
             c.execute("UPDATE lights SET background_image_url=%s WHERE id=%s RETURNING *", (image_url, light_id))
             return self.serialize(c.fetchone())
+
+    @staticmethod
+    def image_scheme_key(image_url: str | None) -> str | None:
+        if not image_url:
+            return None
+        parsed = urlsplit(image_url)
+        path = parsed.path
+        marker = "/api/public/images/"
+        scheme_path = path.split(marker, 1)[0] + marker if marker in path else path.rsplit("/", 1)[0] + "/"
+        return f"{parsed.scheme}://{parsed.netloc}{scheme_path}"
+
+    def assign_inferred_light_image(self, light_id: int, room_name: str | None = None):
+        light = self.light(light_id)
+        if not light:
+            raise ValueError("Light not found")
+        images = self.list_room_images()
+        if not images:
+            raise ValueError("No room images are configured")
+
+        room_source = (room_name or "").strip() or light["name"]
+        room_key = self.room_key_for_name(room_source)
+        scheme_counts = Counter(
+            self.image_scheme_key(image["image_url"]) for image in images
+        )
+        existing_scheme = self.image_scheme_key(light.get("background_image_url"))
+        preferred_scheme = (
+            existing_scheme
+            if existing_scheme in scheme_counts
+            else scheme_counts.most_common(1)[0][0]
+        )
+
+        def matching(candidate_room: str, candidate_scheme: str | None = None):
+            return next(
+                (
+                    image
+                    for image in images
+                    if image["room_key"] == candidate_room
+                    and (
+                        candidate_scheme is None
+                        or self.image_scheme_key(image["image_url"]) == candidate_scheme
+                    )
+                ),
+                None,
+            )
+
+        selected = (
+            matching(room_key, preferred_scheme)
+            or matching("living_room", preferred_scheme)
+            or matching(room_key)
+            or matching("living_room")
+            or images[0]
+        )
+        assigned = self.update_light_image(light_id, selected["image_url"])
+        assigned["inferred_room_key"] = room_key
+        assigned["image_scheme"] = self.image_scheme_key(selected["image_url"])
+        assigned["effective_image_url"] = selected["image_url"]
+        assigned["inference_source"] = "room_name" if room_name and room_name.strip() else "light_name"
+        return assigned
 
     def list_room_images(self):
         with self.database.cursor() as c:
