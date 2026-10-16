@@ -1,0 +1,107 @@
+from datetime import date
+from typing import Any
+
+from .database import Database
+from .models import GroupCreate, LightCreate, SceneCreate, ScheduleCreate
+
+
+class LumiaRepository:
+    def __init__(self, database: Database): self.database = database
+    def ensure_schema(self): self.database.initialize_schema()
+
+    @staticmethod
+    def serialize(row):
+        if not row: return None
+        return {key: (value.isoformat() if hasattr(value, "isoformat") else str(value) if key == "ip_address" else value) for key, value in row.items()}
+
+    def list_lights(self):
+        with self.database.cursor() as c:
+            c.execute("SELECT * FROM lights ORDER BY name, id")
+            return [self.serialize(row) for row in c.fetchall()]
+
+    def light(self, light_id: int):
+        with self.database.cursor() as c:
+            c.execute("SELECT * FROM lights WHERE id=%s", (light_id,))
+            return self.serialize(c.fetchone())
+
+    def add_light(self, entry: LightCreate):
+        with self.database.cursor() as c:
+            c.execute("INSERT INTO lights(name,ip_address,protocol,mac_address) VALUES(%s,%s,%s,%s) RETURNING *", (entry.name.strip(), entry.ip_address, entry.protocol, entry.mac_address))
+            return self.serialize(c.fetchone())
+
+    def store_mac_address(self, light_id: int, mac_address: str):
+        with self.database.cursor() as c:
+            c.execute("UPDATE lights SET mac_address=%s WHERE id=%s RETURNING *", (mac_address, light_id))
+            return self.serialize(c.fetchone())
+
+    def delete_light(self, light_id: int):
+        with self.database.cursor() as c:
+            c.execute("DELETE FROM lights WHERE id=%s RETURNING id", (light_id,))
+            return c.fetchone() is not None
+
+    def rename_light(self, light_id: int, name: str):
+        with self.database.cursor() as c:
+            c.execute("UPDATE lights SET name=%s WHERE id=%s RETURNING *", (name, light_id))
+            return self.serialize(c.fetchone())
+
+    def update_state(self, light_id: int, *, on=None, brightness=None, color=None, reachable=None):
+        with self.database.cursor() as c:
+            c.execute("""UPDATE lights SET is_on=COALESCE(%s,is_on), brightness=COALESCE(%s,brightness),
+                color=COALESCE(%s,color), reachable=COALESCE(%s,reachable), last_seen=CASE WHEN %s THEN NOW() ELSE last_seen END
+                WHERE id=%s RETURNING *""", (on, brightness, color, reachable, reachable is True, light_id))
+            return self.serialize(c.fetchone())
+
+    def target_lights(self, target_type: str, target_id: int | None):
+        with self.database.cursor() as c:
+            if target_type == "all": c.execute("SELECT * FROM lights ORDER BY id")
+            elif target_type == "light": c.execute("SELECT * FROM lights WHERE id=%s", (target_id,))
+            else: c.execute("SELECT l.* FROM lights l JOIN group_members gm ON gm.light_id=l.id WHERE gm.group_id=%s ORDER BY l.id", (target_id,))
+            return [self.serialize(row) for row in c.fetchall()]
+
+    def list_groups(self):
+        with self.database.cursor() as c:
+            c.execute("""SELECT g.*, COALESCE(array_agg(gm.light_id) FILTER (WHERE gm.light_id IS NOT NULL),'{}') light_ids
+                FROM light_groups g LEFT JOIN group_members gm ON gm.group_id=g.id GROUP BY g.id ORDER BY g.name""")
+            return [self.serialize(row) for row in c.fetchall()]
+
+    def add_group(self, entry: GroupCreate):
+        with self.database.cursor() as c:
+            c.execute("INSERT INTO light_groups(name) VALUES(%s) RETURNING *", (entry.name.strip(),)); row=c.fetchone()
+            for light_id in entry.light_ids: c.execute("INSERT INTO group_members VALUES(%s,%s) ON CONFLICT DO NOTHING", (row["id"], light_id))
+            result=self.serialize(row); result["light_ids"]=entry.light_ids; return result
+
+    def delete_group(self, group_id: int):
+        with self.database.cursor() as c:
+            c.execute("DELETE FROM light_groups WHERE id=%s RETURNING id", (group_id,)); return c.fetchone() is not None
+
+    def list_scenes(self):
+        with self.database.cursor() as c: c.execute("SELECT * FROM scenes ORDER BY name"); return [self.serialize(row) for row in c.fetchall()]
+
+    def scene(self, scene_id: int):
+        with self.database.cursor() as c: c.execute("SELECT * FROM scenes WHERE id=%s", (scene_id,)); return self.serialize(c.fetchone())
+
+    def add_scene(self, entry: SceneCreate):
+        with self.database.cursor() as c: c.execute("INSERT INTO scenes(name,color,brightness) VALUES(%s,%s,%s) RETURNING *", (entry.name.strip(),entry.color.upper(),entry.brightness)); return self.serialize(c.fetchone())
+
+    def delete_scene(self, scene_id: int):
+        with self.database.cursor() as c: c.execute("DELETE FROM scenes WHERE id=%s RETURNING id",(scene_id,)); return c.fetchone() is not None
+
+    def list_schedules(self):
+        with self.database.cursor() as c: c.execute("SELECT * FROM schedules ORDER BY run_time,name"); return [self.serialize(row) for row in c.fetchall()]
+
+    def add_schedule(self, entry: ScheduleCreate):
+        with self.database.cursor() as c:
+            c.execute("""INSERT INTO schedules(name,kind,target_type,target_id,action,scene_id,run_time,weekdays,enabled)
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""", (entry.name.strip(),entry.kind,entry.target_type,entry.target_id,entry.action,entry.scene_id,entry.run_time,entry.weekdays,entry.enabled))
+            return self.serialize(c.fetchone())
+
+    def delete_schedule(self, schedule_id: int):
+        with self.database.cursor() as c: c.execute("DELETE FROM schedules WHERE id=%s RETURNING id",(schedule_id,)); return c.fetchone() is not None
+
+    def due_schedules(self, today: date, weekday: int, now_time):
+        with self.database.cursor() as c:
+            c.execute("SELECT * FROM schedules WHERE enabled AND %s=ANY(weekdays) AND run_time<=%s AND last_run_date IS DISTINCT FROM %s",(weekday,now_time,today))
+            return [self.serialize(row) for row in c.fetchall()]
+
+    def mark_ran(self, schedule_id: int, day: date):
+        with self.database.cursor() as c: c.execute("UPDATE schedules SET last_run_date=%s WHERE id=%s",(day,schedule_id))

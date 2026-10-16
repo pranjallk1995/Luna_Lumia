@@ -1,0 +1,84 @@
+from datetime import time
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+class LightCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    ip_address: str = Field(pattern=r"^(?:\d{1,3}\.){3}\d{1,3}$")
+    protocol: Literal["wiz"] = "wiz"
+    mac_address: str | None = Field(default=None, max_length=17)
+
+    @field_validator("ip_address")
+    @classmethod
+    def valid_octets(cls, value: str) -> str:
+        if any(int(part) > 255 for part in value.split(".")):
+            raise ValueError("Invalid IPv4 address")
+        return value
+
+    @field_validator("mac_address")
+    @classmethod
+    def normalize_mac(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        compact = value.replace(":", "").replace("-", "").strip().upper()
+        if len(compact) != 12 or any(character not in "0123456789ABCDEF" for character in compact):
+            raise ValueError("Invalid MAC address")
+        return ":".join(compact[index:index + 2] for index in range(0, 12, 2))
+
+
+class LightState(BaseModel):
+    on: bool | None = None
+    brightness: int | None = Field(default=None, ge=1, le=100)
+    color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+
+
+class LightUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        name = value.strip()
+        if not name:
+            raise ValueError("Light name cannot be blank")
+        return name
+
+
+class GroupCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    light_ids: list[int] = Field(default_factory=list)
+
+
+class SceneCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
+    brightness: int = Field(ge=1, le=100)
+
+
+class ScheduleCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    kind: Literal["schedule", "alarm"] = "schedule"
+    target_type: Literal["all", "light", "group"] = "all"
+    target_id: int | None = None
+    action: Literal["on", "off", "scene"]
+    scene_id: int | None = None
+    run_time: time
+    weekdays: list[int] = Field(default_factory=lambda: list(range(7)))
+    enabled: bool = True
+
+    @field_validator("weekdays")
+    @classmethod
+    def valid_weekdays(cls, value: list[int]) -> list[int]:
+        if not value or any(day < 0 or day > 6 for day in value):
+            raise ValueError("Choose at least one valid weekday")
+        return sorted(set(value))
+
+    @model_validator(mode="after")
+    def valid_target_and_action(self):
+        if self.target_type != "all" and self.target_id is None:
+            raise ValueError("A light or group target is required")
+        if self.action == "scene" and self.scene_id is None:
+            raise ValueError("A color scheme is required")
+        return self

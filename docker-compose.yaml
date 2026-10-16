@@ -1,0 +1,83 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: lunalumia
+      POSTGRES_USER: lunalumia
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lunalumia-dev}
+      TZ: Asia/Kolkata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      lunalumia_network:
+        aliases: [luna-lumia-db]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lunalumia -d lunalumia"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mcp:
+    build: ./mcp
+    working_dir: /workspace/mcp
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://lunalumia:${POSTGRES_PASSWORD:-lunalumia-dev}@luna-lumia-db:5432/lunalumia
+      TZ: Asia/Kolkata
+    expose: ["8000"]
+    ports: ["127.0.0.1:18002:8000"]
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./mcp/app
+          target: /workspace/mcp/app
+        - action: rebuild
+          path: ./mcp/requirements.txt
+        - action: rebuild
+          path: ./mcp/Dockerfile
+    networks:
+      lunalumia_network:
+        aliases: [luna-lumia-mcp]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ui:
+    build: ./ui
+    working_dir: /workspace/ui
+    restart: unless-stopped
+    environment:
+      LUNALUMIA_API_URL: http://luna-lumia-mcp:8000
+      TZ: Asia/Kolkata
+    ports: ["127.0.0.1:18503:8501"]
+    develop:
+      watch:
+        - action: sync
+          path: ./ui
+          target: /workspace/ui
+          ignore: [__pycache__/, "*.py[cod]", requirements.txt, Dockerfile]
+        - action: rebuild
+          path: ./ui/requirements.txt
+        - action: rebuild
+          path: ./ui/Dockerfile
+    networks:
+      lunalumia_network:
+        aliases: [luna-lumia-ui]
+    depends_on:
+      mcp:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+
+networks:
+  lunalumia_network:
+    external: true
+    name: luna_visia_lunavisia_network
+
