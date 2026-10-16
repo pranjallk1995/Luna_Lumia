@@ -80,4 +80,3 @@ networks:
   lunalumia_network:
     external: true
     name: luna_visia_lunavisia_network
-

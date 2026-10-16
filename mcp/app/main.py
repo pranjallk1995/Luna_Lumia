@@ -109,6 +109,7 @@ class LumiaHTTPAdapter:
     @classmethod
     def json_value(cls, value):
         if isinstance(value, BaseModel): return cls.json_value(value.model_dump())
+        if isinstance(value, BaseException): return str(value)
         if isinstance(value, dict): return {k: cls.json_value(v) for k,v in value.items()}
         if isinstance(value, (list,tuple)): return [cls.json_value(v) for v in value]
         if isinstance(value, Decimal): return float(value)
@@ -152,6 +153,7 @@ class LumiaHTTPAdapter:
         async def add_light(request):
             try: return self.response(repo.add_light(await self.payload(request,LightCreate)),201)
             except Exception as e: return self.error(e)
+
         @server.custom_route("/api/lights/{item_id}", methods=["DELETE"])
         async def delete_light(request): return Response(status_code=204) if repo.delete_light(int(request.path_params["item_id"])) else self.response({"error":"Not found"},404)
 

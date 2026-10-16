@@ -16,7 +16,7 @@ class LumiaRepository:
 
     def list_lights(self):
         with self.database.cursor() as c:
-            c.execute("SELECT * FROM lights ORDER BY name, id")
+            c.execute("SELECT * FROM lights ORDER BY LOWER(name), id")
             return [self.serialize(row) for row in c.fetchall()]
 
     @staticmethod

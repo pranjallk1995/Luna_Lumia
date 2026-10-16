@@ -1,5 +1,7 @@
 import streamlit as st
 
+from config import UIConfig
+
 
 class LunaStyle:
     @staticmethod
@@ -20,17 +22,35 @@ class LunaStyle:
         div[data-testid="stTabs"] [data-baseweb="tab-highlight"]{display:none}
         div[data-testid="stVerticalBlockBorderWrapper"]>div{border-color:var(--lv-border);border-radius:14px;background:var(--lv-surface);box-shadow:0 10px 30px rgba(0,0,0,.12)}
         div[data-testid="stVerticalBlockBorderWrapper"]:has(.light-card-hero)>div{overflow:hidden;border-color:var(--lv-border);background:linear-gradient(180deg,rgba(255,255,255,.065),rgba(255,255,255,.035));box-shadow:0 14px 34px rgba(0,0,0,.25)}
-        .light-card-hero{position:relative;height:8.25rem;margin:-1rem -1rem .8rem;background-color:#1d1d1d;background-position:center;background-size:cover;border-bottom:1px solid var(--lv-border)}
-        .light-card-status{position:absolute;right:.7rem;bottom:.65rem;display:inline-flex;align-items:center;gap:.35rem;padding:.3rem .55rem;border:1px solid var(--lv-border);border-radius:999px;background:rgba(17,17,17,.78);backdrop-filter:blur(8px);color:var(--lv-muted);font-size:.7rem;font-weight:600}
+        .light-card-hero{position:relative;height:8.25rem;margin:-1rem -1rem .8rem;background-color:#1d1d1d;background-position:center;background-repeat:no-repeat;background-size:cover;overflow:hidden}
+        .light-card-hero::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(10,10,10,.05),rgba(10,10,10,.82));pointer-events:none}
+        .light-card-status{position:absolute;right:.7rem;bottom:.65rem;z-index:2;display:inline-flex;align-items:center;gap:.35rem;padding:.3rem .55rem;border:1px solid var(--lv-border);border-radius:999px;background:rgba(17,17,17,.78);backdrop-filter:blur(8px);color:var(--lv-muted);font-size:.7rem;font-weight:600}
         .light-card-status i{display:block;width:.45rem;height:.45rem;border-radius:50%;background:#666}
         .light-card-status.online i{background:#22c55e;box-shadow:0 0 10px rgba(34,197,94,.8)}
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(.light-card-hero) .light-meta{margin:-.15rem 0 .25rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .light-stat-card{display:flex;align-items:center;justify-content:center;gap:.5rem;min-height:2.7rem;padding:.42rem .58rem;border:1px solid var(--lv-border);border-radius:.65rem;background:rgba(18,18,22,.72);box-shadow:0 8px 22px rgba(0,0,0,.18);white-space:nowrap}
+        div[data-testid="stHorizontalBlock"]:has(.light-stat-card){margin-bottom:1rem}
+        .light-stat-card .material-symbols-rounded{font-family:"Material Symbols Rounded"!important;font-weight:normal;font-style:normal;font-size:1.35rem;line-height:1;font-feature-settings:"liga";-webkit-font-feature-settings:"liga"}
+        .light-stat-card .total{color:#ffbe55}.light-stat-card>div{display:flex;align-items:baseline;gap:.32rem;line-height:1}.light-stat-card strong{color:var(--lv-text);font-size:.9rem}.light-stat-card small{color:var(--lv-muted);font-size:.66rem}.status-orb{display:block;width:.72rem;height:.72rem;border-radius:50%}.status-orb.on{background:#ffbe55;box-shadow:0 0 10px rgba(255,190,85,.55)}.status-orb.online{background:#22c55e;box-shadow:0 0 12px rgba(34,197,94,.75)}
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.light-card-hero) .light-meta-row{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:-.15rem 0 .7rem;transform:translateY(-.45rem)}
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.light-card-hero) .light-meta{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         div[data-testid="stVerticalBlockBorderWrapper"]:has(.light-card-hero)>div{position:relative}
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(.light-card-hero) div[class*="st-key-edit_name_"]{position:absolute;left:.75rem;top:6.15rem;z-index:4;max-width:60%}
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(.light-card-hero) div[class*="st-key-edit_name_"] .stButton>button{color:#e0e0e0!important;text-shadow:0 1px 8px rgba(0,0,0,.9)!important}
-        div[data-testid="stToggle"] input:checked+div{background:#8f8f8f!important}
-        div[data-testid="stToggle"] label:has(input:checked) [data-baseweb="checkbox"]>div{background:#8f8f8f!important}
+        [class*="st-key-edit_name_"]:not([class*="st-key-edit_name_form_"]){position:relative!important;z-index:4!important;width:max-content!important;max-width:60%!important;margin:-7.65rem auto 3.6rem .75rem!important}
+        [class*="st-key-edit_name_form_"]{position:relative!important;z-index:4!important;width:calc(100% - 1.5rem)!important;margin:-7.65rem .75rem 3.6rem!important}
+        [class*="st-key-edit_name_form_"] div[data-testid="stHorizontalBlock"]{gap:.5rem!important}
+        [class*="st-key-edit_name_form_"] input{background:rgba(26,26,26,.88)!important;backdrop-filter:blur(8px)}
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.light-card-hero) [class*="st-key-edit_name_"]:not([class*="st-key-edit_name_form_"]) button{padding:.38rem .72rem!important;border:1px solid rgba(255,255,255,.14)!important;border-radius:.65rem!important;background:rgba(8,8,8,.76)!important;color:#e0e0e0!important;box-shadow:0 4px 14px rgba(0,0,0,.28)!important;backdrop-filter:blur(7px);text-shadow:0 1px 8px rgba(0,0,0,.9)!important}
+        div[data-testid="stCheckbox"] label[data-baseweb="checkbox"]{align-items:center!important;gap:.38rem!important}
+        div[data-testid="stCheckbox"] label[data-baseweb="checkbox"]::before{content:"Off";color:var(--lv-muted)!important;font-size:.9rem;line-height:1}
+        div[data-testid="stCheckbox"] label[data-baseweb="checkbox"]>div:last-child{color:var(--lv-muted)!important}
+        div[data-testid="stCheckbox"] label[data-baseweb="checkbox"]>div:first-of-type{background-color:#484848!important}
+        div[data-testid="stCheckbox"] label[data-baseweb="checkbox"]>div:first-of-type>div{background-color:#b8b8b8!important}
         div[data-testid="stVerticalBlockBorderWrapper"]:has(.light-card-hero) div[data-testid="stSlider"]{padding-top:.1rem}
+        .light-control-label{display:flex;align-items:center;gap:.35rem;margin:.2rem 0 .25rem;color:var(--lv-text);font-size:.88rem}
+        div[data-testid="stElementContainer"]:has(.light-control-label){margin-top:-.55rem}
+        .light-control-label .material-symbols-rounded{font-family:"Material Symbols Rounded"!important;font-size:1rem;line-height:1;font-weight:normal;font-style:normal;font-feature-settings:"liga";-webkit-font-feature-settings:"liga"}
+        div[class*="st-key-preset_color_"]{display:flex!important;justify-content:center!important}
+        div[class*="st-key-preset_color_"] button{width:2.35rem!important;min-width:2.35rem!important;height:1.35rem!important;min-height:1.35rem!important;padding:0!important;border:0!important;border-radius:999px!important;box-shadow:none!important;font-size:0!important;line-height:0!important}
+        div[class*="st-key-preset_color_"] button:hover{border:0!important;box-shadow:0 0 0 2px rgba(255,255,255,.18)!important;transform:scale(1.06)}
         div[data-testid="stVerticalBlockBorderWrapper"]:has(.light-card-hero) .stButton>button{min-height:2.55rem}
         div[data-testid="stVerticalBlockBorderWrapper"]:has(.find-lights-card)>div{padding:1rem 1.15rem;border-color:var(--lv-border);background:var(--lv-surface);box-shadow:0 12px 30px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.025)}
         .find-lights-icon{display:grid;place-items:center;width:3.4rem;height:3.4rem;border:1px solid var(--lv-strong);border-radius:.85rem;background:var(--lv-control);box-shadow:0 8px 20px rgba(0,0,0,.2);transform:translateY(-.3rem)}
@@ -43,10 +63,15 @@ class LunaStyle:
         details:has(.discovery-results-marker){margin-top:.35rem;border:1px solid var(--lv-border)!important;border-radius:.85rem!important;background:rgba(255,255,255,.025)!important}
         details:has(.discovery-results-marker)>summary{color:var(--lv-muted)!important}
         .light-card{padding:.2rem}.light-name{font-size:1.05rem;font-weight:650}.light-meta{color:var(--lv-muted);font-size:.72rem}.state-dot{display:inline-block;width:.55rem;height:.55rem;border-radius:50%;margin-right:.4rem;background:#666}.state-dot.on{background:#22c55e;box-shadow:0 0 12px #22c55e}.swatch{display:inline-block;width:1rem;height:1rem;border-radius:50%;margin-right:.35rem;vertical-align:-.15rem;border:1px solid var(--lv-border)}
-        div[class*="st-key-edit_name_"] .stButton>button{justify-content:flex-start!important;width:auto!important;min-height:1.6rem!important;height:auto!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;font-size:1.05rem!important;font-weight:650!important;text-align:left!important}
-        div[class*="st-key-edit_name_"] .stButton>button:hover{color:#fff!important;text-decoration:underline;text-underline-offset:.2rem;background:transparent!important}
+        [class*="st-key-edit_name_"]:not([class*="st-key-edit_name_form_"]) .stButton>button,[class*="st-key-edit_name_"]:not([class*="st-key-edit_name_form_"]).stButton>button{justify-content:flex-start!important;width:auto!important;min-height:1.6rem!important;height:auto!important;padding:.5rem .88rem!important;border:1px solid rgba(255,255,255,.16)!important;border-radius:.7rem!important;background:rgba(38,38,38,.72)!important;color:#e0e0e0!important;box-shadow:0 4px 14px rgba(0,0,0,.26)!important;backdrop-filter:blur(8px);font-size:1.05rem!important;font-weight:650!important;text-align:left!important;text-decoration:none!important;text-shadow:0 1px 8px rgba(0,0,0,.9)!important}
+        [class*="st-key-edit_name_"]:not([class*="st-key-edit_name_form_"]) .stButton>button:hover,[class*="st-key-edit_name_"]:not([class*="st-key-edit_name_form_"]).stButton>button:hover{color:#e0e0e0!important;text-decoration:none!important;border-color:rgba(255,255,255,.22)!important;background:rgba(44,44,44,.78)!important}
         div[class*="st-key-confirm_name_"] .stButton>button{min-width:2.5rem!important;padding:.35rem!important}
         .stButton>button{border:1px solid var(--lv-border)!important;border-radius:.65rem!important;background:var(--lv-control)!important;color:var(--lv-text)!important}.stButton>button:hover{border-color:var(--lv-strong)!important;background:var(--lv-hover)!important}
         div[data-testid="stForm"]{padding:1.1rem;border-color:var(--lv-border);border-radius:14px;background:var(--lv-surface)}
         @media(max-width:700px){.block-container{padding:.85rem .8rem 2rem}div[data-testid="stHorizontalBlock"]:has(.lv-header){flex-wrap:wrap!important}div[data-testid="stHorizontalBlock"]:has(.lv-header)>div[data-testid="stColumn"]{flex:1 1 100%!important;width:100%!important}.lv-header{flex-wrap:nowrap!important;gap:.65rem;min-width:0}.lv-header>div{min-width:0;flex:1 1 auto}.lv-placeholder,.lv-mark{flex:0 0 4.25rem;width:4.25rem;height:3.5rem}.lv-title{white-space:nowrap;font-size:clamp(1.55rem,8vw,2rem)}.lv-subtitle{display:none}div[data-testid="stHorizontalBlock"]:has(.find-lights-card){flex-wrap:wrap!important}.find-lights-icon{width:3rem;height:3rem}.find-lights-card h2{font-size:1.1rem}.find-lights-card p{white-space:normal!important}.st-key-scan_for_lights{width:100%}}
         </style>""")
+        swatch_rules = "".join(
+            f'div[class*="st-key-preset_color_"][class*="_{color[1:]}"] button,div[class*="st-key-preset_color_"][class*="_{color[1:]}"] button:hover{{background-color:{color}!important;color:transparent!important;-webkit-text-fill-color:transparent!important}}'
+            for color in UIConfig.PRESET_COLORS
+        )
+        st.html(f"<style>{swatch_rules}</style>")

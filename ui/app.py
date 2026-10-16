@@ -67,6 +67,10 @@ def call(action, success="Saved"):
         st.error(f"Luna Lumia service is unavailable: {error}")
 
 
+def select_preset_color(widget_key: str, color: str) -> None:
+    st.session_state[widget_key] = color
+
+
 logo_data = (
     base64.b64encode(UIConfig.LOGO_PATH.read_bytes()).decode("ascii")
     if UIConfig.LOGO_PATH.is_file()
@@ -192,8 +196,22 @@ with tab_lights:
                             ),
                             "Light added",
                         )
-    st.caption(
-        f"{len(lights)} light{'s' if len(lights)!=1 else ''} · {sum(bool(x['is_on']) for x in lights)} on · {len(groups)} groups"
+    on_count = sum(bool(light.get("is_on")) for light in lights)
+    online_count = sum(light.get("reachable") is True for light in lights)
+    total_column, on_column, online_column, spacer = st.columns(
+        [1, .8, 1, 3.2], vertical_alignment="center"
+    )
+    total_column.markdown(
+        f'<div class="light-stat-card"><span class="material-symbols-rounded total">bolt</span><div><strong>{len(lights)}</strong><small>Total lights</small></div></div>',
+        unsafe_allow_html=True,
+    )
+    on_column.markdown(
+        f'<div class="light-stat-card"><span class="status-orb on"></span><div><strong>{on_count}</strong><small>On</small></div></div>',
+        unsafe_allow_html=True,
+    )
+    online_column.markdown(
+        f'<div class="light-stat-card"><span class="status-orb online"></span><div><strong>{online_count}</strong><small>Online</small></div></div>',
+        unsafe_allow_html=True,
     )
     for index in range(0, len(lights), 3):
         columns = st.columns(3)
@@ -202,7 +220,7 @@ with tab_lights:
                 mac = light.get("mac_address") or "MAC not discovered"
                 image_url = html.escape(light.get("effective_image_url") or "", quote=True)
                 reachability = "Online" if light["reachable"] else "Status unknown" if light["reachable"] is None else "Offline"
-                hero_style = f"background-image:linear-gradient(180deg,rgba(10,10,10,.05),rgba(10,10,10,.82)),url('{image_url}')" if image_url else ""
+                hero_style = f"background-image:url('{image_url}')" if image_url else ""
                 st.markdown(
                     f'<div class="light-card-hero" style="{hero_style}"><span class="light-card-status {"online" if light["reachable"] else ""}"><i></i>{reachability}</span></div>',
                     unsafe_allow_html=True,
@@ -210,52 +228,73 @@ with tab_lights:
                 editing_key = f"editing_name_{light['id']}"
                 draft_key = f"name_draft_{light['id']}"
                 if st.session_state.get(editing_key, False):
-                    name_column, confirm_column = st.columns(
-                        [5, 1], vertical_alignment="center"
-                    )
-                    edited_name = name_column.text_input(
-                        "Light name",
-                        key=draft_key,
-                        label_visibility="collapsed",
-                        max_chars=100,
-                    )
-                    if confirm_column.button(
-                        ":material/check:",
-                        key=f"confirm_name_{light['id']}",
-                        help="Save light name",
-                        use_container_width=True,
-                    ):
-                        st.session_state[editing_key] = False
-                        call(
-                            lambda l=light, n=edited_name: api.update(
-                                "lights", l["id"], {"name": n}
-                            ),
-                            "Light renamed",
+                    with st.container(key=f"edit_name_form_{light['id']}"):
+                        name_column, confirm_column = st.columns(
+                            [5, 1], vertical_alignment="center"
                         )
+                        edited_name = name_column.text_input(
+                            "Light name",
+                            key=draft_key,
+                            label_visibility="collapsed",
+                            max_chars=100,
+                        )
+                        if confirm_column.button(
+                            ":material/check:",
+                            key=f"confirm_name_{light['id']}",
+                            help="Save light name",
+                            use_container_width=True,
+                        ):
+                            st.session_state[editing_key] = False
+                            call(
+                                lambda l=light, n=edited_name: api.update(
+                                    "lights", l["id"], {"name": n}
+                                ),
+                                None,
+                            )
                 else:
                     if st.button(
                         light["name"],
                         key=f"edit_name_{light['id']}",
-                        help="Click to rename",
                     ):
                         st.session_state[editing_key] = True
                         st.session_state[draft_key] = light["name"]
                         st.rerun()
                 st.markdown(
-                    f'<div class="light-meta">{light["ip_address"]} · {html.escape(mac)}</div>',
+                    f'<div class="light-meta-row"><span class="light-meta">{light["ip_address"]} · {html.escape(mac)}</span></div>',
                     unsafe_allow_html=True,
                 )
                 is_on = st.toggle("On", value=light["is_on"], key=f"on_{light['id']}")
                 brightness = st.slider(
-                    "Brightness",
+                    ":material/brightness_6: Brightness",
                     1,
                     100,
                     int(light["brightness"]),
                     key=f"brightness_{light['id']}",
                 )
-                color = st.color_picker(
-                    "Color", light["color"], key=f"color_{light['id']}"
+                st.markdown(
+                    '<div class="light-control-label"><span class="material-symbols-rounded">palette</span><span>Color</span></div>',
+                    unsafe_allow_html=True,
                 )
+                color_key = f"color_{light['id']}"
+                color_columns = st.columns(
+                    [1.35] + [1] * len(UIConfig.PRESET_COLORS), gap="small"
+                )
+                color = color_columns[0].color_picker(
+                    "Color",
+                    light["color"],
+                    key=color_key,
+                    label_visibility="collapsed",
+                )
+                for preset_index, (preset_column, preset_color) in enumerate(
+                    zip(color_columns[1:], UIConfig.PRESET_COLORS)
+                ):
+                    preset_column.button(
+                        "●",
+                        key=f"preset_color_{light['id']}_{preset_color[1:]}",
+                        help=f"Use {preset_color}",
+                        on_click=select_preset_color,
+                        args=(color_key, preset_color),
+                    )
                 a, b = st.columns([3, 1])
                 if a.button(
                     "Apply", key=f"apply_{light['id']}", use_container_width=True
