@@ -312,7 +312,8 @@ with tab_lights:
                     )
                 if st.session_state.get(f"control_error_{light['id']}"):
                     st.error("Could not update this light.")
-                if st.button(
+                _, delete_column = st.columns([8, 1])
+                if delete_column.button(
                     "",
                     icon=":material/delete:",
                     key=f"delete_light_{light['id']}",
