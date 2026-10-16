@@ -45,6 +45,25 @@ class Scheduler:
                 continue
 
 
+class LightStatusPoller:
+    def __init__(self, service: LumiaService, interval: float = 10.0):
+        self.service = service
+        self.interval = interval
+        self.stop_event = threading.Event()
+
+    def start(self):
+        threading.Thread(
+            target=self.run, daemon=True, name="lumia-light-status-poller"
+        ).start()
+
+    def run(self):
+        while not self.stop_event.wait(self.interval):
+            try:
+                asyncio.run(self.service.poll_light_statuses())
+            except Exception:
+                continue
+
+
 class LumiaMCPAdapter:
     def __init__(self, server, service):
         self.server, self.service = server, service
@@ -184,7 +203,12 @@ class LumiaHTTPAdapter:
         async def update_light_background(request):
             try:
                 entry = await self.payload(request, LightImageUpdate)
-                result = repo.update_light_image(int(request.path_params["item_id"]), entry.image_url)
+                light_id = int(request.path_params["item_id"])
+                result = (
+                    repo.assign_inferred_light_image(light_id)
+                    if entry.image_url is None
+                    else repo.update_light_image(light_id, entry.image_url)
+                )
                 return self.response(result) if result else self.response({"error":"Not found"},404)
             except Exception as e:
                 return self.error(e)
@@ -233,9 +257,10 @@ class LunaLumiaApplication:
         self.mcp=FastMCP("LunaLumia",host="0.0.0.0",port=8000,stateless_http=True,json_response=True)
         self.mcp_adapter=LumiaMCPAdapter(self.mcp,self.service); self.http_adapter=LumiaHTTPAdapter(self.mcp,self.service)
         self.scheduler=Scheduler(self.service); self.scheduler.start()
+        self.status_poller=LightStatusPoller(self.service); self.status_poller.start()
     def run(self):
         try: self.mcp.run(transport="streamable-http")
-        finally: self.scheduler.stop_event.set(); self.database.close()
+        finally: self.scheduler.stop_event.set(); self.status_poller.stop_event.set(); self.database.close()
 
 
 application=LunaLumiaApplication()

@@ -33,3 +33,6 @@ class LumiaService:
             suffix = result["mac_address"][-5:].replace(":", "") if result.get("mac_address") else result["ip_address"].split(".")[-1]
             result["suggested_name"] = f"WiZ light {suffix.upper()}"
         return sorted(results, key=lambda item: tuple(int(part) for part in item["ip_address"].split(".")))
+
+    async def poll_light_statuses(self):
+        return await self.controller.poll_statuses()

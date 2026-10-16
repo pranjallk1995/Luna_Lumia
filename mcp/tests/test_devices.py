@@ -14,6 +14,9 @@ class FakeRepository:
 class FakeAdapter:
     def __init__(self): self.calls=[]
     async def apply(self,ip_address,**state): self.calls.append((ip_address,state))
+    async def status(self,ip_address):
+        self.calls.append((ip_address,"status"))
+        return {"on":True,"brightness":64,"color":"#AABBCC"}
 
 
 class DeviceTests(unittest.TestCase):
@@ -22,6 +25,11 @@ class DeviceTests(unittest.TestCase):
         repo,adapter=FakeRepository(),FakeAdapter()
         result=asyncio.run(LightController(repo,adapter).control("light",1,LightState(on=True,brightness=42,color="#123456")))
         self.assertTrue(result[0]["ok"]); self.assertEqual(adapter.calls[0][0],"192.168.1.8"); self.assertEqual(repo.saved[0][1]["brightness"],42)
+    def test_controller_polls_and_persists_status(self):
+        repo,adapter=FakeRepository(),FakeAdapter()
+        result=asyncio.run(LightController(repo,adapter).poll_statuses())
+        self.assertTrue(result[0]["ok"])
+        self.assertEqual(repo.saved[0][1],{"on":True,"brightness":64,"color":"#AABBCC","reachable":True})
     def test_discovery_shape(self):
         discovery=WizDiscovery()
         async def fake_probe(ip_address):

@@ -31,6 +31,25 @@ class WizLightAdapter:
             with suppress(Exception):
                 await bulb.async_close()
 
+    async def status(self, ip_address: str) -> dict:
+        bulb = wizlight(ip_address)
+        try:
+            state = await asyncio.wait_for(bulb.updateState(), self.timeout)
+            brightness = state.get_brightness()
+            rgb = state.get_rgb()
+            return {
+                "on": bool(state.get_state()),
+                "brightness": max(1, round(brightness / 2.55)) if brightness else None,
+                "color": (
+                    "#{:02X}{:02X}{:02X}".format(*rgb)
+                    if rgb and any(rgb)
+                    else None
+                ),
+            }
+        finally:
+            with suppress(Exception):
+                await bulb.async_close()
+
 
 @dataclass
 class WizDiscovery:
@@ -114,3 +133,19 @@ class LightController:
                 self.repository.update_state(light["id"], reachable=False)
                 results.append({"light": light, "ok": False, "error": str(error)})
         return results
+
+    async def poll_statuses(self):
+        async def poll(light):
+            try:
+                state = await self.adapter.status(light["ip_address"])
+                saved = self.repository.update_state(
+                    light["id"], **state, reachable=True
+                )
+                return {"light": saved, "ok": True}
+            except Exception as error:
+                saved = self.repository.update_state(light["id"], reachable=False)
+                return {"light": saved or light, "ok": False, "error": str(error)}
+
+        return await asyncio.gather(
+            *(poll(light) for light in self.repository.target_lights("all", None))
+        )

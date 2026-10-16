@@ -4,6 +4,7 @@ import base64
 import hashlib
 from datetime import time
 import html
+from time import monotonic
 
 import httpx
 import streamlit as st
@@ -51,6 +52,19 @@ SourceReloadMonitor.notify()
 api = LumiaAPI(UIConfig.API_URL)
 
 
+@st.fragment(run_every=10)
+def refresh_polled_light_statuses() -> None:
+    """Refresh the full dashboard after the backend's ten-second status poll."""
+    now = monotonic()
+    previous = st.session_state.get("last_light_status_refresh")
+    st.session_state.last_light_status_refresh = now
+    if previous is not None and now - previous >= 9:
+        st.rerun()
+
+
+refresh_polled_light_statuses()
+
+
 def call(action, success="Saved"):
     try:
         result = action()
@@ -80,6 +94,12 @@ def sync_light_controls(light_id: int) -> None:
         st.session_state.pop(f"control_error_{light_id}", None)
     except httpx.HTTPError as error:
         st.session_state[f"control_error_{light_id}"] = str(error)
+
+
+def rename_light_and_refresh_image(light_id: int, name: str):
+    """Rename a light, then infer its background from the updated name."""
+    api.update("lights", light_id, {"name": name})
+    return api.set_light_background(light_id)
 
 
 def select_preset_color(widget_key: str, color: str, light_id: int) -> None:
@@ -131,8 +151,8 @@ tab_lights, tab_groups, tab_scenes, tab_schedules = st.tabs(
     [
         ":material/lightbulb: Lights",
         ":material/group: Groups",
-        ":material/palette: Color schemes",
-        ":material/schedule: Schedules & alarms",
+        ":material/palette: Schemes",
+        ":material/schedule: Schedules",
     ]
 )
 
@@ -223,8 +243,14 @@ with tab_lights:
         for column, light in zip(columns, lights[index : index + 3]):
             with column, st.container(border=True):
                 mac = light.get("mac_address") or "MAC not discovered"
-                image_url = html.escape(light.get("effective_image_url") or "", quote=True)
-                reachability = "Online" if light["reachable"] else "Status unknown" if light["reachable"] is None else "Offline"
+                image_url = html.escape(
+                    light.get("effective_image_url") or "", quote=True
+                )
+                reachability = (
+                    "Online"
+                    if light["reachable"]
+                    else "Status unknown" if light["reachable"] is None else "Offline"
+                )
                 hero_style = f"background-image:url('{image_url}')" if image_url else ""
                 st.markdown(
                     f'<div class="light-card-hero" style="{hero_style}"><span class="light-card-status {"online" if light["reachable"] else ""}"><i></i>{reachability}</span></div>',
@@ -234,25 +260,26 @@ with tab_lights:
                 draft_key = f"name_draft_{light['id']}"
                 if st.session_state.get(editing_key, False):
                     with st.container(key=f"edit_name_form_{light['id']}"):
-                        name_column, confirm_column = st.columns(
-                            [5, 1], vertical_alignment="center"
-                        )
-                        edited_name = name_column.text_input(
-                            "Light name",
-                            key=draft_key,
-                            label_visibility="collapsed",
-                            max_chars=100,
-                        )
-                        if confirm_column.button(
-                            ":material/check:",
-                            key=f"confirm_name_{light['id']}",
-                            help="Save light name",
-                            use_container_width=True,
-                        ):
+                        with st.form(key=f"name_form_{light['id']}", border=False):
+                            name_column, confirm_column = st.columns(
+                                [5, 1], vertical_alignment="center"
+                            )
+                            edited_name = name_column.text_input(
+                                "Light name",
+                                key=draft_key,
+                                label_visibility="collapsed",
+                                max_chars=100,
+                            )
+                            with confirm_column:
+                                name_submitted = st.form_submit_button(
+                                    ":material/check:",
+                                    use_container_width=True,
+                                )
+                        if name_submitted:
                             st.session_state[editing_key] = False
                             call(
-                                lambda l=light, n=edited_name: api.update(
-                                    "lights", l["id"], {"name": n}
+                                lambda l=light, n=edited_name: rename_light_and_refresh_image(
+                                    l["id"], n
                                 ),
                                 None,
                             )
@@ -289,12 +316,13 @@ with tab_lights:
                     unsafe_allow_html=True,
                 )
                 color_key = f"color_{light['id']}"
+                if color_key not in st.session_state:
+                    st.session_state[color_key] = light["color"]
                 color_columns = st.columns(
                     [1.35] + [1] * len(UIConfig.PRESET_COLORS), gap="small"
                 )
                 color_columns[0].color_picker(
                     "Color",
-                    light["color"],
                     key=color_key,
                     label_visibility="collapsed",
                     on_change=sync_light_controls,
