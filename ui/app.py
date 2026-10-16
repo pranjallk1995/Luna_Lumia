@@ -50,7 +50,10 @@ api=LumiaAPI(UIConfig.API_URL)
 
 def call(action, success="Saved"):
     try:
-        result=action(); st.toast(success,icon=":material/check:"); st.rerun()
+        result=action()
+        if success:
+            st.toast(success,icon=":material/check:")
+        st.rerun()
     except httpx.HTTPStatusError as error:
         try: message=error.response.json().get("error",str(error))
         except ValueError: message=str(error)
@@ -72,7 +75,7 @@ with brand_column:
     st.markdown(f'<div class="lv-header">{logo}<div><h1 class="lv-title">Luna Lumia</h1><p class="lv-subtitle">Private AI-managed smart lighting</p></div></div>',unsafe_allow_html=True)
 with power_column:
     if st.button("Turn all off" if all_on else "Turn all on",type="primary",use_container_width=True,icon=":material/power_settings_new:",key="header_all_lights_power"):
-        call(lambda:api.control("all",on=not all_on),"All lights updated")
+        call(lambda:api.control("all",on=not all_on),None)
 
 tab_lights,tab_groups,tab_scenes,tab_schedules=st.tabs([
     ":material/lightbulb: Lights",
