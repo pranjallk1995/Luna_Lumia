@@ -15,11 +15,27 @@ def validate_image_url(value: str | None) -> str | None:
     return cleaned
 
 
+def validate_entity_name(value: str, entity: str) -> str:
+    cleaned = value.strip()
+    if not cleaned:
+        raise ValueError(f"{entity} name cannot be blank")
+    if not all(character.isalnum() or character == " " for character in cleaned):
+        raise ValueError(
+            f"{entity} name may contain only letters, numbers, and spaces"
+        )
+    return cleaned
+
+
 class LightCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=30)
     ip_address: str = Field(pattern=r"^(?:\d{1,3}\.){3}\d{1,3}$")
     protocol: Literal["wiz"] = "wiz"
     mac_address: str | None = Field(default=None, max_length=17)
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        return validate_entity_name(value, "Light")
 
     @field_validator("ip_address")
     @classmethod
@@ -46,15 +62,12 @@ class LightState(BaseModel):
 
 
 class LightUpdate(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=30)
 
     @field_validator("name")
     @classmethod
     def clean_name(cls, value: str) -> str:
-        name = value.strip()
-        if not name:
-            raise ValueError("Light name cannot be blank")
-        return name
+        return validate_entity_name(value, "Light")
 
 
 class LightImageUpdate(BaseModel):
@@ -77,8 +90,13 @@ class RoomImageUpdate(BaseModel):
 
 
 class GroupCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
-    light_ids: list[int] = Field(default_factory=list)
+    name: str = Field(min_length=1, max_length=30)
+    light_ids: list[int] = Field(min_length=1)
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        return validate_entity_name(value, "Room/group")
 
 
 class SceneCreate(BaseModel):

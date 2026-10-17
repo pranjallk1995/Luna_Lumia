@@ -1,6 +1,6 @@
 import unittest
 from pydantic import ValidationError
-from app.models import LightCreate, LightImageUpdate, LightUpdate, RoomImageUpdate, ScheduleCreate
+from app.models import GroupCreate, LightCreate, LightImageUpdate, LightUpdate, RoomImageUpdate, ScheduleCreate
 from app.repository import LumiaRepository
 
 
@@ -14,6 +14,13 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(light.mac_address,"98:77:D5:B7:28:72")
     def test_light_name_is_trimmed(self):
         self.assertEqual(LightUpdate(name="  Kitchen  ").name,"Kitchen")
+    def test_light_and_room_names_reject_symbols_and_emoji(self):
+        with self.assertRaises(ValidationError): LightUpdate(name="Kitchen 💡")
+        with self.assertRaises(ValidationError): LightCreate(name="Desk@Home",ip_address="192.168.1.8")
+        with self.assertRaises(ValidationError): GroupCreate(name="Bedroom!",light_ids=[1])
+    def test_light_and_room_names_are_limited_to_thirty_characters(self):
+        with self.assertRaises(ValidationError): LightUpdate(name="L" * 31)
+        with self.assertRaises(ValidationError): GroupCreate(name="R" * 31,light_ids=[1])
     def test_light_background_requires_http_url(self):
         with self.assertRaises(ValidationError): LightImageUpdate(image_url="file:///private/room.png")
     def test_room_image_accepts_visia_url(self):
@@ -23,3 +30,9 @@ class ModelTests(unittest.TestCase):
         first=LumiaRepository.image_scheme_key("https://visia.example/api/public/images/123")
         second=LumiaRepository.image_scheme_key("https://visia.example/api/public/images/456")
         self.assertEqual(first,second)
+    def test_room_key_can_be_inferred_from_member_light_name(self):
+        self.assertIsNone(LumiaRepository.detected_room_key("Downstairs"))
+        self.assertEqual(LumiaRepository.detected_room_key("Kitchen ceiling"),"kitchen")
+    def test_group_requires_name_and_at_least_one_light(self):
+        with self.assertRaises(ValidationError): GroupCreate(name="",light_ids=[1])
+        with self.assertRaises(ValidationError): GroupCreate(name="Kitchen",light_ids=[])

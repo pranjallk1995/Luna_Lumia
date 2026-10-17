@@ -81,6 +81,20 @@ def call(action, success="Saved"):
         st.error(f"Luna Lumia service is unavailable: {error}")
 
 
+def valid_entity_name(value: str) -> bool:
+    cleaned = value.strip()
+    return bool(cleaned) and all(
+        character.isalnum() or character == " " for character in cleaned
+    )
+
+
+def invalid_name_toast(entity: str) -> None:
+    st.toast(
+        f"{entity} name may contain only letters, numbers, and spaces.",
+        icon=":material/warning:",
+    )
+
+
 def sync_light_controls(light_id: int) -> None:
     """Send the card's current controls immediately, without a success toast."""
     try:
@@ -122,6 +136,11 @@ lights = data["lights"]
 groups = data["groups"]
 scenes = data["scenes"]
 schedules = data["schedules"]
+room_names_by_light = {light["id"]: [] for light in lights}
+for room in groups:
+    for light_id in room["light_ids"]:
+        if light_id in room_names_by_light:
+            room_names_by_light[light_id].append(room["name"])
 all_on = bool(lights) and all(light["is_on"] for light in lights)
 
 logo = (
@@ -150,7 +169,7 @@ with power_column:
 tab_lights, tab_groups, tab_scenes, tab_schedules = st.tabs(
     [
         ":material/lightbulb: Lights",
-        ":material/group: Groups",
+        ":material/group: Rooms",
         ":material/palette: Schemes",
         ":material/schedule: Schedules",
     ]
@@ -252,8 +271,13 @@ with tab_lights:
                     else "Status unknown" if light["reachable"] is None else "Offline"
                 )
                 hero_style = f"background-image:url('{image_url}')" if image_url else ""
+                power_indicator = (
+                    '<span class="light-card-power-on" aria-label="Light on">●</span>'
+                    if light["is_on"]
+                    else ""
+                )
                 st.markdown(
-                    f'<div class="light-card-hero" style="{hero_style}"><span class="light-card-status {"online" if light["reachable"] else ""}"><i></i>{reachability}</span></div>',
+                    f'<div class="light-card-hero" style="{hero_style}">{power_indicator}<span class="light-card-status {"online" if light["reachable"] else ""}"><i></i>{reachability}</span></div>',
                     unsafe_allow_html=True,
                 )
                 editing_key = f"editing_name_{light['id']}"
@@ -268,7 +292,7 @@ with tab_lights:
                                 "Light name",
                                 key=draft_key,
                                 label_visibility="collapsed",
-                                max_chars=100,
+                                max_chars=30,
                             )
                             with confirm_column:
                                 name_submitted = st.form_submit_button(
@@ -276,13 +300,16 @@ with tab_lights:
                                     use_container_width=True,
                                 )
                         if name_submitted:
-                            st.session_state[editing_key] = False
-                            call(
-                                lambda l=light, n=edited_name: rename_light_and_refresh_image(
-                                    l["id"], n
-                                ),
-                                None,
-                            )
+                            if not valid_entity_name(edited_name):
+                                invalid_name_toast("Light")
+                            else:
+                                st.session_state[editing_key] = False
+                                call(
+                                    lambda l=light, n=edited_name: rename_light_and_refresh_image(
+                                        l["id"], n
+                                    ),
+                                    None,
+                                )
                 else:
                     if st.button(
                         light["name"],
@@ -291,6 +318,7 @@ with tab_lights:
                         st.session_state[editing_key] = True
                         st.session_state[draft_key] = light["name"]
                         st.rerun()
+                room_names = room_names_by_light.get(light["id"], [])
                 st.markdown(
                     f'<div class="light-meta-row"><span class="light-meta">{light["ip_address"]} · {html.escape(mac)}</span></div>',
                     unsafe_allow_html=True,
@@ -340,7 +368,14 @@ with tab_lights:
                     )
                 if st.session_state.get(f"control_error_{light['id']}"):
                     st.error("Could not update this light.")
-                _, delete_column = st.columns([8, 1])
+                room_column, delete_column = st.columns(
+                    [8, 1], vertical_alignment="center"
+                )
+                if room_names:
+                    room_column.markdown(
+                        f'<span class="light-room-membership"><span class="material-symbols-rounded">meeting_room</span>{html.escape(", ".join(room_names))}</span>',
+                        unsafe_allow_html=True,
+                    )
                 if delete_column.button(
                     "",
                     icon=":material/delete:",
@@ -349,27 +384,37 @@ with tab_lights:
                     call(lambda l=light: api.delete("lights", l["id"]), None)
     with st.expander("Add a light", icon=":material/add_circle:"):
         with st.form("add_light", clear_on_submit=True):
-            name = st.text_input("Name", placeholder="Bedroom lamp")
+            name = st.text_input("Name", placeholder="Bedroom lamp", max_chars=30)
             ip = st.text_input("IP address", placeholder="192.168.1.20")
             if st.form_submit_button("Add light", use_container_width=True):
-                call(
-                    lambda: api.create(
-                        "lights", {"name": name, "ip_address": ip, "protocol": "wiz"}
-                    ),
-                    "Light added",
-                )
+                if not valid_entity_name(name):
+                    invalid_name_toast("Light")
+                else:
+                    call(
+                        lambda: api.create(
+                            "lights",
+                            {"name": name, "ip_address": ip, "protocol": "wiz"},
+                        ),
+                        "Light added",
+                    )
 
 with tab_groups:
     for group in groups:
         with st.container(border=True):
+            group_image_url = html.escape(group.get("effective_image_url") or "", quote=True)
+            group_image_style = f"background-image:url('{group_image_url}')" if group_image_url else ""
+            st.markdown(
+                f'<div class="room-card-background" style="{group_image_style}"></div>',
+                unsafe_allow_html=True,
+            )
             selected = [
                 light["name"] for light in lights if light["id"] in group["light_ids"]
             ]
             a, b = st.columns([5, 1])
             a.subheader(group["name"])
             a.caption(", ".join(selected) or "No lights")
-            if b.button("Remove", key=f"dg{group['id']}"):
-                call(lambda g=group: api.delete("groups", g["id"]), "Group removed")
+            if b.button("", icon=":material/delete:", key=f"dg{group['id']}"):
+                call(lambda g=group: api.delete("groups", g["id"]), None)
             c1, c2, c3 = st.columns(3)
             if c1.button("On", key=f"gon{group['id']}", use_container_width=True):
                 call(
@@ -389,20 +434,33 @@ with tab_groups:
                     "Scheme applied",
                 )
     with st.form("add_group", clear_on_submit=True):
-        st.subheader("Create group")
-        name = st.text_input("Group name", placeholder="Downstairs")
+        name = st.text_input(
+            "Room/Group name :red[*]", placeholder="Bedroom", max_chars=30
+        )
+        available_light_ids = [
+            light["id"] for light in lights if not room_names_by_light[light["id"]]
+        ]
         chosen = st.multiselect(
-            "Lights",
-            options=[light["id"] for light in lights],
+            "Lights :red[*]",
+            options=available_light_ids,
             format_func=lambda item: next(
                 light["name"] for light in lights if light["id"] == item
             ),
         )
-        if st.form_submit_button("Create group", use_container_width=True):
-            call(
-                lambda: api.create("groups", {"name": name, "light_ids": chosen}),
-                "Group created",
-            )
+        if not available_light_ids:
+            st.caption("All lights are already assigned to rooms.")
+        if st.form_submit_button("Create room", use_container_width=True):
+            if not name.strip():
+                st.error("Enter a room/group name.")
+            elif not valid_entity_name(name):
+                invalid_name_toast("Room/group")
+            elif not chosen:
+                st.error("Select at least one light.")
+            else:
+                call(
+                    lambda: api.create("groups", {"name": name, "light_ids": chosen}),
+                    "Room created",
+                )
 
 with tab_scenes:
     if scenes:

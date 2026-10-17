@@ -112,6 +112,21 @@ class LumiaMCPAdapter:
             return light
 
         @server.tool()
+        def set_room_background_image(
+            group_id: int,
+            image_url: str | None = None,
+            room_name: str | None = None,
+        ):
+            """Assign a room card image. Without a URL, infer it from the room name or member-light names and match the existing Visia image scheme."""
+            entry = LightImageUpdate(image_url=image_url)
+            if entry.image_url is None:
+                return repository.assign_inferred_group_image(group_id, room_name)
+            group = repository.update_group_image(group_id, entry.image_url)
+            if not group:
+                raise ValueError("Room/group not found")
+            return group
+
+        @server.tool()
         async def discover_lights_on_network(broadcast_space: str = "255.255.255.255"):
             """Scan the local network for WiZ-compatible smart lights."""
             return await service.discover(broadcast_space)
@@ -168,7 +183,7 @@ class LumiaHTTPAdapter:
             del request
             return self.response({
                 "lights":repo.lights_with_room_images(),
-                "groups":repo.list_groups(),
+                "groups":repo.groups_with_room_images(),
                 "scenes":repo.list_scenes(),
                 "schedules":repo.list_schedules(),
                 "room_images":repo.list_room_images(),
@@ -218,6 +233,16 @@ class LumiaHTTPAdapter:
             try:
                 entry = await self.payload(request, RoomImageUpdate)
                 return self.response(repo.update_room_image(entry.room_key, entry.image_url))
+            except Exception as e:
+                return self.error(e)
+
+        @server.custom_route("/api/groups/{item_id}/background", methods=["PUT"])
+        async def update_group_background(request):
+            try:
+                entry = await self.payload(request, LightImageUpdate)
+                group_id = int(request.path_params["item_id"])
+                result = repo.assign_inferred_group_image(group_id) if entry.image_url is None else repo.update_group_image(group_id, entry.image_url)
+                return self.response(result) if result else self.response({"error":"Not found"},404)
             except Exception as e:
                 return self.error(e)
 

@@ -22,7 +22,7 @@ class LumiaRepository:
             return [self.serialize(row) for row in c.fetchall()]
 
     @staticmethod
-    def room_key_for_name(name: str) -> str:
+    def detected_room_key(name: str) -> str | None:
         normalized = name.lower()
         matches = (
             (("bath", "washroom"), "bathroom"),
@@ -37,7 +37,11 @@ class LumiaRepository:
         for keywords, room_key in matches:
             if any(keyword in normalized for keyword in keywords):
                 return room_key
-        return "living_room"
+        return None
+
+    @classmethod
+    def room_key_for_name(cls, name: str) -> str:
+        return cls.detected_room_key(name) or "living_room"
 
     def lights_with_room_images(self):
         lights = self.list_lights()
@@ -165,15 +169,104 @@ class LumiaRepository:
 
     def list_groups(self):
         with self.database.cursor() as c:
-            c.execute("""SELECT g.*, COALESCE(array_agg(gm.light_id) FILTER (WHERE gm.light_id IS NOT NULL),'{}') light_ids
-                FROM light_groups g LEFT JOIN group_members gm ON gm.group_id=g.id GROUP BY g.id ORDER BY g.name""")
+            c.execute("""SELECT g.*,
+                COALESCE(array_agg(gm.light_id) FILTER (WHERE gm.light_id IS NOT NULL),'{}') light_ids,
+                COALESCE(array_agg(l.name) FILTER (WHERE l.id IS NOT NULL),'{}') light_names,
+                COALESCE(array_agg(l.background_image_url) FILTER (WHERE l.background_image_url IS NOT NULL),'{}') light_image_urls
+                FROM light_groups g
+                LEFT JOIN group_members gm ON gm.group_id=g.id
+                LEFT JOIN lights l ON l.id=gm.light_id
+                GROUP BY g.id ORDER BY g.name""")
             return [self.serialize(row) for row in c.fetchall()]
+
+    def group(self, group_id: int):
+        return next((group for group in self.list_groups() if group["id"] == group_id), None)
+
+    def groups_with_room_images(self):
+        images = self.list_room_images()
+        fallback = next((item for item in images if item["room_key"] == "living_room"), images[0] if images else None)
+        groups = self.list_groups()
+        for group in groups:
+            room_key = self.detected_room_key(group["name"])
+            if room_key is None:
+                room_key = next(
+                    (key for name in group["light_names"] if (key := self.detected_room_key(name)) is not None),
+                    "living_room",
+                )
+            matched = next((item for item in images if item["room_key"] == room_key), fallback)
+            group["room_key"] = room_key
+            group["effective_image_url"] = group.get("background_image_url") or (matched["image_url"] if matched else None)
+        return groups
 
     def add_group(self, entry: GroupCreate):
         with self.database.cursor() as c:
+            c.execute(
+                """SELECT l.name light_name,g.name room_name
+                FROM group_members gm
+                JOIN lights l ON l.id=gm.light_id
+                JOIN light_groups g ON g.id=gm.group_id
+                WHERE gm.light_id=ANY(%s) ORDER BY l.name""",
+                (entry.light_ids,),
+            )
+            conflicts = c.fetchall()
+        if conflicts:
+            details = ", ".join(
+                f'{item["light_name"]} ({item["room_name"]})' for item in conflicts
+            )
+            raise ValueError(f"Already assigned to a room: {details}")
+        with self.database.cursor() as c:
             c.execute("INSERT INTO light_groups(name) VALUES(%s) RETURNING *", (entry.name.strip(),)); row=c.fetchone()
             for light_id in entry.light_ids: c.execute("INSERT INTO group_members VALUES(%s,%s) ON CONFLICT DO NOTHING", (row["id"], light_id))
-            result=self.serialize(row); result["light_ids"]=entry.light_ids; return result
+            group_id = row["id"]
+        return self.assign_inferred_group_image(group_id)
+
+    def update_group_image(self, group_id: int, image_url: str | None):
+        with self.database.cursor() as c:
+            c.execute("UPDATE light_groups SET background_image_url=%s WHERE id=%s RETURNING *", (image_url, group_id))
+            return self.serialize(c.fetchone())
+
+    def assign_inferred_group_image(self, group_id: int, room_name: str | None = None):
+        group = self.group(group_id)
+        if not group:
+            raise ValueError("Room/group not found")
+        images = self.list_room_images()
+        if not images:
+            raise ValueError("No room images are configured")
+
+        supplied_name = (room_name or "").strip()
+        room_key = self.detected_room_key(supplied_name or group["name"])
+        inference_source = "room_name"
+        if room_key is None:
+            room_key = next(
+                (key for name in group["light_names"] if (key := self.detected_room_key(name)) is not None),
+                "living_room",
+            )
+            inference_source = "light_name" if group["light_names"] else "fallback"
+
+        scheme_urls = [item["image_url"] for item in images]
+        scheme_urls.extend(group["light_image_urls"])
+        scheme_urls.extend(
+            item["background_image_url"]
+            for item in self.list_groups()
+            if item.get("background_image_url")
+        )
+        scheme_counts = Counter(
+            key for url in scheme_urls if (key := self.image_scheme_key(url)) is not None
+        )
+        existing_scheme = self.image_scheme_key(group.get("background_image_url"))
+        preferred_scheme = existing_scheme or (scheme_counts.most_common(1)[0][0] if scheme_counts else None)
+
+        def matching(candidate_room: str, candidate_scheme: str | None = None):
+            return next((image for image in images if image["room_key"] == candidate_room and (candidate_scheme is None or self.image_scheme_key(image["image_url"]) == candidate_scheme)), None)
+
+        selected = matching(room_key, preferred_scheme) or matching("living_room", preferred_scheme) or matching(room_key) or matching("living_room") or images[0]
+        assigned = self.update_group_image(group_id, selected["image_url"])
+        assigned["light_ids"] = group["light_ids"]
+        assigned["inferred_room_key"] = room_key
+        assigned["effective_image_url"] = selected["image_url"]
+        assigned["image_scheme"] = self.image_scheme_key(selected["image_url"])
+        assigned["inference_source"] = inference_source
+        return assigned
 
     def delete_group(self, group_id: int):
         with self.database.cursor() as c:

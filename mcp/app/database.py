@@ -35,13 +35,17 @@ INSERT INTO room_images (room_key, image_url) VALUES
  ('bedroom','https://visia-mcp.lunaapps.fyi/api/public/images/2d77a066-d097-4b1b-9682-c9eb41538b26')
 ON CONFLICT (room_key) DO NOTHING;
 CREATE TABLE IF NOT EXISTS light_groups (
- id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+ id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, background_image_url TEXT,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE light_groups ADD COLUMN IF NOT EXISTS background_image_url TEXT;
 CREATE TABLE IF NOT EXISTS group_members (
  group_id BIGINT REFERENCES light_groups(id) ON DELETE CASCADE,
  light_id BIGINT REFERENCES lights(id) ON DELETE CASCADE,
  PRIMARY KEY(group_id, light_id)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS group_members_one_room_per_light_idx
+    ON group_members (light_id);
 CREATE TABLE IF NOT EXISTS scenes (
  id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, color CHAR(7) NOT NULL,
  brightness SMALLINT NOT NULL CHECK (brightness BETWEEN 1 AND 100)
