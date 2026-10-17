@@ -71,6 +71,26 @@ For source synchronization, run Compose Watch in the foreground:
 docker compose -f docker-compose.yaml watch --no-up
 ```
 
+## Architecture
+
+Backend (`mcp/app`), layered so transports never touch SQL:
+
+- `main.py` – `LunaLumiaApplication` composes every dependency and starts the server
+- `http_routes.py` / `mcp_tools.py` – REST routes and MCP tools; both call only the `LumiaService` facade
+- `services.py` – use cases: `LightService`, `CollectionService` (rooms/groups), `BackgroundImageService`, `LightControlService`, `SceneService`, `ScheduleService`
+- `repositories.py` – one PostgreSQL repository per aggregate
+- `room_images.py` – pure room-detection and image-selection rules
+- `devices.py` – WiZ protocol adapter and LAN discovery
+- `workers.py` – schedule runner and light-status poller threads
+- `models.py`, `config.py`, `errors.py`, `database.py` – validation, settings, domain errors, schema
+
+UI (`ui`): `app.py` composes the page; `dashboard.py` wraps the API payload;
+`tabs/` holds one class per tab (`LightsTab`, `RoomsTab`, `SchemesTab`,
+`SchedulesTab`) plus shared components in `tabs/shared.py`. Widget keys are
+part of the styling contract in `styles.py`, so keep them stable.
+
+Run backend tests with `docker compose exec mcp python -m unittest discover -s tests`.
+
 ## Logo
 
 The Lumia logo is stored at `ui/assets/lunalumia_logo.png` and is used in both

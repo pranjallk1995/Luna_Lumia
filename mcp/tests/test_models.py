@@ -1,7 +1,7 @@
 import unittest
 from pydantic import ValidationError
 from app.models import GroupCreate, GroupMembersUpdate, GroupUpdate, LightCreate, LightImageUpdate, LightUpdate, RoomImageUpdate, ScheduleCreate
-from app.repository import LumiaRepository
+from app.room_images import ImageScheme, RoomKeyDetector
 
 
 class ModelTests(unittest.TestCase):
@@ -28,12 +28,12 @@ class ModelTests(unittest.TestCase):
         entry=RoomImageUpdate(room_key="living_room",image_url="https://visia.example/api/public/images/123")
         self.assertEqual(entry.room_key,"living_room")
     def test_public_room_images_share_a_scheme_key(self):
-        first=LumiaRepository.image_scheme_key("https://visia.example/api/public/images/123")
-        second=LumiaRepository.image_scheme_key("https://visia.example/api/public/images/456")
+        first=ImageScheme.key("https://visia.example/api/public/images/123")
+        second=ImageScheme.key("https://visia.example/api/public/images/456")
         self.assertEqual(first,second)
     def test_room_key_can_be_inferred_from_member_light_name(self):
-        self.assertIsNone(LumiaRepository.detected_room_key("Downstairs"))
-        self.assertEqual(LumiaRepository.detected_room_key("Kitchen ceiling"),"kitchen")
+        self.assertIsNone(RoomKeyDetector.detect("Downstairs"))
+        self.assertEqual(RoomKeyDetector.detect("Kitchen ceiling"),"kitchen")
     def test_group_requires_name_and_at_least_one_light(self):
         with self.assertRaises(ValidationError): GroupCreate(name="",light_ids=[1])
         with self.assertRaises(ValidationError): GroupCreate(name="Kitchen",light_ids=[])

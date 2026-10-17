@@ -1,0 +1,209 @@
+"""REST routes used by the Luna Lumia Streamlit dashboard."""
+
+from collections.abc import Awaitable, Callable
+from decimal import Decimal
+from typing import Any
+
+from mcp.server.fastmcp import FastMCP
+from pydantic import BaseModel, ValidationError
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
+
+from .devices import GLOBAL_BROADCAST
+from .errors import NotFoundError
+from .models import (
+    GroupCreate,
+    GroupMembersUpdate,
+    GroupUpdate,
+    LightCreate,
+    LightImageUpdate,
+    LightState,
+    LightUpdate,
+    RoomImageUpdate,
+    SceneCreate,
+    ScheduleCreate,
+)
+from .services import LumiaService
+
+Handler = Callable[[Request], Awaitable[Any]]
+NO_CONTENT = 204
+
+
+class LumiaHTTPRoutes:
+    """Translate HTTP requests into service calls and results into JSON."""
+
+    def __init__(self, server: FastMCP, service: LumiaService) -> None:
+        self.server = server
+        self.service = service
+        self._register()
+
+    @classmethod
+    def json_value(cls, value: Any) -> Any:
+        if isinstance(value, BaseModel):
+            return cls.json_value(value.model_dump())
+        if isinstance(value, BaseException):
+            return str(value)
+        if isinstance(value, dict):
+            return {key: cls.json_value(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [cls.json_value(item) for item in value]
+        if isinstance(value, Decimal):
+            return float(value)
+        if hasattr(value, "isoformat"):
+            return value.isoformat()
+        return value
+
+    @classmethod
+    def response(cls, value: Any, status: int = 200) -> Response:
+        if status == NO_CONTENT:
+            return Response(status_code=NO_CONTENT)
+        return JSONResponse(cls.json_value(value), status_code=status)
+
+    @classmethod
+    def error(cls, error: Exception) -> Response:
+        if isinstance(error, ValidationError):
+            return cls.response({"error": "Invalid request", "details": error.errors()}, 422)
+        if isinstance(error, NotFoundError):
+            return cls.response({"error": str(error) or "Not found"}, 404)
+        if isinstance(error, (ValueError, TypeError)):
+            return cls.response({"error": str(error)}, 400)
+        return cls.response({"error": str(error)}, 500)
+
+    @staticmethod
+    async def payload(request: Request, model: type[BaseModel]) -> Any:
+        return model.model_validate(await request.json())
+
+    @staticmethod
+    def path_id(request: Request, name: str = "item_id") -> int:
+        return int(request.path_params[name])
+
+    def route(self, method: str, path: str, handler: Handler, status: int = 200) -> None:
+        """Register ``handler`` with uniform error translation."""
+
+        async def endpoint(request: Request) -> Response:
+            try:
+                return self.response(await handler(request), status)
+            except Exception as error:
+                return self.error(error)
+
+        self.server.custom_route(path, methods=[method])(endpoint)
+
+    def _register(self) -> None:
+        self.route("GET", "/health", self.health)
+        self.route("GET", "/api/dashboard", self.dashboard)
+        self.route("POST", "/api/discovery", self.discover)
+        self._register_lights()
+        self._register_collections("room")
+        self._register_collections("group")
+        self._register_scenes()
+        self._register_schedules()
+        self.route("PUT", "/api/room-image", self.update_room_image)
+        self.route("POST", "/api/control/{target_type}", self.control)
+
+    async def health(self, request: Request) -> dict:
+        return {"status": "ok", "service": "luna-lumia"}
+
+    async def dashboard(self, request: Request) -> dict:
+        return self.service.dashboard()
+
+    async def discover(self, request: Request) -> list[dict]:
+        body = await request.json()
+        return await self.service.lights.discover(body.get("broadcast_space", GLOBAL_BROADCAST))
+
+    async def update_room_image(self, request: Request) -> Any:
+        entry = await self.payload(request, RoomImageUpdate)
+        return self.service.images.update_room_image(entry.room_key, entry.image_url)
+
+    async def control(self, request: Request) -> list[dict]:
+        body = await request.json()
+        state = LightState.model_validate(body.get("state", body))
+        return await self.service.control.control(
+            request.path_params["target_type"], body.get("target_id"), state
+        )
+
+    def _register_lights(self) -> None:
+        lights, images = self.service.lights, self.service.images
+
+        async def add(request: Request):
+            return lights.add(await self.payload(request, LightCreate))
+
+        async def rename(request: Request):
+            entry = await self.payload(request, LightUpdate)
+            return lights.rename(self.path_id(request), entry.name)
+
+        async def delete(request: Request):
+            lights.delete(self.path_id(request))
+
+        async def background(request: Request):
+            entry = await self.payload(request, LightImageUpdate)
+            return images.apply_light_image(self.path_id(request), entry.image_url)
+
+        self.route("POST", "/api/lights", add, 201)
+        self.route("PUT", "/api/lights/{item_id}", rename)
+        self.route("DELETE", "/api/lights/{item_id}", delete, NO_CONTENT)
+        self.route("PUT", "/api/lights/{item_id}/background", background)
+
+    def _register_collections(self, kind: str) -> None:
+        collections, images = self.service.collections, self.service.images
+        base = f"/api/{kind}s"
+
+        async def create(request: Request):
+            return collections.create(await self.payload(request, GroupCreate), kind)
+
+        async def rename(request: Request):
+            entry = await self.payload(request, GroupUpdate)
+            return collections.rename(self.path_id(request), kind, entry.name)
+
+        async def delete(request: Request):
+            collections.delete(self.path_id(request), kind)
+
+        async def add_lights(request: Request):
+            entry = await self.payload(request, GroupMembersUpdate)
+            return collections.add_members(self.path_id(request), kind, entry.light_ids)
+
+        async def remove_light(request: Request):
+            collections.remove_member(
+                self.path_id(request), kind, self.path_id(request, "light_id")
+            )
+
+        async def background(request: Request):
+            entry = await self.payload(request, LightImageUpdate)
+            return images.apply_collection_image(self.path_id(request), entry.image_url)
+
+        self.route("POST", base, create, 201)
+        self.route("PUT", f"{base}/{{item_id}}", rename)
+        self.route("DELETE", f"{base}/{{item_id}}", delete, NO_CONTENT)
+        self.route("POST", f"{base}/{{item_id}}/lights", add_lights)
+        self.route("DELETE", f"{base}/{{item_id}}/lights/{{light_id}}", remove_light, NO_CONTENT)
+        self.route("PUT", f"{base}/{{item_id}}/background", background)
+
+    def _register_scenes(self) -> None:
+        scenes = self.service.scenes
+
+        async def create(request: Request):
+            return scenes.add(await self.payload(request, SceneCreate))
+
+        async def delete(request: Request):
+            scenes.delete(self.path_id(request))
+
+        async def apply(request: Request):
+            body = await request.json()
+            return await scenes.apply(
+                body.get("target_type", "all"), body.get("target_id"), self.path_id(request)
+            )
+
+        self.route("POST", "/api/scenes", create, 201)
+        self.route("DELETE", "/api/scenes/{item_id}", delete, NO_CONTENT)
+        self.route("POST", "/api/scenes/{item_id}/apply", apply)
+
+    def _register_schedules(self) -> None:
+        schedules = self.service.schedules
+
+        async def create(request: Request):
+            return schedules.add(await self.payload(request, ScheduleCreate))
+
+        async def delete(request: Request):
+            schedules.delete(self.path_id(request))
+
+        self.route("POST", "/api/schedules", create, 201)
+        self.route("DELETE", "/api/schedules/{item_id}", delete, NO_CONTENT)

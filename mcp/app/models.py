@@ -1,41 +1,78 @@
+"""Validated request and command models for Luna Lumia."""
+
 from datetime import time
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-
-def validate_image_url(value: str | None) -> str | None:
-    if value is None:
-        return None
-    cleaned = value.strip()
-    if not cleaned:
-        return None
-    if not cleaned.startswith(("http://", "https://")):
-        raise ValueError("Image URL must use http or https")
-    return cleaned
+CollectionKind = Literal["room", "group"]
+ScheduleTarget = Literal["all", "light", "group"]
+HEX_COLOR_PATTERN = r"^#[0-9A-Fa-f]{6}$"
 
 
-def validate_entity_name(value: str, entity: str) -> str:
-    cleaned = value.strip()
-    if not cleaned:
-        raise ValueError(f"{entity} name cannot be blank")
-    if not all(character.isalnum() or character == " " for character in cleaned):
-        raise ValueError(
-            f"{entity} name may contain only letters, numbers, and spaces"
-        )
-    return cleaned
+class Validators:
+    """Reusable normalization rules shared by several models."""
+
+    @staticmethod
+    def image_url(value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        if not cleaned.startswith(("http://", "https://")):
+            raise ValueError("Image URL must use http or https")
+        return cleaned
+
+    @staticmethod
+    def entity_name(value: str, entity: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError(f"{entity} name cannot be blank")
+        if not all(character.isalnum() or character == " " for character in cleaned):
+            raise ValueError(
+                f"{entity} name may contain only letters, numbers, and spaces"
+            )
+        return cleaned
+
+    @staticmethod
+    def mac_address(value: str | None) -> str | None:
+        if value is None:
+            return None
+        compact = value.replace(":", "").replace("-", "").strip().upper()
+        if len(compact) != 12 or any(
+            character not in "0123456789ABCDEF" for character in compact
+        ):
+            raise ValueError("Invalid MAC address")
+        return ":".join(compact[index : index + 2] for index in range(0, 12, 2))
 
 
-class LightCreate(BaseModel):
+class LightNamed(BaseModel):
+    """Base for payloads carrying a validated light name."""
+
     name: str = Field(min_length=1, max_length=30)
-    ip_address: str = Field(pattern=r"^(?:\d{1,3}\.){3}\d{1,3}$")
-    protocol: Literal["wiz"] = "wiz"
-    mac_address: str | None = Field(default=None, max_length=17)
 
     @field_validator("name")
     @classmethod
     def clean_name(cls, value: str) -> str:
-        return validate_entity_name(value, "Light")
+        return Validators.entity_name(value, "Light")
+
+
+class CollectionNamed(BaseModel):
+    """Base for payloads carrying a validated room or group name."""
+
+    name: str = Field(min_length=1, max_length=30)
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        return Validators.entity_name(value, "Room/group")
+
+
+class LightCreate(LightNamed):
+    ip_address: str = Field(pattern=r"^(?:\d{1,3}\.){3}\d{1,3}$")
+    protocol: Literal["wiz"] = "wiz"
+    mac_address: str | None = Field(default=None, max_length=17)
 
     @field_validator("ip_address")
     @classmethod
@@ -47,27 +84,17 @@ class LightCreate(BaseModel):
     @field_validator("mac_address")
     @classmethod
     def normalize_mac(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        compact = value.replace(":", "").replace("-", "").strip().upper()
-        if len(compact) != 12 or any(character not in "0123456789ABCDEF" for character in compact):
-            raise ValueError("Invalid MAC address")
-        return ":".join(compact[index:index + 2] for index in range(0, 12, 2))
+        return Validators.mac_address(value)
+
+
+class LightUpdate(LightNamed):
+    pass
 
 
 class LightState(BaseModel):
     on: bool | None = None
     brightness: int | None = Field(default=None, ge=1, le=100)
-    color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
-
-
-class LightUpdate(BaseModel):
-    name: str = Field(min_length=1, max_length=30)
-
-    @field_validator("name")
-    @classmethod
-    def clean_name(cls, value: str) -> str:
-        return validate_entity_name(value, "Light")
+    color: str | None = Field(default=None, pattern=HEX_COLOR_PATTERN)
 
 
 class LightImageUpdate(BaseModel):
@@ -76,7 +103,7 @@ class LightImageUpdate(BaseModel):
     @field_validator("image_url")
     @classmethod
     def valid_image_url(cls, value: str | None) -> str | None:
-        return validate_image_url(value)
+        return Validators.image_url(value)
 
 
 class RoomImageUpdate(BaseModel):
@@ -86,26 +113,15 @@ class RoomImageUpdate(BaseModel):
     @field_validator("image_url")
     @classmethod
     def valid_image_url(cls, value: str) -> str:
-        return validate_image_url(value)  # type: ignore[return-value]
+        return Validators.image_url(value)  # type: ignore[return-value]
 
 
-class GroupCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=30)
+class GroupCreate(CollectionNamed):
     light_ids: list[int] = Field(min_length=1)
 
-    @field_validator("name")
-    @classmethod
-    def clean_name(cls, value: str) -> str:
-        return validate_entity_name(value, "Room/group")
 
-
-class GroupUpdate(BaseModel):
-    name: str = Field(min_length=1, max_length=30)
-
-    @field_validator("name")
-    @classmethod
-    def clean_name(cls, value: str) -> str:
-        return validate_entity_name(value, "Room/group")
+class GroupUpdate(CollectionNamed):
+    pass
 
 
 class GroupMembersUpdate(BaseModel):
@@ -114,14 +130,14 @@ class GroupMembersUpdate(BaseModel):
 
 class SceneCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
+    color: str = Field(pattern=HEX_COLOR_PATTERN)
     brightness: int = Field(ge=1, le=100)
 
 
 class ScheduleCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     kind: Literal["schedule", "alarm"] = "schedule"
-    target_type: Literal["all", "light", "group"] = "all"
+    target_type: ScheduleTarget = "all"
     target_id: int | None = None
     action: Literal["on", "off", "scene"]
     scene_id: int | None = None

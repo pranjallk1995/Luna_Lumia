@@ -1,13 +1,14 @@
 import asyncio
 import unittest
 
-from app.devices import LightController, WizDiscovery, WizLightAdapter
+from app.devices import WizDiscovery, WizLightAdapter
 from app.models import LightState
+from app.services import LightControlService
 
 
 class FakeRepository:
     def __init__(self): self.saved=[]
-    def target_lights(self,target_type,target_id): return [{"id":1,"ip_address":"192.168.1.8","name":"Test"}]
+    def targets(self,target_type,target_id): return [{"id":1,"ip_address":"192.168.1.8","name":"Test"}]
     def update_state(self,light_id,**values): self.saved.append((light_id,values)); return {"id":light_id,**values}
 
 
@@ -23,11 +24,11 @@ class DeviceTests(unittest.TestCase):
     def test_hex_to_rgb(self): self.assertEqual(WizLightAdapter.rgb("#12A0FF"),(18,160,255))
     def test_controller_applies_and_persists_state(self):
         repo,adapter=FakeRepository(),FakeAdapter()
-        result=asyncio.run(LightController(repo,adapter).control("light",1,LightState(on=True,brightness=42,color="#123456")))
+        result=asyncio.run(LightControlService(repo,adapter).control("light",1,LightState(on=True,brightness=42,color="#123456")))
         self.assertTrue(result[0]["ok"]); self.assertEqual(adapter.calls[0][0],"192.168.1.8"); self.assertEqual(repo.saved[0][1]["brightness"],42)
     def test_controller_polls_and_persists_status(self):
         repo,adapter=FakeRepository(),FakeAdapter()
-        result=asyncio.run(LightController(repo,adapter).poll_statuses())
+        result=asyncio.run(LightControlService(repo,adapter).poll_statuses())
         self.assertTrue(result[0]["ok"])
         self.assertEqual(repo.saved[0][1],{"on":True,"brightness":64,"color":"#AABBCC","reachable":True})
     def test_discovery_shape(self):
