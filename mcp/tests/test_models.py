@@ -1,6 +1,6 @@
 import unittest
 from pydantic import ValidationError
-from app.models import GroupCreate, LightCreate, LightImageUpdate, LightUpdate, RoomImageUpdate, ScheduleCreate
+from app.models import GroupCreate, GroupMembersUpdate, GroupUpdate, LightCreate, LightImageUpdate, LightUpdate, RoomImageUpdate, ScheduleCreate
 from app.repository import LumiaRepository
 
 
@@ -21,6 +21,7 @@ class ModelTests(unittest.TestCase):
     def test_light_and_room_names_are_limited_to_thirty_characters(self):
         with self.assertRaises(ValidationError): LightUpdate(name="L" * 31)
         with self.assertRaises(ValidationError): GroupCreate(name="R" * 31,light_ids=[1])
+        with self.assertRaises(ValidationError): GroupUpdate(name="R" * 31)
     def test_light_background_requires_http_url(self):
         with self.assertRaises(ValidationError): LightImageUpdate(image_url="file:///private/room.png")
     def test_room_image_accepts_visia_url(self):
@@ -36,3 +37,4 @@ class ModelTests(unittest.TestCase):
     def test_group_requires_name_and_at_least_one_light(self):
         with self.assertRaises(ValidationError): GroupCreate(name="",light_ids=[1])
         with self.assertRaises(ValidationError): GroupCreate(name="Kitchen",light_ids=[])
+        with self.assertRaises(ValidationError): GroupMembersUpdate(light_ids=[])

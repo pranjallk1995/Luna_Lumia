@@ -13,6 +13,8 @@ from .database import Database
 from .devices import LightController, WizDiscovery
 from .models import (
     GroupCreate,
+    GroupMembersUpdate,
+    GroupUpdate,
     LightCreate,
     LightImageUpdate,
     LightState,
@@ -245,6 +247,41 @@ class LumiaHTTPAdapter:
                 return self.response(result) if result else self.response({"error":"Not found"},404)
             except Exception as e:
                 return self.error(e)
+
+        @server.custom_route("/api/groups/{item_id}", methods=["PUT"])
+        async def rename_group(request):
+            try:
+                group_id = int(request.path_params["item_id"])
+                entry = await self.payload(request, GroupUpdate)
+                renamed = repo.rename_group(group_id, entry.name)
+                if not renamed:
+                    return self.response({"error": "Not found"}, 404)
+                return self.response(repo.assign_inferred_group_image(group_id))
+            except Exception as e:
+                return self.error(e)
+
+        @server.custom_route("/api/groups/{item_id}/lights", methods=["POST"])
+        async def add_group_lights(request):
+            try:
+                entry = await self.payload(request, GroupMembersUpdate)
+                result = repo.add_group_members(
+                    int(request.path_params["item_id"]), entry.light_ids
+                )
+                return self.response(result) if result else self.response({"error": "Not found"}, 404)
+            except Exception as e:
+                return self.error(e)
+
+        @server.custom_route(
+            "/api/groups/{item_id}/lights/{light_id}", methods=["DELETE"]
+        )
+        async def remove_group_light(request):
+            removed = repo.remove_group_member(
+                int(request.path_params["item_id"]),
+                int(request.path_params["light_id"]),
+            )
+            return Response(status_code=204) if removed else self.response(
+                {"error": "Not found"}, 404
+            )
 
         @server.custom_route("/api/control/{target_type}", methods=["POST"])
         async def control(request):

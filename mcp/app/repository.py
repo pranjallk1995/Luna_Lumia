@@ -182,6 +182,15 @@ class LumiaRepository:
     def group(self, group_id: int):
         return next((group for group in self.list_groups() if group["id"] == group_id), None)
 
+    def rename_group(self, group_id: int, name: str):
+        with self.database.cursor() as c:
+            c.execute(
+                "UPDATE light_groups SET name=%s WHERE id=%s RETURNING id",
+                (name.strip(), group_id),
+            )
+            renamed = c.fetchone() is not None
+        return self.group(group_id) if renamed else None
+
     def groups_with_room_images(self):
         images = self.list_room_images()
         fallback = next((item for item in images if item["room_key"] == "living_room"), images[0] if images else None)
@@ -219,6 +228,40 @@ class LumiaRepository:
             for light_id in entry.light_ids: c.execute("INSERT INTO group_members VALUES(%s,%s) ON CONFLICT DO NOTHING", (row["id"], light_id))
             group_id = row["id"]
         return self.assign_inferred_group_image(group_id)
+
+    def add_group_members(self, group_id: int, light_ids: list[int]):
+        if not self.group(group_id):
+            return None
+        with self.database.cursor() as c:
+            c.execute(
+                """SELECT l.name light_name,g.name room_name
+                FROM group_members gm
+                JOIN lights l ON l.id=gm.light_id
+                JOIN light_groups g ON g.id=gm.group_id
+                WHERE gm.light_id=ANY(%s) ORDER BY l.name""",
+                (light_ids,),
+            )
+            conflicts = c.fetchall()
+            if conflicts:
+                details = ", ".join(
+                    f'{item["light_name"]} ({item["room_name"]})'
+                    for item in conflicts
+                )
+                raise ValueError(f"Already assigned to a room: {details}")
+            for light_id in light_ids:
+                c.execute(
+                    "INSERT INTO group_members VALUES(%s,%s) ON CONFLICT DO NOTHING",
+                    (group_id, light_id),
+                )
+        return self.group(group_id)
+
+    def remove_group_member(self, group_id: int, light_id: int) -> bool:
+        with self.database.cursor() as c:
+            c.execute(
+                "DELETE FROM group_members WHERE group_id=%s AND light_id=%s RETURNING light_id",
+                (group_id, light_id),
+            )
+            return c.fetchone() is not None
 
     def update_group_image(self, group_id: int, image_url: str | None):
         with self.database.cursor() as c:

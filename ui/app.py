@@ -1,7 +1,6 @@
 """Luna Lumia smart-light dashboard."""
 
 import base64
-import hashlib
 from datetime import time
 import html
 from time import monotonic
@@ -15,32 +14,6 @@ from config import UIConfig
 from styles import LunaStyle
 
 
-class SourceReloadMonitor:
-    """Notify an existing session after Compose Watch syncs UI source."""
-
-    @staticmethod
-    def revision() -> str:
-        digest = hashlib.sha256()
-        source_files = sorted(UIConfig.UI_ROOT.rglob("*.py"))
-        source_files.append(UIConfig.UI_ROOT / ".streamlit" / "config.toml")
-        source_files.append(UIConfig.LOGO_PATH)
-        for source_file in source_files:
-            if source_file.is_file():
-                digest.update(
-                    source_file.relative_to(UIConfig.UI_ROOT).as_posix().encode()
-                )
-                digest.update(source_file.read_bytes())
-        return digest.hexdigest()
-
-    @classmethod
-    def notify(cls) -> None:
-        revision = cls.revision()
-        previous = st.session_state.get("ui_source_revision")
-        st.session_state.ui_source_revision = revision
-        if previous is not None and previous != revision:
-            st.toast("Luna Lumia updated", icon=":material/refresh:")
-
-
 st.set_page_config(
     page_title="Luna Lumia",
     page_icon=Image.open(UIConfig.LOGO_PATH) if UIConfig.LOGO_PATH.is_file() else "💡",
@@ -48,7 +21,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 LunaStyle.apply()
-SourceReloadMonitor.notify()
 api = LumiaAPI(UIConfig.API_URL)
 
 
@@ -67,9 +39,7 @@ refresh_polled_light_statuses()
 
 def call(action, success="Saved"):
     try:
-        result = action()
-        if success:
-            st.toast(success, icon=":material/check:")
+        action()
         st.rerun()
     except httpx.HTTPStatusError as error:
         try:
@@ -88,11 +58,8 @@ def valid_entity_name(value: str) -> bool:
     )
 
 
-def invalid_name_toast(entity: str) -> None:
-    st.toast(
-        f"{entity} name may contain only letters, numbers, and spaces.",
-        icon=":material/warning:",
-    )
+def show_invalid_name_error(entity: str) -> None:
+    st.error(f"{entity} name may contain only letters, numbers, and spaces.")
 
 
 def sync_light_controls(light_id: int) -> None:
@@ -110,10 +77,43 @@ def sync_light_controls(light_id: int) -> None:
         st.session_state[f"control_error_{light_id}"] = str(error)
 
 
+def sync_room_power(group_id: int, widget_key: str) -> None:
+    """Apply a room toggle change immediately without a notification toast."""
+    try:
+        api.control("group", group_id, on=st.session_state[widget_key])
+        st.session_state.pop(f"room_control_error_{group_id}", None)
+    except httpx.HTTPError as error:
+        st.session_state[f"room_control_error_{group_id}"] = str(error)
+
+
+def remove_deselected_room_lights(
+    group_id: int, widget_key: str, current_light_ids: tuple[int, ...]
+) -> None:
+    """Remove room memberships deselected from the room's light pills."""
+    selected_light_ids = set(st.session_state.get(widget_key) or [])
+    removed_light_ids = [
+        light_id for light_id in current_light_ids if light_id not in selected_light_ids
+    ]
+    try:
+        for light_id in removed_light_ids:
+            api.remove_room_light(group_id, light_id)
+        st.session_state.pop(f"room_membership_error_{group_id}", None)
+    except httpx.HTTPError as error:
+        st.session_state[f"room_membership_error_{group_id}"] = str(error)
+    finally:
+        generation_key = f"room_light_pills_generation_{group_id}"
+        st.session_state[generation_key] = st.session_state.get(generation_key, 0) + 1
+
+
 def rename_light_and_refresh_image(light_id: int, name: str):
     """Rename a light, then infer its background from the updated name."""
     api.update("lights", light_id, {"name": name})
     return api.set_light_background(light_id)
+
+
+def rename_room_and_refresh_image(room_id: int, name: str):
+    """Rename a room and infer a matching background from the updated name."""
+    return api.update("groups", room_id, {"name": name})
 
 
 def select_preset_color(widget_key: str, color: str, light_id: int) -> None:
@@ -301,7 +301,7 @@ with tab_lights:
                                 )
                         if name_submitted:
                             if not valid_entity_name(edited_name):
-                                invalid_name_toast("Light")
+                                show_invalid_name_error("Light")
                             else:
                                 st.session_state[editing_key] = False
                                 call(
@@ -388,7 +388,7 @@ with tab_lights:
             ip = st.text_input("IP address", placeholder="192.168.1.20")
             if st.form_submit_button("Add light", use_container_width=True):
                 if not valid_entity_name(name):
-                    invalid_name_toast("Light")
+                    show_invalid_name_error("Light")
                 else:
                     call(
                         lambda: api.create(
@@ -400,39 +400,192 @@ with tab_lights:
 
 with tab_groups:
     for group in groups:
-        with st.container(border=True):
-            group_image_url = html.escape(group.get("effective_image_url") or "", quote=True)
-            group_image_style = f"background-image:url('{group_image_url}')" if group_image_url else ""
-            st.markdown(
-                f'<div class="room-card-background" style="{group_image_style}"></div>',
-                unsafe_allow_html=True,
+        with st.container(border=True, key=f"room_card_{group['id']}"):
+            group_image_url = group.get("effective_image_url") or ""
+            selected = [light for light in lights if light["id"] in group["light_ids"]]
+            room_is_on = bool(selected) and all(
+                light.get("is_on") for light in selected
             )
-            selected = [
-                light["name"] for light in lights if light["id"] in group["light_ids"]
+            available_for_room = [
+                light["id"]
+                for light in lights
+                if not room_names_by_light[light["id"]]
             ]
-            a, b = st.columns([5, 1])
-            a.subheader(group["name"])
-            a.caption(", ".join(selected) or "No lights")
-            if b.button("", icon=":material/delete:", key=f"dg{group['id']}"):
-                call(lambda g=group: api.delete("groups", g["id"]), None)
-            c1, c2, c3 = st.columns(3)
-            if c1.button("On", key=f"gon{group['id']}", use_container_width=True):
-                call(
-                    lambda g=group: api.control("group", g["id"], on=True),
-                    "Group turned on",
-                )
-            if c2.button("Off", key=f"goff{group['id']}", use_container_width=True):
-                call(
-                    lambda g=group: api.control("group", g["id"], on=False),
-                    "Group turned off",
-                )
-            if scenes and c3.button(
-                "Apply first scheme", key=f"gsc{group['id']}", use_container_width=True
-            ):
-                call(
-                    lambda g=group: api.apply_scene(scenes[0]["id"], "group", g["id"]),
-                    "Scheme applied",
-                )
+            image_column, details_column = st.columns(
+                [3.6, 8.4], vertical_alignment="top", gap="medium"
+            )
+            with image_column, st.container(key=f"room_image_{group['id']}"):
+                if group_image_url:
+                    st.image(group_image_url, width="stretch")
+                else:
+                    st.markdown(
+                        '<div class="room-image-placeholder"><span class="material-symbols-rounded">meeting_room</span></div>',
+                        unsafe_allow_html=True,
+                    )
+                if room_is_on:
+                    st.markdown(
+                        '<span class="room-image-power-on" aria-label="Room on"></span>',
+                        unsafe_allow_html=True,
+                    )
+                room_editing_key = f"editing_room_name_{group['id']}"
+                room_draft_key = f"room_name_draft_{group['id']}"
+                if st.session_state.get(room_editing_key, False):
+                    with st.container(key=f"edit_room_name_form_{group['id']}"):
+                        with st.form(key=f"room_name_form_{group['id']}", border=False):
+                            room_name_column, room_confirm_column = st.columns(
+                                [5, 1], vertical_alignment="center"
+                            )
+                            edited_room_name = room_name_column.text_input(
+                                "Room name",
+                                key=room_draft_key,
+                                label_visibility="collapsed",
+                                max_chars=30,
+                            )
+                            with room_confirm_column:
+                                room_name_submitted = st.form_submit_button(
+                                    ":material/check:",
+                                    use_container_width=True,
+                                )
+                        if room_name_submitted:
+                            if not valid_entity_name(edited_room_name):
+                                show_invalid_name_error("Room")
+                            else:
+                                st.session_state[room_editing_key] = False
+                                call(
+                                    lambda g=group, n=edited_room_name: rename_room_and_refresh_image(
+                                        g["id"], n
+                                    ),
+                                    None,
+                                )
+                else:
+                    if st.button(
+                        group["name"],
+                        key=f"edit_room_name_{'on' if room_is_on else 'off'}_{group['id']}",
+                    ):
+                        st.session_state[room_editing_key] = True
+                        st.session_state[room_draft_key] = group["name"]
+                        st.rerun()
+            with details_column:
+                room_power_key = f'room_power_{group["id"]}'
+                st.session_state[room_power_key] = room_is_on
+                with st.container(
+                    key=f"room_header_{group['id']}",
+                    horizontal=True,
+                    horizontal_alignment="distribute",
+                    vertical_alignment="center",
+                    gap="small",
+                ):
+                    st.toggle(
+                        "On",
+                        key=room_power_key,
+                        disabled=not selected,
+                        on_change=sync_room_power,
+                        args=(group["id"], room_power_key),
+                    )
+                    if st.button("", icon=":material/delete:", key=f"dg{group['id']}"):
+                        call(lambda g=group: api.delete("groups", g["id"]), None)
+                if st.session_state.get(f"room_control_error_{group['id']}"):
+                    st.error("Could not update this room.")
+                with st.container(
+                    key=f"room_light_row_{group['id']}",
+                    horizontal=True,
+                    vertical_alignment="center",
+                    gap="small",
+                ):
+                    if selected:
+                        current_light_ids = tuple(light["id"] for light in selected)
+                        generation_key = f"room_light_pills_generation_{group['id']}"
+                        pills_key = (
+                            f"room_light_pills_{group['id']}_"
+                            f"{st.session_state.get(generation_key, 0)}"
+                        )
+                        light_by_id = {light["id"]: light for light in selected}
+
+                        def room_light_label(light_id: int) -> str:
+                            return light_by_id[light_id]["name"]
+
+                        status_styles = []
+                        for index, light in enumerate(selected, start=1):
+                            power_label = "On" if light.get("is_on") else "Off"
+                            online_label = (
+                                "Online"
+                                if light.get("reachable") is True
+                                else "Offline"
+                            )
+                            power_color = "#ffbe55" if light.get("is_on") else "#626a79"
+                            power_glow = (
+                                "rgba(255,190,85,.72)"
+                                if light.get("is_on")
+                                else "transparent"
+                            )
+                            online_color = (
+                                "#22c55e"
+                                if light.get("reachable") is True
+                                else "#626a79"
+                            )
+                            online_glow = (
+                                "rgba(34,197,94,.72)"
+                                if light.get("reachable") is True
+                                else "transparent"
+                            )
+                            status_styles.append(
+                                f'div[class*="st-key-room_light_row_{group["id"]}"] '
+                                f'div[data-testid="stButtonGroup"] button:nth-of-type({index})'
+                                "{"
+                                f'--room-power-label:"{power_label}";'
+                                f'--room-online-label:"{online_label}";'
+                                f"--room-power-orb:{power_color};"
+                                f"--room-power-glow:{power_glow};"
+                                f"--room-online-orb:{online_color};"
+                                f"--room-online-glow:{online_glow};"
+                                "}"
+                            )
+
+                        st.markdown(
+                            '<span class="room-light-removable-pills"></span>',
+                            unsafe_allow_html=True,
+                        )
+                        st.html(f"<style>{''.join(status_styles)}</style>")
+                        st.pills(
+                            "Room lights",
+                            options=list(current_light_ids),
+                            default=list(current_light_ids),
+                            format_func=room_light_label,
+                            selection_mode="multi",
+                            key=pills_key,
+                            on_change=remove_deselected_room_lights,
+                            args=(group["id"], pills_key, current_light_ids),
+                            label_visibility="collapsed",
+                            width="content",
+                        )
+                    else:
+                        st.caption("No lights")
+                    if st.session_state.get(f"room_membership_error_{group['id']}"):
+                        st.error("Could not remove this light from the room.")
+                    with st.popover(":material/add:", width="content"):
+                        if available_for_room:
+                            with st.form(f"add_room_lights_{group['id']}"):
+                                added_light_ids = st.multiselect(
+                                    "Lights",
+                                    options=available_for_room,
+                                    format_func=lambda item: next(
+                                        light["name"]
+                                        for light in lights
+                                        if light["id"] == item
+                                    ),
+                                )
+                                if st.form_submit_button("Add", use_container_width=True):
+                                    if not added_light_ids:
+                                        st.error("Select at least one light.")
+                                    else:
+                                        call(
+                                            lambda g=group, ids=added_light_ids: api.add_room_lights(
+                                                g["id"], ids
+                                            ),
+                                            None,
+                                        )
+                        else:
+                            st.caption("No unassigned lights available.")
     with st.form("add_group", clear_on_submit=True):
         name = st.text_input(
             "Room/Group name :red[*]", placeholder="Bedroom", max_chars=30
@@ -453,7 +606,7 @@ with tab_groups:
             if not name.strip():
                 st.error("Enter a room/group name.")
             elif not valid_entity_name(name):
-                invalid_name_toast("Room/group")
+                show_invalid_name_error("Room/group")
             elif not chosen:
                 st.error("Select at least one light.")
             else:

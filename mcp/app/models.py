@@ -99,6 +99,19 @@ class GroupCreate(BaseModel):
         return validate_entity_name(value, "Room/group")
 
 
+class GroupUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=30)
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        return validate_entity_name(value, "Room/group")
+
+
+class GroupMembersUpdate(BaseModel):
+    light_ids: list[int] = Field(min_length=1)
+
+
 class SceneCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
