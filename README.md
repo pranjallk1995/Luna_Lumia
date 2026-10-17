@@ -16,7 +16,8 @@ Luna Visia and Luna Vita.
 - Turn one light, a group, or every light on and off
 - Set brightness and RGB color
 - Save and apply reusable color schemes
-- Organize lights into groups
+- Organize lights into exclusive rooms or reusable groups
+- Keep each light in at most one room while allowing it in multiple groups
 - Display room photography from Luna Visia on each light card
 - Create recurring on/off or color-scheme schedules and alarms in Asia/Kolkata
 - Control lights through the dashboard, REST endpoints, or MCP tools
@@ -42,6 +43,9 @@ The MCP server exposes these image-management tools:
 - `update_room_image`
 - `set_light_background_image`
 - `clear_light_background_image`
+
+It also exposes `create_room` for exclusive room membership and `create_group`
+for reusable, overlapping light groups.
 
 Only `http://` and `https://` image URLs are accepted. When
 `set_light_background_image` is called without an image URL, Lumia infers the

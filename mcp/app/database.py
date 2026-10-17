@@ -36,16 +36,26 @@ INSERT INTO room_images (room_key, image_url) VALUES
 ON CONFLICT (room_key) DO NOTHING;
 CREATE TABLE IF NOT EXISTS light_groups (
  id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, background_image_url TEXT,
+ kind TEXT NOT NULL DEFAULT 'room',
  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ALTER TABLE light_groups ADD COLUMN IF NOT EXISTS background_image_url TEXT;
+ALTER TABLE light_groups ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'room';
 CREATE TABLE IF NOT EXISTS group_members (
  group_id BIGINT REFERENCES light_groups(id) ON DELETE CASCADE,
  light_id BIGINT REFERENCES lights(id) ON DELETE CASCADE,
+ membership_kind TEXT NOT NULL DEFAULT 'room',
  PRIMARY KEY(group_id, light_id)
 );
+ALTER TABLE group_members
+    ADD COLUMN IF NOT EXISTS membership_kind TEXT NOT NULL DEFAULT 'room';
+UPDATE group_members gm
+SET membership_kind = lg.kind
+FROM light_groups lg
+WHERE lg.id = gm.group_id AND gm.membership_kind IS DISTINCT FROM lg.kind;
+DROP INDEX IF EXISTS group_members_one_room_per_light_idx;
 CREATE UNIQUE INDEX IF NOT EXISTS group_members_one_room_per_light_idx
-    ON group_members (light_id);
+    ON group_members (light_id) WHERE membership_kind = 'room';
 CREATE TABLE IF NOT EXISTS scenes (
  id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, color CHAR(7) NOT NULL,
  brightness SMALLINT NOT NULL CHECK (brightness BETWEEN 1 AND 100)

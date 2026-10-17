@@ -13,7 +13,6 @@ from api import LumiaAPI
 from config import UIConfig
 from styles import LunaStyle
 
-
 st.set_page_config(
     page_title="Luna Lumia",
     page_icon=Image.open(UIConfig.LOGO_PATH) if UIConfig.LOGO_PATH.is_file() else "💡",
@@ -105,6 +104,23 @@ def remove_deselected_room_lights(
         st.session_state[generation_key] = st.session_state.get(generation_key, 0) + 1
 
 
+def remove_deselected_group_lights(
+    group_id: int, widget_key: str, current_light_ids: tuple[int, ...]
+) -> None:
+    """Remove only the group memberships deselected from the pills."""
+    selected_light_ids = set(st.session_state.get(widget_key) or [])
+    try:
+        for light_id in current_light_ids:
+            if light_id not in selected_light_ids:
+                api.remove_group_light(group_id, light_id)
+        st.session_state.pop(f"group_membership_error_{group_id}", None)
+    except Exception as error:
+        st.session_state[f"group_membership_error_{group_id}"] = str(error)
+    finally:
+        generation_key = f"group_light_pills_generation_{group_id}"
+        st.session_state[generation_key] = st.session_state.get(generation_key, 0) + 1
+
+
 def rename_light_and_refresh_image(light_id: int, name: str):
     """Rename a light, then infer its background from the updated name."""
     api.update("lights", light_id, {"name": name})
@@ -113,7 +129,12 @@ def rename_light_and_refresh_image(light_id: int, name: str):
 
 def rename_room_and_refresh_image(room_id: int, name: str):
     """Rename a room and infer a matching background from the updated name."""
-    return api.update("groups", room_id, {"name": name})
+    return api.update("rooms", room_id, {"name": name})
+
+
+def rename_collection(collection_id: int, name: str, kind: str):
+    """Rename a room or group through its matching API resource."""
+    return api.update(f"{kind}s", collection_id, {"name": name})
 
 
 def select_preset_color(widget_key: str, color: str, light_id: int) -> None:
@@ -133,11 +154,12 @@ except httpx.HTTPError as error:
     st.stop()
 
 lights = data["lights"]
-groups = data["groups"]
+rooms = data.get("rooms", [])
+groups = data.get("groups", [])
 scenes = data["scenes"]
 schedules = data["schedules"]
 room_names_by_light = {light["id"]: [] for light in lights}
-for room in groups:
+for room in rooms:
     for light_id in room["light_ids"]:
         if light_id in room_names_by_light:
             room_names_by_light[light_id].append(room["name"])
@@ -166,10 +188,10 @@ with power_column:
     ):
         call(lambda: api.control("all", on=not all_on), None)
 
-tab_lights, tab_groups, tab_scenes, tab_schedules = st.tabs(
+tab_lights, tab_rooms, tab_scenes, tab_schedules = st.tabs(
     [
         ":material/lightbulb: Lights",
-        ":material/group: Rooms",
+        ":material/meeting_room: Rooms",
         ":material/palette: Schemes",
         ":material/schedule: Schedules",
     ]
@@ -346,42 +368,44 @@ with tab_lights:
                 color_key = f"color_{light['id']}"
                 if color_key not in st.session_state:
                     st.session_state[color_key] = light["color"]
-                color_columns = st.columns(
-                    [1.35] + [1] * len(UIConfig.PRESET_COLORS), gap="small"
-                )
-                color_columns[0].color_picker(
-                    "Color",
-                    key=color_key,
-                    label_visibility="collapsed",
-                    on_change=sync_light_controls,
-                    args=(light["id"],),
-                )
-                for preset_index, (preset_column, preset_color) in enumerate(
-                    zip(color_columns[1:], UIConfig.PRESET_COLORS)
-                ):
-                    preset_column.button(
-                        "●",
-                        key=f"preset_color_{light['id']}_{preset_color[1:]}",
-                        help=f"Use {preset_color}",
-                        on_click=select_preset_color,
-                        args=(color_key, preset_color, light["id"]),
+                with st.container(key=f"light_color_controls_{light['id']}"):
+                    color_columns = st.columns(
+                        [1.35] + [1] * len(UIConfig.PRESET_COLORS), gap="small"
                     )
+                    color_columns[0].color_picker(
+                        "Color",
+                        key=color_key,
+                        label_visibility="collapsed",
+                        on_change=sync_light_controls,
+                        args=(light["id"],),
+                    )
+                    for preset_column, preset_color in zip(
+                        color_columns[1:], UIConfig.PRESET_COLORS
+                    ):
+                        preset_column.button(
+                            "●",
+                            key=f"preset_color_{light['id']}_{preset_color[1:]}",
+                            help=f"Use {preset_color}",
+                            on_click=select_preset_color,
+                            args=(color_key, preset_color, light["id"]),
+                        )
                 if st.session_state.get(f"control_error_{light['id']}"):
                     st.error("Could not update this light.")
-                room_column, delete_column = st.columns(
-                    [8, 1], vertical_alignment="center"
-                )
-                if room_names:
-                    room_column.markdown(
-                        f'<span class="light-room-membership"><span class="material-symbols-rounded">meeting_room</span>{html.escape(", ".join(room_names))}</span>',
-                        unsafe_allow_html=True,
+                with st.container(key=f"light_card_actions_{light['id']}"):
+                    room_column, delete_column = st.columns(
+                        [8, 1], vertical_alignment="center"
                     )
-                if delete_column.button(
-                    "",
-                    icon=":material/delete:",
-                    key=f"delete_light_{light['id']}",
-                ):
-                    call(lambda l=light: api.delete("lights", l["id"]), None)
+                    if room_names:
+                        room_column.markdown(
+                            f'<span class="light-room-membership"><span class="material-symbols-rounded">meeting_room</span>{html.escape(", ".join(room_names))}</span>',
+                            unsafe_allow_html=True,
+                        )
+                    if delete_column.button(
+                        "",
+                        icon=":material/delete:",
+                        key=f"delete_light_{light['id']}",
+                    ):
+                        call(lambda l=light: api.delete("lights", l["id"]), None)
     with st.expander("Add a light", icon=":material/add_circle:"):
         with st.form("add_light", clear_on_submit=True):
             name = st.text_input("Name", placeholder="Bedroom lamp", max_chars=30)
@@ -398,8 +422,11 @@ with tab_lights:
                         "Light added",
                     )
 
-with tab_groups:
-    for group in groups:
+rooms_tab_content = tab_rooms.container()
+with rooms_tab_content:
+    for group in [*rooms, *groups]:
+        collection_kind = group["kind"]
+        collection_label = collection_kind.title()
         with st.container(border=True, key=f"room_card_{group['id']}"):
             group_image_url = group.get("effective_image_url") or ""
             selected = [light for light in lights if light["id"] in group["light_ids"]]
@@ -409,9 +436,16 @@ with tab_groups:
             available_for_room = [
                 light["id"]
                 for light in lights
-                if not room_names_by_light[light["id"]]
+                if (
+                    light["id"] not in group["light_ids"]
+                    and (
+                        collection_kind == "group"
+                        or not room_names_by_light[light["id"]]
+                    )
+                )
             ]
-            image_column, details_column = st.columns(
+            room_layout = st.container(key=f"room_layout_{group['id']}")
+            image_column, details_column = room_layout.columns(
                 [3.6, 8.4], vertical_alignment="top", gap="medium"
             )
             with image_column, st.container(key=f"room_image_{group['id']}"):
@@ -436,7 +470,7 @@ with tab_groups:
                                 [5, 1], vertical_alignment="center"
                             )
                             edited_room_name = room_name_column.text_input(
-                                "Room name",
+                                f"{collection_label} name",
                                 key=room_draft_key,
                                 label_visibility="collapsed",
                                 max_chars=30,
@@ -448,12 +482,12 @@ with tab_groups:
                                 )
                         if room_name_submitted:
                             if not valid_entity_name(edited_room_name):
-                                show_invalid_name_error("Room")
+                                show_invalid_name_error(collection_label)
                             else:
                                 st.session_state[room_editing_key] = False
                                 call(
-                                    lambda g=group, n=edited_room_name: rename_room_and_refresh_image(
-                                        g["id"], n
+                                    lambda g=group, n=edited_room_name, k=collection_kind: rename_collection(
+                                        g["id"], n, k
                                     ),
                                     None,
                                 )
@@ -483,7 +517,12 @@ with tab_groups:
                         args=(group["id"], room_power_key),
                     )
                     if st.button("", icon=":material/delete:", key=f"dg{group['id']}"):
-                        call(lambda g=group: api.delete("groups", g["id"]), None)
+                        call(
+                            lambda g=group, k=collection_kind: api.delete(
+                                f"{k}s", g["id"]
+                            ),
+                            None,
+                        )
                 if st.session_state.get(f"room_control_error_{group['id']}"):
                     st.error("Could not update this room.")
                 with st.container(
@@ -547,21 +586,32 @@ with tab_groups:
                         )
                         st.html(f"<style>{''.join(status_styles)}</style>")
                         st.pills(
-                            "Room lights",
+                            f"{collection_label} lights",
                             options=list(current_light_ids),
                             default=list(current_light_ids),
                             format_func=room_light_label,
                             selection_mode="multi",
                             key=pills_key,
-                            on_change=remove_deselected_room_lights,
+                            on_change=(
+                                remove_deselected_group_lights
+                                if collection_kind == "group"
+                                else remove_deselected_room_lights
+                            ),
                             args=(group["id"], pills_key, current_light_ids),
                             label_visibility="collapsed",
                             width="content",
                         )
                     else:
                         st.caption("No lights")
-                    if st.session_state.get(f"room_membership_error_{group['id']}"):
-                        st.error("Could not remove this light from the room.")
+                    membership_error_key = (
+                        f"group_membership_error_{group['id']}"
+                        if collection_kind == "group"
+                        else f"room_membership_error_{group['id']}"
+                    )
+                    if st.session_state.get(membership_error_key):
+                        st.error(
+                            f"Could not remove this light from the {collection_kind}."
+                        )
                     with st.popover(":material/add:", width="content"):
                         if available_for_room:
                             with st.form(f"add_room_lights_{group['id']}"):
@@ -574,46 +624,93 @@ with tab_groups:
                                         if light["id"] == item
                                     ),
                                 )
-                                if st.form_submit_button("Add", use_container_width=True):
+                                if st.form_submit_button(
+                                    "Add", use_container_width=True
+                                ):
                                     if not added_light_ids:
                                         st.error("Select at least one light.")
                                     else:
                                         call(
-                                            lambda g=group, ids=added_light_ids: api.add_room_lights(
-                                                g["id"], ids
+                                            lambda g=group, ids=added_light_ids, k=collection_kind: (
+                                                api.add_group_lights(g["id"], ids)
+                                                if k == "group"
+                                                else api.add_room_lights(g["id"], ids)
                                             ),
                                             None,
                                         )
                         else:
-                            st.caption("No unassigned lights available.")
-    with st.form("add_group", clear_on_submit=True):
-        name = st.text_input(
-            "Room/Group name :red[*]", placeholder="Bedroom", max_chars=30
+                            st.caption(
+                                "All lights are already in this group."
+                                if collection_kind == "group"
+                                else "No unassigned lights available."
+                            )
+with rooms_tab_content:
+    with st.container(key="room_creation_tabs"):
+        room_creation_tab, group_creation_tab = st.tabs(
+            [":material/meeting_room: Room", ":material/group: Group"]
         )
-        available_light_ids = [
-            light["id"] for light in lights if not room_names_by_light[light["id"]]
+    with room_creation_tab:
+        available_room_light_ids = [
+            light["id"]
+            for light in lights
+            if not room_names_by_light[light["id"]]
         ]
-        chosen = st.multiselect(
-            "Lights :red[*]",
-            options=available_light_ids,
-            format_func=lambda item: next(
-                light["name"] for light in lights if light["id"] == item
-            ),
-        )
-        if not available_light_ids:
-            st.caption("All lights are already assigned to rooms.")
-        if st.form_submit_button("Create room", use_container_width=True):
-            if not name.strip():
-                st.error("Enter a room/group name.")
-            elif not valid_entity_name(name):
-                show_invalid_name_error("Room/group")
-            elif not chosen:
-                st.error("Select at least one light.")
-            else:
-                call(
-                    lambda: api.create("groups", {"name": name, "light_ids": chosen}),
-                    "Room created",
-                )
+        with st.form("add_room", clear_on_submit=True):
+            room_name = st.text_input(
+                "Room name :red[*]", placeholder="Bedroom", max_chars=30
+            )
+            room_light_ids = st.multiselect(
+                "Lights :red[*]",
+                options=available_room_light_ids,
+                format_func=lambda item: next(
+                    light["name"] for light in lights if light["id"] == item
+                ),
+            )
+            if not available_room_light_ids:
+                st.caption("All lights are already assigned to rooms.")
+            if st.form_submit_button("Create room", use_container_width=True):
+                if not room_name.strip():
+                    st.error("Enter a room name.")
+                elif not valid_entity_name(room_name):
+                    show_invalid_name_error("Room")
+                elif not room_light_ids:
+                    st.error("Select at least one light.")
+                else:
+                    call(
+                        lambda: api.create(
+                            "rooms",
+                            {"name": room_name, "light_ids": room_light_ids},
+                        ),
+                        "Room created",
+                    )
+    with group_creation_tab:
+        with st.form("add_group", clear_on_submit=True):
+            group_name = st.text_input(
+                "Group name :red[*]", placeholder="Downstairs", max_chars=30
+            )
+            group_light_ids = st.multiselect(
+                "Lights :red[*]",
+                options=[light["id"] for light in lights],
+                format_func=lambda item: next(
+                    light["name"] for light in lights if light["id"] == item
+                ),
+            )
+            st.caption("Lights can belong to multiple groups.")
+            if st.form_submit_button("Create group", use_container_width=True):
+                if not group_name.strip():
+                    st.error("Enter a group name.")
+                elif not valid_entity_name(group_name):
+                    show_invalid_name_error("Group")
+                elif not group_light_ids:
+                    st.error("Select at least one light.")
+                else:
+                    call(
+                        lambda: api.create(
+                            "groups",
+                            {"name": group_name, "light_ids": group_light_ids},
+                        ),
+                        "Group created",
+                    )
 
 with tab_scenes:
     if scenes:
@@ -675,6 +772,7 @@ with tab_schedules:
         target_labels = (
             {"All lights": ("all", None)}
             | {f'Light · {x["name"]}': ("light", x["id"]) for x in lights}
+            | {f'Room · {x["name"]}': ("group", x["id"]) for x in rooms}
             | {f'Group · {x["name"]}': ("group", x["id"]) for x in groups}
         )
         c4, c5 = st.columns(2)

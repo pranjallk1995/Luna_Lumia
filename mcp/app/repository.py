@@ -167,7 +167,7 @@ class LumiaRepository:
             else: c.execute("SELECT l.* FROM lights l JOIN group_members gm ON gm.light_id=l.id WHERE gm.group_id=%s ORDER BY l.id", (target_id,))
             return [self.serialize(row) for row in c.fetchall()]
 
-    def list_groups(self):
+    def list_groups(self, kind: str | None = None):
         with self.database.cursor() as c:
             c.execute("""SELECT g.*,
                 COALESCE(array_agg(gm.light_id) FILTER (WHERE gm.light_id IS NOT NULL),'{}') light_ids,
@@ -176,11 +176,12 @@ class LumiaRepository:
                 FROM light_groups g
                 LEFT JOIN group_members gm ON gm.group_id=g.id
                 LEFT JOIN lights l ON l.id=gm.light_id
-                GROUP BY g.id ORDER BY g.name""")
+                WHERE (%s::text IS NULL OR g.kind=%s)
+                GROUP BY g.id ORDER BY g.name""", (kind, kind))
             return [self.serialize(row) for row in c.fetchall()]
 
-    def group(self, group_id: int):
-        return next((group for group in self.list_groups() if group["id"] == group_id), None)
+    def group(self, group_id: int, kind: str | None = None):
+        return next((group for group in self.list_groups(kind) if group["id"] == group_id), None)
 
     def rename_group(self, group_id: int, name: str):
         with self.database.cursor() as c:
@@ -191,10 +192,10 @@ class LumiaRepository:
             renamed = c.fetchone() is not None
         return self.group(group_id) if renamed else None
 
-    def groups_with_room_images(self):
+    def groups_with_room_images(self, kind: str | None = None):
         images = self.list_room_images()
         fallback = next((item for item in images if item["room_key"] == "living_room"), images[0] if images else None)
-        groups = self.list_groups()
+        groups = self.list_groups(kind)
         for group in groups:
             room_key = self.detected_room_key(group["name"])
             if room_key is None:
@@ -207,51 +208,59 @@ class LumiaRepository:
             group["effective_image_url"] = group.get("background_image_url") or (matched["image_url"] if matched else None)
         return groups
 
-    def add_group(self, entry: GroupCreate):
-        with self.database.cursor() as c:
-            c.execute(
+    def add_group(self, entry: GroupCreate, kind: str = "group"):
+        if kind not in {"room", "group"}:
+            raise ValueError("Collection kind must be room or group")
+        if kind == "room":
+            with self.database.cursor() as c:
+                c.execute(
                 """SELECT l.name light_name,g.name room_name
                 FROM group_members gm
                 JOIN lights l ON l.id=gm.light_id
                 JOIN light_groups g ON g.id=gm.group_id
-                WHERE gm.light_id=ANY(%s) ORDER BY l.name""",
+                WHERE gm.membership_kind='room' AND gm.light_id=ANY(%s)
+                ORDER BY l.name""",
                 (entry.light_ids,),
-            )
-            conflicts = c.fetchall()
-        if conflicts:
-            details = ", ".join(
-                f'{item["light_name"]} ({item["room_name"]})' for item in conflicts
-            )
-            raise ValueError(f"Already assigned to a room: {details}")
-        with self.database.cursor() as c:
-            c.execute("INSERT INTO light_groups(name) VALUES(%s) RETURNING *", (entry.name.strip(),)); row=c.fetchone()
-            for light_id in entry.light_ids: c.execute("INSERT INTO group_members VALUES(%s,%s) ON CONFLICT DO NOTHING", (row["id"], light_id))
-            group_id = row["id"]
-        return self.assign_inferred_group_image(group_id)
-
-    def add_group_members(self, group_id: int, light_ids: list[int]):
-        if not self.group(group_id):
-            return None
-        with self.database.cursor() as c:
-            c.execute(
-                """SELECT l.name light_name,g.name room_name
-                FROM group_members gm
-                JOIN lights l ON l.id=gm.light_id
-                JOIN light_groups g ON g.id=gm.group_id
-                WHERE gm.light_id=ANY(%s) ORDER BY l.name""",
-                (light_ids,),
-            )
-            conflicts = c.fetchall()
+                )
+                conflicts = c.fetchall()
             if conflicts:
                 details = ", ".join(
-                    f'{item["light_name"]} ({item["room_name"]})'
-                    for item in conflicts
+                    f'{item["light_name"]} ({item["room_name"]})' for item in conflicts
                 )
                 raise ValueError(f"Already assigned to a room: {details}")
+        with self.database.cursor() as c:
+            c.execute("INSERT INTO light_groups(name,kind) VALUES(%s,%s) RETURNING *", (entry.name.strip(), kind)); row=c.fetchone()
+            for light_id in entry.light_ids: c.execute("INSERT INTO group_members(group_id,light_id,membership_kind) VALUES(%s,%s,%s) ON CONFLICT DO NOTHING", (row["id"], light_id, kind))
+            group_id = row["id"]
+        return self.assign_inferred_group_image(group_id) if kind == "room" else self.group(group_id)
+
+    def add_group_members(self, group_id: int, light_ids: list[int]):
+        collection = self.group(group_id)
+        if not collection:
+            return None
+        kind = collection["kind"]
+        with self.database.cursor() as c:
+            if kind == "room":
+                c.execute(
+                """SELECT l.name light_name,g.name room_name
+                FROM group_members gm
+                JOIN lights l ON l.id=gm.light_id
+                JOIN light_groups g ON g.id=gm.group_id
+                WHERE gm.membership_kind='room' AND gm.light_id=ANY(%s)
+                ORDER BY l.name""",
+                (light_ids,),
+                )
+                conflicts = c.fetchall()
+                if conflicts:
+                    details = ", ".join(
+                        f'{item["light_name"]} ({item["room_name"]})'
+                        for item in conflicts
+                    )
+                    raise ValueError(f"Already assigned to a room: {details}")
             for light_id in light_ids:
                 c.execute(
-                    "INSERT INTO group_members VALUES(%s,%s) ON CONFLICT DO NOTHING",
-                    (group_id, light_id),
+                    "INSERT INTO group_members(group_id,light_id,membership_kind) VALUES(%s,%s,%s) ON CONFLICT DO NOTHING",
+                    (group_id, light_id, kind),
                 )
         return self.group(group_id)
 
@@ -311,9 +320,13 @@ class LumiaRepository:
         assigned["inference_source"] = inference_source
         return assigned
 
-    def delete_group(self, group_id: int):
+    def delete_group(self, group_id: int, kind: str | None = None):
         with self.database.cursor() as c:
-            c.execute("DELETE FROM light_groups WHERE id=%s RETURNING id", (group_id,)); return c.fetchone() is not None
+            c.execute(
+                "DELETE FROM light_groups WHERE id=%s AND (%s::text IS NULL OR kind=%s) RETURNING id",
+                (group_id, kind, kind),
+            )
+            return c.fetchone() is not None
 
     def list_scenes(self):
         with self.database.cursor() as c: c.execute("SELECT * FROM scenes ORDER BY name"); return [self.serialize(row) for row in c.fetchall()]

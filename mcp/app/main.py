@@ -85,6 +85,20 @@ class LumiaMCPAdapter:
             return repository.list_room_images()
 
         @server.tool()
+        def create_room(name: str, light_ids: list[int]):
+            """Create a room. A light can belong to only one room."""
+            return repository.add_group(
+                GroupCreate(name=name, light_ids=light_ids), "room"
+            )
+
+        @server.tool()
+        def create_group(name: str, light_ids: list[int]):
+            """Create a reusable group. Lights may belong to multiple groups."""
+            return repository.add_group(
+                GroupCreate(name=name, light_ids=light_ids), "group"
+            )
+
+        @server.tool()
         def update_room_image(room_key: str, image_url: str):
             """Add or update the image URL used for a Lumia room type."""
             entry = RoomImageUpdate(room_key=room_key, image_url=image_url)
@@ -185,7 +199,8 @@ class LumiaHTTPAdapter:
             del request
             return self.response({
                 "lights":repo.lights_with_room_images(),
-                "groups":repo.groups_with_room_images(),
+                "rooms":repo.groups_with_room_images("room"),
+                "groups":repo.groups_with_room_images("group"),
                 "scenes":repo.list_scenes(),
                 "schedules":repo.list_schedules(),
                 "room_images":repo.list_room_images(),
@@ -252,6 +267,8 @@ class LumiaHTTPAdapter:
         async def rename_group(request):
             try:
                 group_id = int(request.path_params["item_id"])
+                if not repo.group(group_id, "group"):
+                    return self.response({"error": "Not found"}, 404)
                 entry = await self.payload(request, GroupUpdate)
                 renamed = repo.rename_group(group_id, entry.name)
                 if not renamed:
@@ -263,9 +280,12 @@ class LumiaHTTPAdapter:
         @server.custom_route("/api/groups/{item_id}/lights", methods=["POST"])
         async def add_group_lights(request):
             try:
+                group_id = int(request.path_params["item_id"])
+                if not repo.group(group_id, "group"):
+                    return self.response({"error": "Not found"}, 404)
                 entry = await self.payload(request, GroupMembersUpdate)
                 result = repo.add_group_members(
-                    int(request.path_params["item_id"]), entry.light_ids
+                    group_id, entry.light_ids
                 )
                 return self.response(result) if result else self.response({"error": "Not found"}, 404)
             except Exception as e:
@@ -275,9 +295,49 @@ class LumiaHTTPAdapter:
             "/api/groups/{item_id}/lights/{light_id}", methods=["DELETE"]
         )
         async def remove_group_light(request):
+            group_id = int(request.path_params["item_id"])
+            if not repo.group(group_id, "group"):
+                return self.response({"error": "Not found"}, 404)
             removed = repo.remove_group_member(
-                int(request.path_params["item_id"]),
+                group_id,
                 int(request.path_params["light_id"]),
+            )
+            return Response(status_code=204) if removed else self.response(
+                {"error": "Not found"}, 404
+            )
+
+        @server.custom_route("/api/rooms/{item_id}", methods=["PUT"])
+        async def rename_room(request):
+            try:
+                room_id = int(request.path_params["item_id"])
+                if not repo.group(room_id, "room"):
+                    return self.response({"error": "Not found"}, 404)
+                entry = await self.payload(request, GroupUpdate)
+                renamed = repo.rename_group(room_id, entry.name)
+                return self.response(repo.assign_inferred_group_image(room_id)) if renamed else self.response({"error": "Not found"}, 404)
+            except Exception as e:
+                return self.error(e)
+
+        @server.custom_route("/api/rooms/{item_id}/lights", methods=["POST"])
+        async def add_room_lights(request):
+            try:
+                room_id = int(request.path_params["item_id"])
+                if not repo.group(room_id, "room"):
+                    return self.response({"error": "Not found"}, 404)
+                entry = await self.payload(request, GroupMembersUpdate)
+                return self.response(repo.add_group_members(room_id, entry.light_ids))
+            except Exception as e:
+                return self.error(e)
+
+        @server.custom_route(
+            "/api/rooms/{item_id}/lights/{light_id}", methods=["DELETE"]
+        )
+        async def remove_room_light(request):
+            room_id = int(request.path_params["item_id"])
+            if not repo.group(room_id, "room"):
+                return self.response({"error": "Not found"}, 404)
+            removed = repo.remove_group_member(
+                room_id, int(request.path_params["light_id"])
             )
             return Response(status_code=204) if removed else self.response(
                 {"error": "Not found"}, 404
@@ -302,7 +362,8 @@ class LumiaHTTPAdapter:
                 except Exception as e: return self.error(e)
             @server.custom_route(path+"/{item_id}", methods=["DELETE"])
             async def remove(request): return Response(status_code=204) if delete(int(request.path_params["item_id"])) else self.response({"error":"Not found"},404)
-        crud("/api/groups",GroupCreate,repo.add_group,repo.delete_group)
+        crud("/api/rooms",GroupCreate,lambda entry: repo.add_group(entry,"room"),lambda item_id: repo.delete_group(item_id,"room"))
+        crud("/api/groups",GroupCreate,lambda entry: repo.add_group(entry,"group"),lambda item_id: repo.delete_group(item_id,"group"))
         crud("/api/scenes",SceneCreate,repo.add_scene,repo.delete_scene)
         crud("/api/schedules",ScheduleCreate,repo.add_schedule,repo.delete_schedule)
 
