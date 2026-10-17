@@ -45,10 +45,19 @@ class LightControlService:
         for light in self.lights.targets(target_type, target_id):
             try:
                 await self.adapter.apply(
-                    light["ip_address"], on=state.on, brightness=state.brightness, color=state.color
+                    light["ip_address"],
+                    on=state.on,
+                    brightness=state.brightness,
+                    color=state.color,
+                    color_temp=state.color_temp,
                 )
                 saved = self.lights.update_state(
-                    light["id"], on=state.on, brightness=state.brightness, color=color, reachable=True
+                    light["id"],
+                    on=state.on,
+                    brightness=state.brightness,
+                    color=color,
+                    color_temp=state.color_temp,
+                    reachable=True,
                 )
                 results.append({"light": saved, "ok": True})
             except Exception as error:

@@ -9,6 +9,8 @@ from ipaddress import IPv4Address, IPv4Network
 from pywizlight import PilotBuilder, wizlight
 from pywizlight.discovery import discover_lights
 
+from .models import LightState
+
 GLOBAL_BROADCAST = "255.255.255.255"
 
 
@@ -38,17 +40,21 @@ class WizLightAdapter:
     def hex_color(rgb: tuple[int, int, int] | None) -> str | None:
         return "#{:02X}{:02X}{:02X}".format(*rgb) if rgb and any(rgb) else None
 
-    async def apply(self, ip_address: str, *, on=None, brightness=None, color=None) -> None:
+    async def apply(
+        self, ip_address: str, *, on=None, brightness=None, color=None, color_temp=None
+    ) -> None:
         async with wiz_bulb(ip_address) as bulb:
             if on is False:
                 await asyncio.wait_for(bulb.turn_off(), self.timeout)
                 return
-            if on is True or brightness is not None or color is not None:
+            if on is True or any(value is not None for value in (brightness, color, color_temp)):
                 pilot = {}
                 if brightness is not None:
                     pilot["brightness"] = round(brightness * 2.55)
                 if color is not None:
                     pilot["rgb"] = self.rgb(color)
+                if color_temp is not None:
+                    pilot["colortemp"] = color_temp
                 await asyncio.wait_for(bulb.turn_on(PilotBuilder(**pilot)), self.timeout)
 
     async def status(self, ip_address: str) -> dict:
@@ -59,7 +65,15 @@ class WizLightAdapter:
                 "on": bool(state.get_state()),
                 "brightness": max(1, round(brightness / 2.55)) if brightness else None,
                 "color": self.hex_color(state.get_rgb()),
+                "color_temp": self.clamp_color_temp(state.get_colortemp()),
             }
+
+    @staticmethod
+    def clamp_color_temp(kelvin: int | None) -> int | None:
+        """Fit a reported temperature into the range Lumia stores."""
+        if not kelvin:
+            return None
+        return min(LightState.MAX_COLOR_TEMP, max(LightState.MIN_COLOR_TEMP, kelvin))
 
 
 @dataclass

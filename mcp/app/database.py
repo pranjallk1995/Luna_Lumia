@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS lights (
 );
 ALTER TABLE lights ADD COLUMN IF NOT EXISTS mac_address TEXT;
 ALTER TABLE lights ADD COLUMN IF NOT EXISTS background_image_url TEXT;
+ALTER TABLE lights ADD COLUMN IF NOT EXISTS color_temp SMALLINT NOT NULL DEFAULT 4000
+    CHECK (color_temp BETWEEN 2200 AND 6500);
 CREATE UNIQUE INDEX IF NOT EXISTS lights_mac_address_idx
     ON lights (mac_address) WHERE mac_address IS NOT NULL;
 CREATE TABLE IF NOT EXISTS room_images (

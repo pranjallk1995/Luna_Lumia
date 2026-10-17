@@ -1,6 +1,6 @@
 import unittest
 from pydantic import ValidationError
-from app.models import GroupCreate, GroupMembersUpdate, GroupUpdate, LightCreate, LightImageUpdate, LightUpdate, RoomImageUpdate, ScheduleCreate
+from app.models import GroupCreate, GroupMembersUpdate, GroupUpdate, LightCreate, LightImageUpdate, LightState, LightUpdate, RoomImageUpdate, ScheduleCreate
 from app.room_images import ImageScheme, RoomKeyDetector
 
 
@@ -38,3 +38,7 @@ class ModelTests(unittest.TestCase):
         with self.assertRaises(ValidationError): GroupCreate(name="",light_ids=[1])
         with self.assertRaises(ValidationError): GroupCreate(name="Kitchen",light_ids=[])
         with self.assertRaises(ValidationError): GroupMembersUpdate(light_ids=[])
+    def test_color_temp_is_bounded_and_exclusive_with_color(self):
+        self.assertEqual(LightState(color_temp=2700).color_temp,2700)
+        with self.assertRaises(ValidationError): LightState(color_temp=1800)
+        with self.assertRaises(ValidationError): LightState(color="#FFFFFF",color_temp=2700)

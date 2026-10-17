@@ -1,5 +1,7 @@
 """Rooms tab: room and group cards, membership editing, and creation forms."""
 
+import html
+
 import httpx
 import streamlit as st
 
@@ -73,12 +75,17 @@ class CollectionCard(LumiaTab):
                 self._render_light_row()
 
     def _render_image(self) -> None:
-        image_url = self.collection.get("effective_image_url") or ""
+        # A cover-scaled background (not st.image) always fills the card's
+        # image area exactly, whatever the card's size.
+        image_url = html.escape(self.collection.get("effective_image_url") or "", quote=True)
         if image_url:
-            st.image(image_url, width="stretch")
+            st.markdown(
+                f'<div class="room-card-image" style="background-image:url(\'{image_url}\')"></div>',
+                unsafe_allow_html=True,
+            )
         else:
             st.markdown(
-                '<div class="room-image-placeholder"><span class="material-symbols-rounded">meeting_room</span></div>',
+                '<div class="room-card-image"><span class="material-symbols-rounded">meeting_room</span></div>',
                 unsafe_allow_html=True,
             )
         if self.is_on:

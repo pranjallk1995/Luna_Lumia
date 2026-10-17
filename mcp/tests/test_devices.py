@@ -48,3 +48,11 @@ class DeviceTests(unittest.TestCase):
         discovery._probe=refusing_probe
         result=asyncio.run(discovery.scan("192.168.1.255"))
         self.assertEqual([item["ip_address"] for item in result],["192.168.1.8"])
+    def test_reported_color_temp_is_clamped(self):
+        self.assertEqual(WizLightAdapter.clamp_color_temp(10000),6500)
+        self.assertEqual(WizLightAdapter.clamp_color_temp(2700),2700)
+        self.assertIsNone(WizLightAdapter.clamp_color_temp(None))
+    def test_controller_forwards_and_persists_color_temp(self):
+        repo,adapter=FakeRepository(),FakeAdapter()
+        asyncio.run(LightControlService(repo,adapter).control("light",1,LightState(color_temp=3000)))
+        self.assertEqual(adapter.calls[0][1]["color_temp"],3000); self.assertEqual(repo.saved[0][1]["color_temp"],3000)

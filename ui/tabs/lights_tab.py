@@ -30,7 +30,7 @@ class DiscoveryPanel(LumiaTab):
             unsafe_allow_html=True,
         )
         scan_title.markdown(
-            '<div class="find-lights-card"><h2>Find lights on your network</h2><p>Scans for WiZ-compatible lights and lists their IP addresses. Nothing is added automatically.</p></div>',
+            '<div class="find-lights-card"><h2>Find lights on your network</h2><p>Scans for WiZ-compatible lights. Nothing is added automatically.</p></div>',
             unsafe_allow_html=True,
         )
         if scan_action.button(
@@ -49,9 +49,13 @@ class DiscoveryPanel(LumiaTab):
 
     def _render_results(self, discovered: list[Item]) -> None:
         with st.expander(
-            f"Found lights ({len(discovered)})", expanded=True, icon=":material/lightbulb:"
+            f"Found lights ({len(discovered)})",
+            expanded=True,
+            icon=":material/lightbulb:",
         ):
-            st.markdown('<span class="discovery-results-marker"></span>', unsafe_allow_html=True)
+            st.markdown(
+                '<span class="discovery-results-marker"></span>', unsafe_allow_html=True
+            )
             if not discovered:
                 st.info(
                     "No WiZ lights answered the scan. Confirm they are powered on and connected to the 192.168.1.x network."
@@ -72,9 +76,14 @@ class DiscoveryPanel(LumiaTab):
             )
         if already_added:
             add_column.button(
-                "Added", disabled=True, use_container_width=True, key=f"discovered_added_{ip_address}"
+                "Added",
+                disabled=True,
+                use_container_width=True,
+                key=f"discovered_added_{ip_address}",
             )
-        elif add_column.button("Add", use_container_width=True, key=f"discovered_add_{ip_address}"):
+        elif add_column.button(
+            "Add", use_container_width=True, key=f"discovered_add_{ip_address}"
+        ):
             ActionRunner.run(
                 lambda: self.api.create(
                     "lights",
@@ -86,6 +95,147 @@ class DiscoveryPanel(LumiaTab):
                     },
                 )
             )
+
+
+class ColorControls:
+    """A palette icon, a color picker, and preset swatches on one line.
+
+    ``suffix`` keeps keys matching the stylesheet's ``light_color_controls_*``
+    and ``preset_color_*_<hex>`` selectors. Each preset callback receives the
+    ``on_preset`` args followed by the preset color.
+    """
+
+    def __init__(self, presets: tuple[str, ...]) -> None:
+        self.presets = presets
+
+    def render(self, suffix, color_key: str, on_pick: tuple, on_preset: tuple) -> None:
+        pick_callback, pick_args = on_pick
+        preset_callback, preset_args = on_preset
+        with st.container(key=f"light_color_controls_{suffix}"):
+            icon_column, *color_columns = st.columns(
+                [0.6, 1.35] + [1] * len(self.presets),
+                gap="small",
+                vertical_alignment="center",
+            )
+            InlineIcon.render(icon_column, "palette")
+            color_columns[0].color_picker(
+                "Color",
+                key=color_key,
+                label_visibility="collapsed",
+                on_change=pick_callback,
+                args=pick_args,
+            )
+            for preset_column, preset_color in zip(color_columns[1:], self.presets):
+                preset_column.button(
+                    "●",
+                    key=f"preset_color_{suffix}_{preset_color[1:]}",
+                    help=f"Use {preset_color}",
+                    on_click=preset_callback,
+                    args=(*preset_args, preset_color),
+                )
+
+
+class InlineIcon:
+    """A muted Material icon that sits on the same line as a control."""
+
+    @staticmethod
+    def render(container, name: str) -> None:
+        container.markdown(
+            f'<span class="material-symbols-rounded inline-control-icon">{name}</span>',
+            unsafe_allow_html=True,
+        )
+
+    @classmethod
+    def slider(cls, icon: str, label: str, *args, key: str, **kwargs) -> None:
+        """A slider with its label hidden and ``icon`` on the same line.
+
+        ``label`` stays as the accessible name; the ``icon_slider_*`` container
+        key lets the stylesheet keep the row unwrapped on phones.
+        """
+        with st.container(key=f"icon_slider_{key}"):
+            icon_column, slider_column = st.columns(
+                [0.6, 6.4], gap="small", vertical_alignment="center"
+            )
+            cls.render(icon_column, icon)
+            slider_column.slider(
+                label, *args, key=key, label_visibility="collapsed", **kwargs
+            )
+
+
+class AllLightsControls(LumiaTab):
+    """Set one color temperature or color on every light at once."""
+
+    TEMP_KEY = "all_lights_color_temp"
+    COLOR_KEY = "all_lights_color"
+    ERROR_KEY = "all_lights_control_error"
+
+    @staticmethod
+    def most_common(values: list, default):
+        values = [value for value in values if value]
+        return max(set(values), key=values.count) if values else default
+
+    @classmethod
+    def apply(cls, api, light_ids: list[int], changed: str, value) -> None:
+        """Turn every light on in the chosen color mode, then reset card widgets."""
+        try:
+            api.control("all", on=True, **{changed: value})
+            st.session_state.pop(cls.ERROR_KEY, None)
+        except httpx.HTTPError as error:
+            st.session_state[cls.ERROR_KEY] = str(error)
+            return
+        # Dropping card widget state makes them re-read the updated dashboard.
+        for light_id in light_ids:
+            for prefix in ("on", "color", "color_temp"):
+                st.session_state.pop(f"{prefix}_{light_id}", None)
+
+    @classmethod
+    def apply_temp(cls, api, light_ids: list[int]) -> None:
+        cls.apply(api, light_ids, "color_temp", st.session_state[cls.TEMP_KEY])
+
+    @classmethod
+    def apply_color(cls, api, light_ids: list[int], color: str | None = None) -> None:
+        if color is not None:
+            st.session_state[cls.COLOR_KEY] = color
+        cls.apply(api, light_ids, "color", st.session_state[cls.COLOR_KEY])
+
+    def render_temperature(self) -> None:
+        lights = self.dashboard.lights
+        InlineIcon.slider(
+            "device_thermostat",
+            "All lights temperature",
+            self.config.MIN_COLOR_TEMP,
+            self.config.MAX_COLOR_TEMP,
+            int(
+                self.most_common(
+                    [light.get("color_temp") for light in lights],
+                    self.config.DEFAULT_COLOR_TEMP,
+                )
+            ),
+            step=100,
+            format="%dK",
+            key=self.TEMP_KEY,
+            disabled=not lights,
+            on_change=self.apply_temp,
+            args=(self.api, [light["id"] for light in lights]),
+        )
+
+    def render_color(self) -> None:
+        lights = self.dashboard.lights
+        if self.COLOR_KEY not in st.session_state:
+            st.session_state[self.COLOR_KEY] = self.most_common(
+                [light.get("color") for light in lights], "#FFFFFF"
+            )
+        args = (self.api, [light["id"] for light in lights])
+        ColorControls(self.config.PRESET_COLORS).render(
+            "all",
+            self.COLOR_KEY,
+            on_pick=(self.apply_color, args),
+            on_preset=(self.apply_color, args),
+        )
+
+    def render_error(self) -> None:
+        if st.session_state.get(self.ERROR_KEY):
+            st.error("Could not update all lights.")
 
 
 class LightCard(LumiaTab):
@@ -100,16 +250,20 @@ class LightCard(LumiaTab):
     # Widget callbacks run before the next script pass, so they read widget
     # values from session state rather than from this card instance.
     @staticmethod
-    def sync_controls(api, light_id: int) -> None:
-        """Send the card's current controls immediately, without a success toast."""
+    def sync_controls(api, light_id: int, changed: str | None = None) -> None:
+        """Send power and brightness plus the changed color mode, without a toast.
+
+        A bulb shows either an RGB ``color`` or a white ``color_temp``, so only
+        the one the user just changed is sent.
+        """
+        state = {
+            "on": st.session_state[f"on_{light_id}"],
+            "brightness": st.session_state[f"brightness_{light_id}"],
+        }
+        if changed in ("color", "color_temp"):
+            state[changed] = st.session_state[f"{changed}_{light_id}"]
         try:
-            api.control(
-                "light",
-                light_id,
-                on=st.session_state[f"on_{light_id}"],
-                brightness=st.session_state[f"brightness_{light_id}"],
-                color=st.session_state[f"color_{light_id}"],
-            )
+            api.control("light", light_id, **state)
             st.session_state.pop(f"control_error_{light_id}", None)
         except httpx.HTTPError as error:
             st.session_state[f"control_error_{light_id}"] = str(error)
@@ -117,13 +271,15 @@ class LightCard(LumiaTab):
     @classmethod
     def select_preset_color(cls, api, light_id: int, color: str) -> None:
         st.session_state[f"color_{light_id}"] = color
-        cls.sync_controls(api, light_id)
+        cls.sync_controls(api, light_id, "color")
 
     def render(self) -> None:
         with st.container(border=True):
             self._render_hero()
             InlineNameEditor(
-                "", self.light_id, "Light",
+                "",
+                self.light_id,
+                "Light",
                 lambda name: self.api.rename_light(self.light_id, name),
             ).render(self.light["name"], self.light["is_on"])
             self._render_meta()
@@ -167,8 +323,9 @@ class LightCard(LumiaTab):
             on_change=self.sync_controls,
             args=sync_args,
         )
-        st.slider(
-            ":material/brightness_6: Brightness",
+        InlineIcon.slider(
+            "brightness_6",
+            "Brightness",
             1,
             100,
             int(self.light["brightness"]),
@@ -176,30 +333,26 @@ class LightCard(LumiaTab):
             on_change=self.sync_controls,
             args=sync_args,
         )
-        st.markdown(
-            '<div class="light-control-label"><span class="material-symbols-rounded">palette</span><span>Color</span></div>',
-            unsafe_allow_html=True,
+        InlineIcon.slider(
+            "device_thermostat",
+            "Color temperature",
+            self.config.MIN_COLOR_TEMP,
+            self.config.MAX_COLOR_TEMP,
+            int(self.light.get("color_temp") or self.config.DEFAULT_COLOR_TEMP),
+            step=100,
+            format="%dK",
+            key=f"color_temp_{self.light_id}",
+            on_change=self.sync_controls,
+            args=(*sync_args, "color_temp"),
         )
         if self.color_key not in st.session_state:
             st.session_state[self.color_key] = self.light["color"]
-        presets = self.config.PRESET_COLORS
-        with st.container(key=f"light_color_controls_{self.light_id}"):
-            color_columns = st.columns([1.35] + [1] * len(presets), gap="small")
-            color_columns[0].color_picker(
-                "Color",
-                key=self.color_key,
-                label_visibility="collapsed",
-                on_change=self.sync_controls,
-                args=sync_args,
-            )
-            for preset_column, preset_color in zip(color_columns[1:], presets):
-                preset_column.button(
-                    "●",
-                    key=f"preset_color_{self.light_id}_{preset_color[1:]}",
-                    help=f"Use {preset_color}",
-                    on_click=self.select_preset_color,
-                    args=(*sync_args, preset_color),
-                )
+        ColorControls(self.config.PRESET_COLORS).render(
+            self.light_id,
+            self.color_key,
+            on_pick=(self.sync_controls, (*sync_args, "color")),
+            on_preset=(self.select_preset_color, sync_args),
+        )
 
     def _render_actions(self) -> None:
         room_names = self.dashboard.room_names_by_light.get(self.light_id, [])
@@ -210,7 +363,9 @@ class LightCard(LumiaTab):
                     f'<span class="light-room-membership"><span class="material-symbols-rounded">meeting_room</span>{html.escape(", ".join(room_names))}</span>',
                     unsafe_allow_html=True,
                 )
-            if delete_column.button("", icon=":material/delete:", key=f"delete_light_{self.light_id}"):
+            if delete_column.button(
+                "", icon=":material/delete:", key=f"delete_light_{self.light_id}"
+            ):
                 ActionRunner.run(lambda: self.api.delete("lights", self.light_id))
 
 
@@ -227,22 +382,37 @@ class LightsTab(LumiaTab):
         lights = self.dashboard.lights
         on_count = sum(bool(light.get("is_on")) for light in lights)
         online_count = sum(light.get("reachable") is True for light in lights)
-        st.markdown(
-            f'<div class="light-stats-row"><div class="light-stat-card"><span class="material-symbols-rounded total">bolt</span><div><strong>{len(lights)}</strong><small>Total lights</small></div></div><div class="light-stat-card"><span class="status-orb on"></span><div><strong>{on_count}</strong><small>On</small></div></div><div class="light-stat-card"><span class="status-orb online"></span><div><strong>{online_count}</strong><small>Online</small></div></div></div>',
-            unsafe_allow_html=True,
-        )
+        all_lights = AllLightsControls(self.api, self.config, self.dashboard)
+        with st.container(key="all_lights_bar"):
+            stats_column, temp_column, color_column = st.columns(
+                3, vertical_alignment="center"
+            )
+            stats_column.markdown(
+                f'<div class="light-stats-row"><div class="light-stat-card"><span class="material-symbols-rounded total">bolt</span><div><strong>{len(lights)}</strong><small>Total lights</small></div></div><div class="light-stat-card"><span class="status-orb on"></span><div><strong>{on_count}</strong><small>On</small></div></div><div class="light-stat-card"><span class="status-orb online"></span><div><strong>{online_count}</strong><small>Online</small></div></div></div>',
+                unsafe_allow_html=True,
+            )
+            # Keyed containers are boxed by the stylesheet like the stats panel.
+            with temp_column, st.container(key="all_lights_temp_box"):
+                all_lights.render_temperature()
+            with color_column, st.container(key="all_lights_color_box"):
+                all_lights.render_color()
+        all_lights.render_error()
 
     def _render_cards(self) -> None:
         lights, per_row = self.dashboard.lights, self.config.card_columns
         for index in range(0, len(lights), per_row):
-            for column, light in zip(st.columns(per_row), lights[index : index + per_row]):
+            for column, light in zip(
+                st.columns(per_row), lights[index : index + per_row]
+            ):
                 with column:
                     LightCard(self.api, self.config, self.dashboard, light).render()
 
     def _render_add_form(self) -> None:
         with st.expander("Add a light", icon=":material/add_circle:"):
             with st.form("add_light", clear_on_submit=True):
-                name = st.text_input("Name", placeholder="Bedroom lamp", max_chars=NameRules.MAX_LENGTH)
+                name = st.text_input(
+                    "Name", placeholder="Bedroom lamp", max_chars=NameRules.MAX_LENGTH
+                )
                 ip_address = st.text_input("IP address", placeholder="192.168.1.20")
                 if st.form_submit_button("Add light", use_container_width=True):
                     if not NameRules.is_valid(name):
@@ -251,6 +421,10 @@ class LightsTab(LumiaTab):
                         ActionRunner.run(
                             lambda: self.api.create(
                                 "lights",
-                                {"name": name, "ip_address": ip_address, "protocol": "wiz"},
+                                {
+                                    "name": name,
+                                    "ip_address": ip_address,
+                                    "protocol": "wiz",
+                                },
                             )
                         )

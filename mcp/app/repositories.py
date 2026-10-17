@@ -82,14 +82,22 @@ class LightRepository(Repository):
         )
 
     def update_state(
-        self, light_id: int, *, on=None, brightness=None, color=None, reachable=None
+        self,
+        light_id: int,
+        *,
+        on=None,
+        brightness=None,
+        color=None,
+        color_temp=None,
+        reachable=None,
     ) -> Row | None:
         return self.fetch_one(
             """UPDATE lights SET is_on=COALESCE(%s,is_on), brightness=COALESCE(%s,brightness),
-            color=COALESCE(%s,color), reachable=COALESCE(%s,reachable),
+            color=COALESCE(%s,color), color_temp=COALESCE(%s,color_temp),
+            reachable=COALESCE(%s,reachable),
             last_seen=CASE WHEN %s THEN NOW() ELSE last_seen END
             WHERE id=%s RETURNING *""",
-            (on, brightness, color, reachable, reachable is True, light_id),
+            (on, brightness, color, color_temp, reachable, reachable is True, light_id),
         )
 
     def targets(self, target_type: str, target_id: int | None) -> list[Row]:

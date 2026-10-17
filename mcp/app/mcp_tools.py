@@ -88,9 +88,10 @@ class LumiaMCPTools:
             on: bool | None = None,
             brightness: int | None = None,
             color: str | None = None,
+            color_temp: int | None = None,
         ):
-            """Control one light by id. Color is a #RRGGBB value."""
-            state = LightState(on=on, brightness=brightness, color=color)
+            """Control one light by id. Color is a #RRGGBB value; color_temp is white light in Kelvin (2200-6500). Set one of color or color_temp."""
+            state = LightState(on=on, brightness=brightness, color=color, color_temp=color_temp)
             return await control.control("light", light_id, state)
 
         @server.tool()
@@ -104,9 +105,10 @@ class LumiaMCPTools:
             on: bool | None = None,
             brightness: int | None = None,
             color: str | None = None,
+            color_temp: int | None = None,
         ):
-            """Control every light in a saved group."""
-            state = LightState(on=on, brightness=brightness, color=color)
+            """Control every light in a saved group. Set one of color (#RRGGBB) or color_temp (Kelvin, 2200-6500)."""
+            state = LightState(on=on, brightness=brightness, color=color, color_temp=color_temp)
             return await control.control("group", group_id, state)
 
         @server.tool()

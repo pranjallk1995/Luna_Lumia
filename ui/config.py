@@ -22,6 +22,10 @@ class UIConfig:
     WEEKDAY_NAMES: ClassVar[tuple[str, ...]] = (
         "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun",
     )
+    # White-light range supported by WiZ bulbs, in Kelvin.
+    MIN_COLOR_TEMP: ClassVar[int] = 2200
+    MAX_COLOR_TEMP: ClassVar[int] = 6500
+    DEFAULT_COLOR_TEMP: ClassVar[int] = 4000
     # Matches the backend's light-status poll interval.
     STATUS_REFRESH_SECONDS: ClassVar[int] = 10
 

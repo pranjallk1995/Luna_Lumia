@@ -1,7 +1,7 @@
 """Validated request and command models for Luna Lumia."""
 
 from datetime import time
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -92,9 +92,21 @@ class LightUpdate(LightNamed):
 
 
 class LightState(BaseModel):
+    """A partial light state; a bulb shows either an RGB color or a white temperature."""
+
+    MIN_COLOR_TEMP: ClassVar[int] = 2200
+    MAX_COLOR_TEMP: ClassVar[int] = 6500
+
     on: bool | None = None
     brightness: int | None = Field(default=None, ge=1, le=100)
     color: str | None = Field(default=None, pattern=HEX_COLOR_PATTERN)
+    color_temp: int | None = Field(default=None, ge=MIN_COLOR_TEMP, le=MAX_COLOR_TEMP)
+
+    @model_validator(mode="after")
+    def one_color_mode(self):
+        if self.color is not None and self.color_temp is not None:
+            raise ValueError("Set either color or color_temp, not both")
+        return self
 
 
 class LightImageUpdate(BaseModel):
