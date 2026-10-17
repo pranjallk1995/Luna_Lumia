@@ -75,6 +75,24 @@ class LightRepository(Repository):
             (mac_address, light_id),
         )
 
+    def relocate(self, new_ips: dict[int, str]) -> None:
+        """Move lights to new IPs atomically, even when lights swap addresses.
+
+        Moving lights are first parked on unique placeholder addresses
+        (0.0.0.0 + id) so intermediate states never violate the UNIQUE IP rule.
+        """
+        if not new_ips:
+            return
+        with self.database.cursor() as cursor:
+            for light_id in new_ips:
+                cursor.execute(
+                    "UPDATE lights SET ip_address='0.0.0.0'::inet + id WHERE id=%s", (light_id,)
+                )
+            for light_id, ip_address in new_ips.items():
+                cursor.execute(
+                    "UPDATE lights SET ip_address=%s WHERE id=%s", (ip_address, light_id)
+                )
+
     def update_image(self, light_id: int, image_url: str | None) -> Row | None:
         return self.fetch_one(
             "UPDATE lights SET background_image_url=%s WHERE id=%s RETURNING *",

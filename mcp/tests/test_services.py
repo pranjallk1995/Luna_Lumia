@@ -49,10 +49,15 @@ class FakeRoomImages:
 
 
 class FakeLights:
-    def __init__(self): self.macs = []
-    def list(self): return [{"id": 1, "name": "A", "ip_address": "192.168.1.8", "mac_address": None}]
+    def __init__(self, rows=None):
+        self.rows = rows or [{"id": 1, "name": "A", "ip_address": "192.168.1.8", "mac_address": None}]
+        self.macs = []
+    def list(self): return [dict(row) for row in self.rows]
     def get(self, light_id): return None
     def store_mac_address(self, light_id, mac): self.macs.append((light_id, mac))
+    def relocate(self, new_ips):
+        for row in self.rows:
+            row["ip_address"] = new_ips.get(row["id"], row["ip_address"])
 
 
 class FakeDiscovery:
@@ -101,6 +106,39 @@ class LightServiceTests(unittest.TestCase):
         self.assertEqual(lights.macs, [(1, "AA:BB:CC:DD:EE:FF")])
         self.assertEqual(result[0]["suggested_name"], "WiZ light EEFF")
         self.assertEqual(result[1]["suggested_name"], "WiZ light 20")
+
+    def test_discovery_follows_bulbs_that_swapped_ips(self):
+        lights = FakeLights([
+            {"id": 10, "name": "Balcony", "ip_address": "192.168.1.5", "mac_address": "98:77:D5:D6:D5:FE"},
+            {"id": 11, "name": "Entrance", "ip_address": "192.168.1.3", "mac_address": "98:77:D5:D6:8C:66"},
+        ])
+
+        class SwappedDiscovery:
+            async def scan(self, broadcast_space):
+                return [
+                    {"ip_address": "192.168.1.3", "mac_address": "9877d5d6d5fe", "protocol": "wiz"},
+                    {"ip_address": "192.168.1.5", "mac_address": "9877d5d68c66", "protocol": "wiz"},
+                ]
+
+        result = asyncio.run(LightService(lights, SwappedDiscovery(), None).discover("192.168.1.255"))
+        self.assertEqual({row["name"]: row["ip_address"] for row in lights.rows},
+                         {"Balcony": "192.168.1.3", "Entrance": "192.168.1.5"})
+        self.assertEqual(lights.macs, [])
+        self.assertTrue(all(item["configured"] for item in result))
+        self.assertEqual(result[0]["moved_from"], "192.168.1.5")
+
+    def test_discovery_never_steals_another_lights_mac(self):
+        lights = FakeLights([
+            {"id": 1, "name": "A", "ip_address": "192.168.1.8", "mac_address": None},
+            {"id": 2, "name": "B", "ip_address": "192.168.1.9", "mac_address": "AA:BB:CC:DD:EE:FF"},
+        ])
+
+        class Discovery:
+            async def scan(self, broadcast_space):
+                return [{"ip_address": "192.168.1.8", "mac_address": "aabbccddeeff", "protocol": "wiz"}]
+
+        asyncio.run(LightService(lights, Discovery(), None).discover("192.168.1.255"))
+        self.assertEqual(lights.macs, [])
 
     def test_missing_light_image_is_not_found(self):
         images = BackgroundImageService(FakeRoomImages(), FakeLights(), FakeCollections())

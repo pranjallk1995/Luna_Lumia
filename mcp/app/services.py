@@ -259,21 +259,56 @@ class LightService:
         )
         return f"WiZ light {suffix.upper()}"
 
+    @staticmethod
+    def normalized_mac(value: str | None) -> str | None:
+        try:
+            return Validators.mac_address(value)
+        except ValueError:
+            return None
+
+    def _follow_moved_lights(self, saved: list[Row], results: list[dict]) -> None:
+        """Update saved lights whose bulb (matched by MAC) now answers at a new IP.
+
+        DHCP can reshuffle addresses, so the MAC is the stable identity. A move
+        is skipped if its new IP is held by a saved light that is not moving.
+        """
+        by_mac = {light["mac_address"]: light for light in saved if light.get("mac_address")}
+        by_ip = {light["ip_address"]: light for light in saved}
+        moves = {}
+        for result in results:
+            light = by_mac.get(result["mac_address"])
+            if light and light["ip_address"] != result["ip_address"]:
+                moves[light["id"]] = result["ip_address"]
+                result["moved_from"] = light["ip_address"]
+        blocked = {
+            light_id
+            for light_id, ip_address in moves.items()
+            if (holder := by_ip.get(ip_address)) and holder["id"] not in moves
+        }
+        self.lights.relocate({key: ip for key, ip in moves.items() if key not in blocked})
+
+    def _backfill_macs(self, saved: list[Row], results: list[dict]) -> None:
+        """Record a MAC for a saved light that has none, unless another light owns it."""
+        owned = {light["mac_address"] for light in saved if light.get("mac_address")}
+        by_ip = {light["ip_address"]: light for light in saved}
+        for result in results:
+            light = by_ip.get(result["ip_address"])
+            mac_address = result["mac_address"]
+            if light and mac_address and not light.get("mac_address") and mac_address not in owned:
+                self.lights.store_mac_address(light["id"], mac_address)
+                owned.add(mac_address)
+
     async def discover(self, broadcast_space: str = GLOBAL_BROADCAST) -> list[dict]:
-        """Scan for lights, flag configured ones, and backfill their MAC addresses."""
-        configured = {light["ip_address"]: light for light in self.lights.list()}
+        """Scan for lights, follow saved lights to new IPs, and flag configured ones."""
         results = await self.discovery.scan(broadcast_space)
         for result in results:
-            saved_light = configured.get(result["ip_address"])
-            result["configured"] = saved_light is not None
-            if (
-                saved_light
-                and result.get("mac_address")
-                and saved_light.get("mac_address") != result["mac_address"]
-            ):
-                normalized = Validators.mac_address(result["mac_address"])
-                self.lights.store_mac_address(saved_light["id"], normalized)
-                result["mac_address"] = normalized
+            result["mac_address"] = self.normalized_mac(result.get("mac_address"))
+        self._follow_moved_lights(self.lights.list(), results)
+        saved = self.lights.list()
+        self._backfill_macs(saved, results)
+        configured_ips = {light["ip_address"] for light in saved}
+        for result in results:
+            result["configured"] = result["ip_address"] in configured_ips
             result["suggested_name"] = self.suggested_name(result)
         return sorted(
             results,
