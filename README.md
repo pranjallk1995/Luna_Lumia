@@ -1,5 +1,9 @@
 # Luna Lumia
 
+> **Work in progress:** Luna Lumia is a local-first and desktop first nutrition and body-measurement tracker under active development.
+
+## Control, Automate and Manage your Smart Lights LLMs
+
 Luna Lumia is the Luna-family smart-light controller. It uses the same
 Streamlit + Python/FastMCP + PostgreSQL structure and shared visual system as
 Luna Visia and Luna Vita.
