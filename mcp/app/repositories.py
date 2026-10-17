@@ -101,9 +101,11 @@ class LightRepository(Repository):
         )
 
     def targets(self, target_type: str, target_id: int | None) -> list[Row]:
-        """Resolve all lights, one light, or a room/group's member lights."""
+        """Resolve all lights, lights currently on, one light, or a room/group's members."""
         if target_type == "all":
             return self.fetch_all("SELECT * FROM lights ORDER BY id")
+        if target_type == "on":
+            return self.fetch_all("SELECT * FROM lights WHERE is_on ORDER BY id")
         if target_type == "light":
             return self.fetch_all("SELECT * FROM lights WHERE id=%s", (target_id,))
         return self.fetch_all(

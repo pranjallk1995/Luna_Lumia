@@ -108,7 +108,9 @@ class ColorControls:
     def __init__(self, presets: tuple[str, ...]) -> None:
         self.presets = presets
 
-    def render(self, suffix, color_key: str, on_pick: tuple, on_preset: tuple) -> None:
+    def render(
+        self, suffix, color_key: str, on_pick: tuple, on_preset: tuple, disabled: bool = False
+    ) -> None:
         pick_callback, pick_args = on_pick
         preset_callback, preset_args = on_preset
         with st.container(key=f"light_color_controls_{suffix}"):
@@ -122,6 +124,7 @@ class ColorControls:
                 "Color",
                 key=color_key,
                 label_visibility="collapsed",
+                disabled=disabled,
                 on_change=pick_callback,
                 args=pick_args,
             )
@@ -130,6 +133,7 @@ class ColorControls:
                     "●",
                     key=f"preset_color_{suffix}_{preset_color[1:]}",
                     help=f"Use {preset_color}",
+                    disabled=disabled,
                     on_click=preset_callback,
                     args=(*preset_args, preset_color),
                 )
@@ -163,7 +167,7 @@ class InlineIcon:
 
 
 class AllLightsControls(LumiaTab):
-    """Set one color temperature or color on every light at once."""
+    """Set one color temperature or color on every light that is currently on."""
 
     TEMP_KEY = "all_lights_color_temp"
     COLOR_KEY = "all_lights_color"
@@ -176,16 +180,16 @@ class AllLightsControls(LumiaTab):
 
     @classmethod
     def apply(cls, api, light_ids: list[int], changed: str, value) -> None:
-        """Turn every light on in the chosen color mode, then reset card widgets."""
+        """Recolor the lights that are on (off lights stay off), then reset their card widgets."""
         try:
-            api.control("all", on=True, **{changed: value})
+            api.control("on", **{changed: value})
             st.session_state.pop(cls.ERROR_KEY, None)
         except httpx.HTTPError as error:
             st.session_state[cls.ERROR_KEY] = str(error)
             return
         # Dropping card widget state makes them re-read the updated dashboard.
         for light_id in light_ids:
-            for prefix in ("on", "color", "color_temp"):
+            for prefix in ("color", "color_temp"):
                 st.session_state.pop(f"{prefix}_{light_id}", None)
 
     @classmethod
@@ -198,8 +202,12 @@ class AllLightsControls(LumiaTab):
             st.session_state[cls.COLOR_KEY] = color
         cls.apply(api, light_ids, "color", st.session_state[cls.COLOR_KEY])
 
+    @property
+    def on_lights(self) -> list:
+        return [light for light in self.dashboard.lights if light.get("is_on")]
+
     def render_temperature(self) -> None:
-        lights = self.dashboard.lights
+        lights = self.on_lights
         InlineIcon.slider(
             "device_thermostat",
             "All lights temperature",
@@ -220,7 +228,7 @@ class AllLightsControls(LumiaTab):
         )
 
     def render_color(self) -> None:
-        lights = self.dashboard.lights
+        lights = self.on_lights
         if self.COLOR_KEY not in st.session_state:
             st.session_state[self.COLOR_KEY] = self.most_common(
                 [light.get("color") for light in lights], "#FFFFFF"
@@ -231,6 +239,7 @@ class AllLightsControls(LumiaTab):
             self.COLOR_KEY,
             on_pick=(self.apply_color, args),
             on_preset=(self.apply_color, args),
+            disabled=not lights,
         )
 
     def render_error(self) -> None:

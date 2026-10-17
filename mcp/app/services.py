@@ -31,6 +31,8 @@ from .room_images import ImageScheme, RoomImageCatalog, RoomKeyDetector
 class LightControlService:
     """Send states to physical lights and persist what they report back."""
 
+    UNSCOPED_TARGETS = ("all", "on")
+
     def __init__(self, lights: LightRepository, adapter: WizLightAdapter | None = None) -> None:
         self.lights = lights
         self.adapter = adapter or WizLightAdapter()
@@ -38,7 +40,8 @@ class LightControlService:
     async def control(
         self, target_type: str, target_id: int | None, state: LightState
     ) -> list[dict[str, Any]]:
-        if target_type != "all" and target_id is None:
+        """Apply ``state`` to "all", "on" (lights currently on), "light", or "group" targets."""
+        if target_type not in self.UNSCOPED_TARGETS and target_id is None:
             raise ValueError("target_id is required")
         color = state.color.upper() if state.color else None
         results = []

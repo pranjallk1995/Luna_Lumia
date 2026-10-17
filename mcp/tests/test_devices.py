@@ -56,3 +56,7 @@ class DeviceTests(unittest.TestCase):
         repo,adapter=FakeRepository(),FakeAdapter()
         asyncio.run(LightControlService(repo,adapter).control("light",1,LightState(color_temp=3000)))
         self.assertEqual(adapter.calls[0][1]["color_temp"],3000); self.assertEqual(repo.saved[0][1]["color_temp"],3000)
+    def test_on_target_needs_no_id(self):
+        repo,adapter=FakeRepository(),FakeAdapter()
+        asyncio.run(LightControlService(repo,adapter).control("on",None,LightState(color_temp=3000)))
+        self.assertIsNone(adapter.calls[0][1]["on"])
