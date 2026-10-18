@@ -9,9 +9,7 @@ import httpx
 import streamlit as st
 
 from domain.dashboard import Item
-from views.shared import ActionRunner, LumiaTab
-
-TEMPERATURE, COLOR = "Temperature", "Color"
+from views.shared import COLOR, MODE_ICONS, TEMPERATURE, ActionRunner, LumiaTab
 
 
 class FormFeedback:
@@ -130,15 +128,18 @@ class LightValueInput:
         # ("<key>_color" / "<key>_temp") that seeds the picker when it is drawn.
         self.defaults(key)
         mode = container.segmented_control(
-            "Mode", [TEMPERATURE, COLOR], key=f"{key}_mode", label_visibility="collapsed",
+            "Mode", [TEMPERATURE, COLOR], format_func=MODE_ICONS.__getitem__,
+            key=f"{key}_mode", label_visibility="collapsed",
         )
+        # Fixed-height body so switching Temperature/Color does not resize the form.
+        body = container.container(key=f"{key}_value_body")
         if (mode or TEMPERATURE) == COLOR:
-            st.session_state[f"{key}_color"] = container.color_picker(
+            st.session_state[f"{key}_color"] = body.color_picker(
                 "Color", value=st.session_state[f"{key}_color"],
                 key=f"{key}_color_widget", label_visibility="collapsed",
             )
         else:
-            st.session_state[f"{key}_temp"] = container.slider(
+            st.session_state[f"{key}_temp"] = body.slider(
                 "Temperature", self.config.MIN_COLOR_TEMP, self.config.MAX_COLOR_TEMP,
                 value=st.session_state[f"{key}_temp"], step=100, format="%dK",
                 key=f"{key}_temp_widget", label_visibility="collapsed",

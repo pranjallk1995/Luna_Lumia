@@ -9,6 +9,71 @@ from domain.dashboard import Item
 from views.shared import ActionRunner, InlineNameEditor, LumiaTab, NameRules
 
 
+class RoomSchemePicker:
+    """A popover that applies any scheme to one room or group, or stops its sequence."""
+
+    ERROR_KEY = "room_scheme_error_{}"
+
+    def __init__(self, api, dashboard, collection: Item, members: list[Item]) -> None:
+        self.api = api
+        self.dashboard = dashboard
+        self.collection = collection
+        self.member_ids = [light["id"] for light in members]
+
+    # Button callbacks run before the next script pass; errors are shown on that pass.
+    @classmethod
+    def apply(cls, api, collection_id: int, scheme_id: int) -> None:
+        cls._call(collection_id, lambda: api.apply_scene(scheme_id, "group", collection_id))
+
+    @classmethod
+    def stop(cls, api, collection_id: int) -> None:
+        cls._call(collection_id, lambda: api.stop_scenes("group", collection_id))
+
+    @classmethod
+    def _call(cls, collection_id: int, action) -> None:
+        try:
+            action()
+            st.session_state.pop(cls.ERROR_KEY.format(collection_id), None)
+        except httpx.HTTPError as error:
+            st.session_state[cls.ERROR_KEY.format(collection_id)] = ActionRunner.error_message(error)
+
+    def playing_scheme(self) -> Item | None:
+        playing = {self.dashboard.playing.get(light_id) for light_id in self.member_ids} - {None}
+        return next((scheme for scheme in self.dashboard.scenes if scheme["id"] in playing), None)
+
+    def render(self) -> None:
+        collection_id = self.collection["id"]
+        playing = self.playing_scheme()
+        label = playing["name"] if playing else ""
+        with st.container(key=f"room_scheme_{collection_id}"):
+            with st.popover(
+                label,
+                icon=":material/timeline:" if playing else ":material/palette:",
+                help="Apply a scheme",
+                disabled=not self.member_ids,
+            ):
+                st.caption(f'Apply a scheme to {html.escape(self.collection["name"])}')
+                if playing:
+                    st.button(
+                        f'Stop {playing["name"]}', icon=":material/stop:", key=f"room_scheme_stop_{collection_id}",
+                        use_container_width=True, on_click=self.stop, args=(self.api, collection_id),
+                    )
+                for kind, heading, icon in (("solid", "Solid", ":material/lens:"), ("sequence", "Sequence", ":material/timeline:")):
+                    schemes = [scheme for scheme in self.dashboard.scenes if scheme["kind"] == kind]
+                    if not schemes:
+                        continue
+                    st.markdown(f'<div class="room-scheme-heading">{heading}</div>', unsafe_allow_html=True)
+                    columns = st.columns(2, gap="small")
+                    for index, scheme in enumerate(schemes):
+                        columns[index % 2].button(
+                            scheme["name"], icon=icon, key=f"room_scheme_{collection_id}_{scheme['id']}",
+                            use_container_width=True, on_click=self.apply,
+                            args=(self.api, collection_id, scheme["id"]),
+                        )
+        if st.session_state.get(self.ERROR_KEY.format(collection_id)):
+            st.error(st.session_state[self.ERROR_KEY.format(collection_id)])
+
+
 class CollectionCard(LumiaTab):
     """A room or group card: image, rename, power, and member-light pills."""
 
@@ -108,8 +173,15 @@ class CollectionCard(LumiaTab):
                 on_change=self.sync_power,
                 args=(self.api, self.collection_id, power_key),
             )
-            if st.button("", icon=":material/delete:", key=f"dg{self.collection_id}"):
-                ActionRunner.run(lambda: self.api.delete(f"{self.kind}s", self.collection_id))
+            with st.container(
+                key=f"room_actions_{self.collection_id}",
+                horizontal=True,
+                vertical_alignment="center",
+                gap="small",
+            ):
+                RoomSchemePicker(self.api, self.dashboard, self.collection, self.members).render()
+                if st.button("", icon=":material/delete:", key=f"dg{self.collection_id}"):
+                    ActionRunner.run(lambda: self.api.delete(f"{self.kind}s", self.collection_id))
         if st.session_state.get(f"room_control_error_{self.collection_id}"):
             st.error("Could not update this room.")
 

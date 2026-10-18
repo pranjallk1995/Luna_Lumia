@@ -87,6 +87,18 @@ class LunaStyle:
         .scheme-badge{padding:.12rem .45rem;border:1px solid var(--lv-border);border-radius:999px;color:var(--lv-muted);font-size:.6rem;font-weight:500}
         .scheme-badge.playing{border-color:rgba(255,190,85,.45);color:#ffbe55}
         .scheme-step-title{color:var(--lv-text);font-size:.85rem;font-weight:650}
+        div[class*="st-key-light_mode_body_"]{min-height:5.45rem;justify-content:center}
+        div[class*="st-key-room_actions_"]{justify-content:flex-end!important;gap:.9rem!important}
+        div[class*="st-key-room_actions_"]>div[data-testid="stLayoutWrapper"]{flex:0 0 auto!important;width:auto!important}
+        div[data-testid="stPopoverBody"]:has(.room-scheme-heading){min-width:25rem!important}
+        div[data-testid="stPopoverBody"]:has(.room-scheme-heading) button{justify-content:flex-start!important;white-space:nowrap!important;font-size:.8rem!important}
+        div[data-testid="stPopoverBody"]:has(.room-scheme-heading) button p{white-space:nowrap!important}
+        div[class*="st-key-room_scheme_"] div[data-testid="stPopover"] button{min-width:4.25rem!important;padding:0 1rem!important;min-height:2.25rem!important;height:2.25rem!important;border:1px solid var(--lv-border)!important;border-radius:.65rem!important;background:var(--lv-control)!important;font-size:.78rem!important}
+        .room-scheme-heading{margin:.35rem 0 .1rem;color:var(--lv-muted);font-size:.7rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+        div[class*="st-key-temp_presets_"]{flex-wrap:nowrap!important;gap:.35rem!important;margin:-.1rem 0 .2rem}
+        div[class*="st-key-temp_preset_"] button p{font-size:.66rem!important;line-height:1!important;overflow:hidden;text-overflow:ellipsis}
+        div[class*="st-key-temp_presets_"]>div{flex:1 1 0!important;min-width:0!important;width:auto!important}
+        div[class*="st-key-temp_preset_"] button{width:100%!important;min-height:1.75rem!important;height:1.75rem!important;padding:0 .25rem!important;border:1px solid var(--lv-border)!important;border-radius:.65rem!important;font-size:.68rem!important;font-weight:600!important;white-space:nowrap!important}
         .st-key-all_lights_bar{margin-top:1rem;margin-bottom:1rem}
         .st-key-all_lights_bar .light-stats-row{min-height:3.6rem}
         .st-key-all_lights_bar [data-testid="stMarkdownContainer"]:has(>.light-stats-row){margin-bottom:0!important}

@@ -14,7 +14,7 @@ class AppConfig:
     host: str = "0.0.0.0"
     port: int = 8000
     schedule_interval_seconds: float = 20.0
-    status_poll_interval_seconds: float = 10.0
+    status_poll_interval_seconds: float = 30.0
     device_timeout_seconds: float = 3.0
     default_broadcast_space: str = "255.255.255.255"
 

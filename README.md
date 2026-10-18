@@ -87,6 +87,11 @@ docker compose -f docker-compose.yaml up --build
 Open `http://127.0.0.1:18503`. The MCP endpoint is
 `http://127.0.0.1:18002/mcp`.
 
+Favicon and icons: <http://127.0.0.1:18002/favicon.ico> and
+`/icons/icon-{48,96,192,512}.png`; the 48 and 96 px icons are also embedded in
+the MCP `initialize` server info so connector clients such as Claude can show
+them (`mcp/app/branding.py`, assets in `mcp/app/assets/`).
+
 For source synchronization, run Compose Watch in the foreground:
 
 ```bash

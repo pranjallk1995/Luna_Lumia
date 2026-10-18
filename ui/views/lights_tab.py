@@ -6,7 +6,7 @@ import httpx
 import streamlit as st
 
 from domain.dashboard import Item
-from views.shared import ActionRunner, InlineNameEditor, LumiaTab, NameRules
+from views.shared import COLOR, MODE_ICONS, TEMPERATURE, ActionRunner, InlineNameEditor, LumiaTab, NameRules
 
 
 class DiscoveryPanel(LumiaTab):
@@ -136,6 +136,52 @@ class ColorControls:
                     disabled=disabled,
                     on_click=preset_callback,
                     args=(*preset_args, preset_color),
+                )
+
+
+class TemperaturePresets:
+    """One-tap chips for the built-in temperature schemes (e.g. Focus, Bedtime).
+
+    Chip keys are ``temp_preset_<scheme id>_<suffix>`` so ``style_html`` can tint
+    every chip of one scheme with that scheme's preview color.
+    """
+
+    def __init__(self, schemes: list[Item]) -> None:
+        self.schemes = schemes
+
+    @classmethod
+    def from_dashboard(cls, dashboard, names: tuple[str, ...]) -> "TemperaturePresets":
+        built_in = {
+            scheme["name"]: scheme
+            for scheme in dashboard.scenes
+            if scheme["is_preset"] and scheme["kind"] == "solid" and scheme.get("color_temp")
+        }
+        return cls([built_in[name] for name in names if name in built_in])
+
+    def style_html(self) -> str:
+        rules = []
+        for scheme in self.schemes:
+            color = scheme["preview_colors"][0]
+            red, green, blue = (int(color[index : index + 2], 16) for index in (1, 3, 5))
+            selector = f'div[class*="st-key-temp_preset_{scheme["id"]}_"] button'
+            rules.append(
+                f"{selector},{selector} *{{color:{color}!important;-webkit-text-fill-color:{color}!important}}"
+                f"{selector}{{background:rgba({red},{green},{blue},.14)!important;"
+                f"border-color:rgba({red},{green},{blue},.38)!important}}"
+                f"{selector}:hover{{background:rgba({red},{green},{blue},.26)!important}}"
+            )
+        return f"<style>{''.join(rules)}</style>"
+
+    def render(self, suffix, on_select: tuple) -> None:
+        callback, args = on_select
+        with st.container(key=f"temp_presets_{suffix}", horizontal=True, gap="small"):
+            for scheme in self.schemes:
+                st.button(
+                    scheme["name"],
+                    key=f"temp_preset_{scheme['id']}_{suffix}",
+                    help=f'{scheme["color_temp"]} K · {scheme["brightness"]}% brightness',
+                    on_click=callback,
+                    args=(*args, scheme["id"]),
                 )
 
 
@@ -282,6 +328,18 @@ class LightCard(LumiaTab):
         st.session_state[f"color_{light_id}"] = color
         cls.sync_controls(api, light_id, "color")
 
+    @staticmethod
+    def apply_temperature_preset(api, light_id: int, scheme_id: int) -> None:
+        """Apply a built-in temperature scheme, then let the sliders re-read the light."""
+        try:
+            api.apply_scene(scheme_id, "light", light_id)
+            st.session_state.pop(f"control_error_{light_id}", None)
+        except httpx.HTTPError as error:
+            st.session_state[f"control_error_{light_id}"] = str(error)
+            return
+        for prefix in ("on", "brightness", "color_temp"):
+            st.session_state.pop(f"{prefix}_{light_id}", None)
+
     def render(self) -> None:
         with st.container(border=True):
             self._render_hero()
@@ -342,26 +400,39 @@ class LightCard(LumiaTab):
             on_change=self.sync_controls,
             args=sync_args,
         )
-        InlineIcon.slider(
-            "device_thermostat",
-            "Color temperature",
-            self.config.MIN_COLOR_TEMP,
-            self.config.MAX_COLOR_TEMP,
-            int(self.light.get("color_temp") or self.config.DEFAULT_COLOR_TEMP),
-            step=100,
-            format="%dK",
-            key=f"color_temp_{self.light_id}",
-            on_change=self.sync_controls,
-            args=(*sync_args, "color_temp"),
+        mode_key = f"light_mode_{self.light_id}"
+        st.session_state.setdefault(mode_key, TEMPERATURE)
+        mode = st.segmented_control(
+            "Light mode", [TEMPERATURE, COLOR], format_func=MODE_ICONS.__getitem__,
+            key=mode_key, label_visibility="collapsed",
         )
-        if self.color_key not in st.session_state:
-            st.session_state[self.color_key] = self.light["color"]
-        ColorControls(self.config.PRESET_COLORS).render(
-            self.light_id,
-            self.color_key,
-            on_pick=(self.sync_controls, (*sync_args, "color")),
-            on_preset=(self.select_preset_color, sync_args),
-        )
+        # Fixed-height body so switching Temperature/Color does not resize the card.
+        with st.container(key=f"light_mode_body_{self.light_id}"):
+            if (mode or TEMPERATURE) == TEMPERATURE:
+                InlineIcon.slider(
+                    "device_thermostat",
+                    "Color temperature",
+                    self.config.MIN_COLOR_TEMP,
+                    self.config.MAX_COLOR_TEMP,
+                    int(self.light.get("color_temp") or self.config.DEFAULT_COLOR_TEMP),
+                    step=100,
+                    format="%dK",
+                    key=f"color_temp_{self.light_id}",
+                    on_change=self.sync_controls,
+                    args=(*sync_args, "color_temp"),
+                )
+                TemperaturePresets.from_dashboard(self.dashboard, self.config.TEMPERATURE_PRESETS).render(
+                    self.light_id, on_select=(self.apply_temperature_preset, sync_args)
+                )
+                return
+            if self.color_key not in st.session_state:
+                st.session_state[self.color_key] = self.light["color"]
+            ColorControls(self.config.PRESET_COLORS).render(
+                self.light_id,
+                self.color_key,
+                on_pick=(self.sync_controls, (*sync_args, "color")),
+                on_preset=(self.select_preset_color, sync_args),
+            )
 
     def _render_actions(self) -> None:
         room_names = self.dashboard.room_names_by_light.get(self.light_id, [])
@@ -383,6 +454,9 @@ class LightsTab(LumiaTab):
 
     def render(self) -> None:
         DiscoveryPanel(self.api, self.config, self.dashboard).render()
+        st.html(
+            TemperaturePresets.from_dashboard(self.dashboard, self.config.TEMPERATURE_PRESETS).style_html()
+        )
         self._render_stats()
         self._render_cards()
         self._render_add_form()

@@ -11,6 +11,12 @@ from config import UIConfig
 from domain.dashboard import Dashboard
 
 
+# Options of the Temperature | Color segmented toggle used wherever a light value is chosen;
+# the toggle shows only their icons.
+TEMPERATURE, COLOR = "Temperature", "Color"
+MODE_ICONS = {TEMPERATURE: ":material/device_thermostat:", COLOR: ":material/palette:"}
+
+
 class ActionRunner:
     """Run a backend mutation, then rerun on success or surface its error."""
 

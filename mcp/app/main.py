@@ -2,6 +2,7 @@
 
 from mcp.server.fastmcp import FastMCP
 
+from .branding import ServerBranding
 from .config import AppConfig
 from .database import Database
 from .devices import WizDiscovery, WizLightAdapter
@@ -43,15 +44,17 @@ class LunaLumiaApplication:
         self.engine = SceneEngine(self.adapter.apply)
         self.engine.start()
         self.service = self._build_service()
+        self.branding = ServerBranding()
         self.mcp = FastMCP(
             "LunaLumia",
+            icons=self.branding.mcp_icons(),
             host=config.host,
             port=config.port,
             stateless_http=True,
             json_response=True,
         )
         LumiaMCPTools(self.mcp, self.service)
-        LumiaHTTPRoutes(self.mcp, self.service)
+        LumiaHTTPRoutes(self.mcp, self.service, self.branding)
         self.workers = [
             ScheduleWorker(
                 self.service.schedules, config.timezone, config.schedule_interval_seconds

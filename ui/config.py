@@ -19,6 +19,8 @@ class UIConfig:
         "#FF836A",
         "#B86DE0",
     )
+    # Built-in solid schemes offered as one-tap chips in a light card's Temperature mode.
+    TEMPERATURE_PRESETS: ClassVar[tuple[str, ...]] = ("Focus", "Daylight", "Reading", "Bedtime")
     WEEKDAY_NAMES: ClassVar[tuple[str, ...]] = (
         "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun",
     )
@@ -27,7 +29,7 @@ class UIConfig:
     MAX_COLOR_TEMP: ClassVar[int] = 6500
     DEFAULT_COLOR_TEMP: ClassVar[int] = 4000
     # Matches the backend's light-status poll interval.
-    STATUS_REFRESH_SECONDS: ClassVar[int] = 10
+    STATUS_REFRESH_SECONDS: ClassVar[int] = 30
 
     api_url: str
     api_timeout: float = 8.0
