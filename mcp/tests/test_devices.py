@@ -60,3 +60,8 @@ class DeviceTests(unittest.TestCase):
         repo,adapter=FakeRepository(),FakeAdapter()
         asyncio.run(LightControlService(repo,adapter).control("on",None,LightState(color_temp=3000)))
         self.assertIsNone(adapter.calls[0][1]["on"])
+    def test_color_change_records_light_as_on_without_sending_off(self):
+        repo,adapter=FakeRepository(),FakeAdapter()
+        asyncio.run(LightControlService(repo,adapter).control("light",1,LightState(color="#FF0000")))
+        self.assertIsNone(adapter.calls[0][1]["on"])
+        self.assertTrue(repo.saved[0][1]["on"])

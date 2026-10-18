@@ -63,6 +63,10 @@ class LightControlService:
         targets = self.resolve_targets(target_type, target_id)
         self.stop_sequences(targets)
         color = state.color.upper() if state.color else None
+        # A brightness/color/temperature command turns the bulb on (see the adapter),
+        # so record that too instead of waiting for the next status poll.
+        changes_light = any(v is not None for v in (state.brightness, state.color, state.color_temp))
+        powered_on = state.on if state.on is not None else (True if changes_light else None)
         results = []
         for light in targets:
             try:
@@ -75,7 +79,7 @@ class LightControlService:
                 )
                 saved = self.lights.update_state(
                     light["id"],
-                    on=state.on,
+                    on=powered_on,
                     brightness=state.brightness,
                     color=color,
                     color_temp=state.color_temp,

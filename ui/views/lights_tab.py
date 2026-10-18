@@ -233,10 +233,10 @@ class AllLightsControls(LumiaTab):
         except httpx.HTTPError as error:
             st.session_state[cls.ERROR_KEY] = str(error)
             return
-        # Dropping card widget state makes them re-read the updated dashboard.
+        # Forgetting what the cards last saw makes them reload the updated light state.
         for light_id in light_ids:
             for prefix in ("color", "color_temp"):
-                st.session_state.pop(f"{prefix}_{light_id}", None)
+                st.session_state.pop(f"{prefix}_seen_{light_id}", None)
 
     @classmethod
     def apply_temp(cls, api, light_ids: list[int]) -> None:
@@ -305,18 +305,14 @@ class LightCard(LumiaTab):
     # Widget callbacks run before the next script pass, so they read widget
     # values from session state rather than from this card instance.
     @staticmethod
-    def sync_controls(api, light_id: int, changed: str | None = None) -> None:
-        """Send power and brightness plus the changed color mode, without a toast.
+    def sync_controls(api, light_id: int, changed: str = "on") -> None:
+        """Send only the control the user just changed, without a toast.
 
-        A bulb shows either an RGB ``color`` or a white ``color_temp``, so only
-        the one the user just changed is sent.
+        Sending the other controls' values too is unsafe: if a stale "off"
+        rode along with a brightness or color change, the bulb would turn off.
+        A bulb also shows either an RGB ``color`` or a white ``color_temp``.
         """
-        state = {
-            "on": st.session_state[f"on_{light_id}"],
-            "brightness": st.session_state[f"brightness_{light_id}"],
-        }
-        if changed in ("color", "color_temp"):
-            state[changed] = st.session_state[f"{changed}_{light_id}"]
+        state = {changed: st.session_state[f"{changed}_{light_id}"]}
         try:
             api.control("light", light_id, **state)
             st.session_state.pop(f"control_error_{light_id}", None)
@@ -338,9 +334,30 @@ class LightCard(LumiaTab):
             st.session_state[f"control_error_{light_id}"] = str(error)
             return
         for prefix in ("on", "brightness", "color_temp"):
-            st.session_state.pop(f"{prefix}_{light_id}", None)
+            st.session_state.pop(f"{prefix}_seen_{light_id}", None)
+
+    def follow_server_state(self) -> None:
+        """Move the card's controls to the light's saved state when it changed elsewhere.
+
+        Streamlit keeps a widget's own value once created, so without this the
+        controls would keep showing a state set before e.g. "Turn all on", a
+        scheme, a schedule, or the WiZ app changed the light.
+        """
+        light = self.light
+        server = {
+            "on": bool(light["is_on"]),
+            "brightness": int(light["brightness"]),
+            "color_temp": int(light.get("color_temp") or self.config.DEFAULT_COLOR_TEMP),
+            "color": light["color"],
+        }
+        for control, value in server.items():
+            seen_key = f"{control}_seen_{self.light_id}"
+            if st.session_state.get(seen_key) != value:
+                st.session_state[f"{control}_{self.light_id}"] = value
+                st.session_state[seen_key] = value
 
     def render(self) -> None:
+        self.follow_server_state()
         with st.container(border=True):
             self._render_hero()
             InlineNameEditor(
@@ -383,22 +400,21 @@ class LightCard(LumiaTab):
 
     def _render_controls(self) -> None:
         sync_args = (self.api, self.light_id)
+        # Values come from session state, kept in step by follow_server_state().
         st.toggle(
             "On",
-            value=self.light["is_on"],
             key=f"on_{self.light_id}",
             on_change=self.sync_controls,
-            args=sync_args,
+            args=(*sync_args, "on"),
         )
         InlineIcon.slider(
             "brightness_6",
             "Brightness",
             1,
             100,
-            int(self.light["brightness"]),
             key=f"brightness_{self.light_id}",
             on_change=self.sync_controls,
-            args=sync_args,
+            args=(*sync_args, "brightness"),
         )
         mode_key = f"light_mode_{self.light_id}"
         st.session_state.setdefault(mode_key, TEMPERATURE)
@@ -414,7 +430,6 @@ class LightCard(LumiaTab):
                     "Color temperature",
                     self.config.MIN_COLOR_TEMP,
                     self.config.MAX_COLOR_TEMP,
-                    int(self.light.get("color_temp") or self.config.DEFAULT_COLOR_TEMP),
                     step=100,
                     format="%dK",
                     key=f"color_temp_{self.light_id}",
@@ -425,8 +440,6 @@ class LightCard(LumiaTab):
                     self.light_id, on_select=(self.apply_temperature_preset, sync_args)
                 )
                 return
-            if self.color_key not in st.session_state:
-                st.session_state[self.color_key] = self.light["color"]
             ColorControls(self.config.PRESET_COLORS).render(
                 self.light_id,
                 self.color_key,
