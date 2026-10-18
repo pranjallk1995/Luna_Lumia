@@ -5,8 +5,17 @@ from __future__ import annotations
 from datetime import date, time
 from typing import Any
 
+from psycopg.types.json import Jsonb
+
 from .database import Database
-from .models import CollectionKind, GroupCreate, LightCreate, SceneCreate, ScheduleCreate
+from .models import (
+    CollectionKind,
+    GroupCreate,
+    LightCreate,
+    SceneCreate,
+    ScheduleCreate,
+    TransitionCreate,
+)
 
 Row = dict[str, Any]
 
@@ -230,20 +239,74 @@ class RoomImageRepository(Repository):
 
 
 class SceneRepository(Repository):
+    """Solid and sequence schemes; built-in presets are refreshed, never deleted."""
+
+    COLUMNS = "name,kind,color,color_temp,brightness,steps,loops,is_preset"
+
+    @staticmethod
+    def values(entry: SceneCreate, is_preset: bool) -> tuple:
+        steps = [step.model_dump() for step in entry.steps]
+        return (
+            entry.name, entry.kind, entry.color, entry.color_temp, entry.brightness,
+            Jsonb(steps), entry.loops, is_preset,
+        )
+
     def list(self) -> list[Row]:
-        return self.fetch_all("SELECT * FROM scenes ORDER BY name")
+        return self.fetch_all("SELECT * FROM scenes ORDER BY is_preset DESC, kind, name")
 
     def get(self, scene_id: int) -> Row | None:
         return self.fetch_one("SELECT * FROM scenes WHERE id=%s", (scene_id,))
 
     def add(self, entry: SceneCreate) -> Row | None:
         return self.fetch_one(
-            "INSERT INTO scenes(name,color,brightness) VALUES(%s,%s,%s) RETURNING *",
-            (entry.name.strip(), entry.color.upper(), entry.brightness),
+            f"INSERT INTO scenes({self.COLUMNS}) VALUES(%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            self.values(entry, False),
         )
 
+    def upsert_preset(self, entry: SceneCreate) -> None:
+        """Install or refresh a built-in scheme; a user scheme with that name is kept."""
+        with self.database.cursor() as cursor:
+            cursor.execute(
+                f"""INSERT INTO scenes({self.COLUMNS}) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (name) DO UPDATE SET kind=EXCLUDED.kind, color=EXCLUDED.color,
+                    color_temp=EXCLUDED.color_temp, brightness=EXCLUDED.brightness,
+                    steps=EXCLUDED.steps, loops=EXCLUDED.loops
+                WHERE scenes.is_preset""",
+                self.values(entry, True),
+            )
+
     def delete(self, scene_id: int) -> bool:
-        return self.affects_row("DELETE FROM scenes WHERE id=%s RETURNING id", (scene_id,))
+        return self.affects_row(
+            "DELETE FROM scenes WHERE id=%s AND NOT is_preset RETURNING id", (scene_id,)
+        )
+
+
+class TransitionRepository(Repository):
+    """Reusable fades between scheme steps."""
+
+    def list(self) -> list[Row]:
+        return self.fetch_all("SELECT * FROM transitions ORDER BY duration_ms, name")
+
+    def add(self, entry: TransitionCreate) -> Row | None:
+        return self.fetch_one(
+            "INSERT INTO transitions(name,duration_ms,curve) VALUES(%s,%s,%s) RETURNING *",
+            (entry.name.strip(), entry.duration_ms, entry.curve),
+        )
+
+    def upsert_preset(self, entry: TransitionCreate) -> None:
+        with self.database.cursor() as cursor:
+            cursor.execute(
+                """INSERT INTO transitions(name,duration_ms,curve,is_preset) VALUES(%s,%s,%s,TRUE)
+                ON CONFLICT (name) DO UPDATE SET duration_ms=EXCLUDED.duration_ms,
+                    curve=EXCLUDED.curve
+                WHERE transitions.is_preset""",
+                (entry.name, entry.duration_ms, entry.curve),
+            )
+
+    def delete(self, transition_id: int) -> bool:
+        return self.affects_row(
+            "DELETE FROM transitions WHERE id=%s AND NOT is_preset RETURNING id", (transition_id,)
+        )
 
 
 class ScheduleRepository(Repository):

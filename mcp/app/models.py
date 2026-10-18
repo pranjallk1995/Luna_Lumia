@@ -140,10 +140,83 @@ class GroupMembersUpdate(BaseModel):
     light_ids: list[int] = Field(min_length=1)
 
 
-class SceneCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
-    color: str = Field(pattern=HEX_COLOR_PATTERN)
+TransitionCurve = Literal["linear", "ease-in", "ease-out", "ease-in-out"]
+
+
+class TransitionCreate(BaseModel):
+    """A reusable fade from one scheme step to the next."""
+
+    name: str = Field(min_length=1, max_length=60)
+    duration_ms: int = Field(ge=0, le=600_000)
+    curve: TransitionCurve = "ease-in-out"
+
+
+class LightColor(BaseModel):
+    """Exactly one of an RGB color or a white temperature, at a brightness."""
+
+    color: str | None = Field(default=None, pattern=HEX_COLOR_PATTERN)
+    color_temp: int | None = Field(
+        default=None, ge=LightState.MIN_COLOR_TEMP, le=LightState.MAX_COLOR_TEMP
+    )
+
+    @model_validator(mode="after")
+    def one_color_mode(self):
+        if (self.color is None) == (self.color_temp is None):
+            raise ValueError("Set exactly one of color or color_temp")
+        if self.color:
+            self.color = self.color.upper()
+        return self
+
+
+class SceneStep(LightColor):
+    """One step of a sequence: fade in with ``transition_id``, then hold."""
+
     brightness: int = Field(ge=1, le=100)
+    hold_ms: int = Field(default=1_000, ge=0, le=3_600_000)
+    transition_id: int | None = None
+
+
+class SceneCreate(BaseModel):
+    """A solid scheme (one color or temperature) or a sequence of steps.
+
+    The original ``{name, color, brightness}`` shape is still a valid solid scheme.
+    """
+
+    MAX_STEPS: ClassVar[int] = 24
+
+    name: str = Field(min_length=1, max_length=100)
+    kind: Literal["solid", "sequence"] = "solid"
+    color: str | None = Field(default=None, pattern=HEX_COLOR_PATTERN)
+    color_temp: int | None = Field(
+        default=None, ge=LightState.MIN_COLOR_TEMP, le=LightState.MAX_COLOR_TEMP
+    )
+    brightness: int | None = Field(default=None, ge=1, le=100)
+    steps: list[SceneStep] = Field(default_factory=list)
+    loops: bool = False
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Scheme name cannot be blank")
+        return cleaned
+
+    @model_validator(mode="after")
+    def valid_kind(self):
+        if self.kind == "solid":
+            if (self.color is None) == (self.color_temp is None):
+                raise ValueError("A solid scheme needs exactly one of color or color_temp")
+            if self.brightness is None:
+                raise ValueError("A solid scheme needs a brightness")
+            if self.steps:
+                raise ValueError("A solid scheme has no steps")
+            self.color = self.color.upper() if self.color else None
+        else:
+            if not 2 <= len(self.steps) <= self.MAX_STEPS:
+                raise ValueError(f"A sequence needs 2 to {self.MAX_STEPS} steps")
+            self.color = self.color_temp = self.brightness = None
+        return self
 
 
 class ScheduleCreate(BaseModel):

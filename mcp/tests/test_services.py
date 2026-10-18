@@ -151,7 +151,7 @@ class SceneServiceTests(unittest.TestCase):
         class NoScenes:
             def get(self, scene_id): return None
         with self.assertRaises(NotFoundError):
-            asyncio.run(SceneService(NoScenes(), None).apply("all", None, 1))
+            asyncio.run(SceneService(NoScenes(), None, None, None).apply("all", None, 1))
 
 
 class HTTPErrorTests(unittest.TestCase):

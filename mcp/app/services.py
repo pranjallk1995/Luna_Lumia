@@ -15,8 +15,10 @@ from .models import (
     LightState,
     SceneCreate,
     ScheduleCreate,
+    TransitionCreate,
     Validators,
 )
+from .playback import ColorMath, SceneEngine, Step
 from .repositories import (
     CollectionRepository,
     LightRepository,
@@ -24,6 +26,7 @@ from .repositories import (
     Row,
     SceneRepository,
     ScheduleRepository,
+    TransitionRepository,
 )
 from .room_images import ImageScheme, RoomImageCatalog, RoomKeyDetector
 
@@ -33,19 +36,35 @@ class LightControlService:
 
     UNSCOPED_TARGETS = ("all", "on")
 
-    def __init__(self, lights: LightRepository, adapter: WizLightAdapter | None = None) -> None:
+    def __init__(
+        self,
+        lights: LightRepository,
+        adapter: WizLightAdapter | None = None,
+        engine: SceneEngine | None = None,
+    ) -> None:
         self.lights = lights
         self.adapter = adapter or WizLightAdapter()
+        self.engine = engine
+
+    def resolve_targets(self, target_type: str, target_id: int | None) -> list[Row]:
+        if target_type not in self.UNSCOPED_TARGETS and target_id is None:
+            raise ValueError("target_id is required")
+        return self.lights.targets(target_type, target_id)
+
+    def stop_sequences(self, lights: list[Row]) -> None:
+        """A manual change takes a light out of any sequence it is playing."""
+        if self.engine:
+            self.engine.stop([light["id"] for light in lights])
 
     async def control(
         self, target_type: str, target_id: int | None, state: LightState
     ) -> list[dict[str, Any]]:
         """Apply ``state`` to "all", "on" (lights currently on), "light", or "group" targets."""
-        if target_type not in self.UNSCOPED_TARGETS and target_id is None:
-            raise ValueError("target_id is required")
+        targets = self.resolve_targets(target_type, target_id)
+        self.stop_sequences(targets)
         color = state.color.upper() if state.color else None
         results = []
-        for light in self.lights.targets(target_type, target_id):
+        for light in targets:
             try:
                 await self.adapter.apply(
                     light["ip_address"],
@@ -379,29 +398,110 @@ class CollectionService:
             raise NotFoundError(f"{kind.title()} not found")
 
 
-class SceneService:
-    """Manage saved color schemes and apply them to lights."""
+class TransitionService:
+    """Manage reusable fades between sequence steps."""
 
-    def __init__(self, scenes: SceneRepository, control: LightControlService) -> None:
-        self.scenes = scenes
-        self.control = control
+    def __init__(self, transitions: TransitionRepository) -> None:
+        self.transitions = transitions
 
     def list(self) -> list[Row]:
-        return self.scenes.list()
+        return self.transitions.list()
+
+    def by_id(self) -> dict[int, Row]:
+        return {row["id"]: row for row in self.transitions.list()}
+
+    def add(self, entry: TransitionCreate) -> Row | None:
+        return self.transitions.add(entry)
+
+    def delete(self, transition_id: int) -> None:
+        if transition_id in {row["id"] for row in self.list() if row["is_preset"]}:
+            raise ValueError("Built-in transitions can't be deleted")
+        if not self.transitions.delete(transition_id):
+            raise NotFoundError("Transition not found")
+
+
+class SceneService:
+    """Manage solid and sequence schemes and play them on lights."""
+
+    def __init__(
+        self,
+        scenes: SceneRepository,
+        transitions: TransitionService,
+        control: LightControlService,
+        engine: SceneEngine,
+    ) -> None:
+        self.scenes = scenes
+        self.transitions = transitions
+        self.control = control
+        self.engine = engine
+
+    @staticmethod
+    def describe(scene: Row, transitions: dict[int, Row]) -> Row:
+        """Add preview colors and, for sequences, the length of one pass."""
+        if scene["kind"] == "solid":
+            scene["preview_colors"] = [ColorMath.preview_hex(scene["color"], scene["color_temp"])]
+            return scene
+        steps = scene["steps"]
+        scene["preview_colors"] = [
+            ColorMath.preview_hex(step.get("color"), step.get("color_temp")) for step in steps
+        ]
+        scene["cycle_ms"] = sum(
+            step.get("hold_ms", 0)
+            + (transitions.get(step.get("transition_id")) or {}).get("duration_ms", 0)
+            for step in steps
+        )
+        return scene
+
+    def list(self) -> list[Row]:
+        transitions = self.transitions.by_id()
+        return [self.describe(scene, transitions) for scene in self.scenes.list()]
 
     def add(self, entry: SceneCreate) -> Row | None:
-        return self.scenes.add(entry)
+        known = self.transitions.by_id()
+        unknown = {step.transition_id for step in entry.steps} - set(known) - {None}
+        if unknown:
+            raise ValueError(f"Unknown transition id(s): {sorted(unknown)}")
+        return self.describe(self.scenes.add(entry), known)
 
-    def delete(self, scene_id: int) -> None:
-        if not self.scenes.delete(scene_id):
-            raise NotFoundError("Scene not found")
-
-    async def apply(self, target_type: str, target_id: int | None, scene_id: int) -> list[dict]:
+    def get(self, scene_id: int) -> Row:
         scene = self.scenes.get(scene_id)
         if not scene:
             raise NotFoundError("Scene not found")
-        state = LightState(on=True, brightness=scene["brightness"], color=scene["color"])
-        return await self.control.control(target_type, target_id, state)
+        return scene
+
+    def delete(self, scene_id: int) -> None:
+        if self.get(scene_id)["is_preset"]:
+            raise ValueError("Built-in schemes can't be deleted")
+        if not self.scenes.delete(scene_id):
+            raise NotFoundError("Scene not found")
+
+    async def apply(self, target_type: str, target_id: int | None, scene_id: int) -> Any:
+        """Set a solid scheme, or start a sequence (replacing any already playing)."""
+        scene = self.get(scene_id)
+        if scene["kind"] == "solid":
+            state = LightState(
+                on=True,
+                brightness=scene["brightness"],
+                color=scene["color"],
+                color_temp=scene["color_temp"],
+            )
+            return await self.control.control(target_type, target_id, state)
+        lights = self.control.resolve_targets(target_type, target_id)
+        steps = Step.from_scene(scene, self.transitions.by_id())
+        self.engine.play(scene["id"], steps, scene["loops"], lights)
+        for light in lights:
+            self.control.lights.update_state(light["id"], on=True)
+        return {"scene": scene["name"], "playing": True, "light_ids": [light["id"] for light in lights]}
+
+    def stop(self, target_type: str = "all", target_id: int | None = None) -> dict[str, Any]:
+        lights = self.control.resolve_targets(target_type, target_id)
+        playing = self.engine.playing()
+        stopped = [light["id"] for light in lights if light["id"] in playing]
+        self.engine.stop(stopped)
+        return {"stopped_light_ids": stopped}
+
+    def playing(self) -> dict[int, int]:
+        return self.engine.playing()
 
 
 class ScheduleService:
@@ -456,6 +556,7 @@ class LumiaService:
         images: BackgroundImageService,
         control: LightControlService,
         scenes: SceneService,
+        transitions: TransitionService,
         schedules: ScheduleService,
     ) -> None:
         self.lights = lights
@@ -463,6 +564,7 @@ class LumiaService:
         self.images = images
         self.control = control
         self.scenes = scenes
+        self.transitions = transitions
         self.schedules = schedules
 
     def dashboard(self) -> dict[str, Any]:
@@ -471,6 +573,8 @@ class LumiaService:
             "rooms": self.collections.list_with_images("room"),
             "groups": self.collections.list_with_images("group"),
             "scenes": self.scenes.list(),
+            "transitions": self.transitions.list(),
+            "playing": {str(light_id): scene_id for light_id, scene_id in self.scenes.playing().items()},
             "schedules": self.schedules.list(),
             "room_images": self.images.list_room_images(),
         }

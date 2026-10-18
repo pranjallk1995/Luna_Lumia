@@ -5,8 +5,8 @@ import html
 import httpx
 import streamlit as st
 
-from dashboard import Item
-from tabs.shared import ActionRunner, InlineNameEditor, LumiaTab, NameRules
+from domain.dashboard import Item
+from views.shared import ActionRunner, InlineNameEditor, LumiaTab, NameRules
 
 
 class CollectionCard(LumiaTab):

@@ -14,8 +14,8 @@ Luna Visia and Luna Vita.
 - Scan the `192.168.1.x` LAN for WiZ lights and add discovered devices from the UI
 - Store each discovered light's normalized MAC address with its device record
 - Turn one light, a group, or every light on and off
-- Set brightness and RGB color
-- Save and apply reusable color schemes
+- Set brightness, RGB color, and white color temperature
+- Save and apply solid color/temperature schemes and animated sequence schemes
 - Organize lights into exclusive rooms or reusable groups
 - Keep each light in at most one room while allowing it in multiple groups
 - Display room photography from Luna Visia on each light card
@@ -28,6 +28,28 @@ The discovery scan is user-triggered and sends a WiZ `getPilot` request to each
 address on `192.168.1.1–254`. This works across Docker's bridge while accepting
 only valid WiZ replies; it does not probe unrelated TCP services or
 automatically save found devices.
+
+## Schemes
+
+A scheme is either **solid** (one RGB color or one white temperature, at a
+brightness) or a **sequence**: 2–24 steps, each a color or temperature with a
+brightness, a hold time, and a **transition** that fades into it from the
+previous step. Sequences play once or loop. Transitions are reusable presets
+with a fade duration (0–600 s) and a curve (linear, ease-in, ease-out,
+ease-in-out).
+
+WiZ bulbs only accept static states, so the backend plays sequences itself
+(`mcp/app/playback.py`), sending interpolated frames about 8 times a second.
+Changing a light manually or applying another scheme stops its sequence.
+
+Built-in presets (refreshed on startup; they can't be edited or deleted):
+
+- Solid: Focus, Daylight, Reading, Bedtime, Warm evening, Night light
+- Sequence: Pulse, Candle light, Fireplace, Party, Ocean, Sunrise (plays once)
+- Transitions: Instant, Flicker, Quick fade, Smooth, Slow fade, Long fade
+
+MCP tools: `list_schemes`, `create_solid_scheme`, `create_sequence_scheme`,
+`create_transition`, `activate_scene`, and `stop_scene`.
 
 ## Room images
 
@@ -84,12 +106,48 @@ Backend (`mcp/app`), layered so transports never touch SQL:
 - `workers.py` – schedule runner and light-status poller threads
 - `models.py`, `config.py`, `errors.py`, `database.py` – validation, settings, domain errors, schema
 
-UI (`ui`): `app.py` composes the page; `dashboard.py` wraps the API payload;
-`tabs/` holds one class per tab (`LightsTab`, `RoomsTab`, `SchemesTab`,
-`SchedulesTab`) plus shared components in `tabs/shared.py`. Widget keys are
+UI (`ui`): `app.py` composes the page; `services/api.py` is the backend client;
+`domain/dashboard.py` wraps the API payload; `views/` holds one class per tab
+(`LightsTab`, `RoomsTab`, `SchemesTab`, `SchedulesTab`) plus shared components
+in `views/shared.py`. Widget keys are
 part of the styling contract in `styles.py`, so keep them stable.
 
 Run backend tests with `docker compose exec mcp python -m unittest discover -s tests`.
+
+## Project structure
+
+Luna Vita, Luna Lumia, and Luna Visia share this layout:
+
+```text
+.
+├── docker-compose.yaml     # services, private network, and Compose Watch rules
+├── README.md
+├── UI_STYLE_GUIDE.md       # shared Luna visual reference
+├── docs/assets/            # README screenshots
+├── mcp/                    # FastMCP server: MCP tools plus UI-facing HTTP routes
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── app/                # main.py composition root, config, database, models,
+│   │                       # repositories, services, mcp_tools, http_routes,
+│   │                       # and the app's own domain modules
+│   ├── scripts/            # one-off maintenance scripts, when needed
+│   └── tests/              # python -m unittest discover -s tests
+└── ui/                     # Streamlit interface
+    ├── Dockerfile
+    ├── requirements.txt
+    ├── .streamlit/         # Streamlit theme and server settings
+    ├── assets/             # logos
+    ├── app.py              # entry point and page composition
+    ├── config.py           # environment-backed settings
+    ├── styles.py           # shared dark theme
+    ├── services/           # backend API client, caching, and session state
+    ├── domain/             # Streamlit-free logic and view models, when the app has any
+    ├── views/              # Streamlit rendering: tabs, sections, dialogs, shared widgets
+    └── tests/              # UI logic tests, when the app has any
+```
+
+Dependencies point one way: `views/` uses `services/` and `domain/`, and `domain/`
+imports neither Streamlit nor the API client, so it can be tested on its own.
 
 ## Logo
 

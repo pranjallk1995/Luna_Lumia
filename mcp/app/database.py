@@ -73,9 +73,26 @@ CREATE TABLE IF NOT EXISTS schedules (
 );
 INSERT INTO lights (name, ip_address) VALUES ('Living room light', '192.168.1.8')
 ON CONFLICT (ip_address) DO NOTHING;
-INSERT INTO scenes (name, color, brightness) VALUES
- ('Warm evening', '#FFB36B', 55), ('Focus', '#E8F1FF', 100), ('Night light', '#FF6B3D', 12)
-ON CONFLICT (name) DO NOTHING;
+CREATE TABLE IF NOT EXISTS transitions (
+ id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE,
+ duration_ms INTEGER NOT NULL CHECK (duration_ms BETWEEN 0 AND 600000),
+ curve TEXT NOT NULL DEFAULT 'ease-in-out'
+  CHECK (curve IN ('linear', 'ease-in', 'ease-out', 'ease-in-out')),
+ is_preset BOOLEAN NOT NULL DEFAULT FALSE
+);
+-- Schemes are solid (one color or temperature) or a sequence of steps with
+-- transitions; built-in presets (is_preset) are installed by app/presets.py.
+ALTER TABLE scenes ALTER COLUMN color DROP NOT NULL;
+ALTER TABLE scenes ALTER COLUMN brightness DROP NOT NULL;
+ALTER TABLE scenes ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'solid';
+ALTER TABLE scenes ADD COLUMN IF NOT EXISTS color_temp SMALLINT
+    CHECK (color_temp BETWEEN 2200 AND 6500);
+ALTER TABLE scenes ADD COLUMN IF NOT EXISTS steps JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE scenes ADD COLUMN IF NOT EXISTS loops BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE scenes ADD COLUMN IF NOT EXISTS is_preset BOOLEAN NOT NULL DEFAULT FALSE;
+UPDATE scenes SET is_preset = TRUE
+WHERE NOT is_preset AND (name, color, brightness) IN
+ (('Warm evening', '#FFB36B', 55), ('Focus', '#E8F1FF', 100), ('Night light', '#FF6B3D', 12));
 """
 
 

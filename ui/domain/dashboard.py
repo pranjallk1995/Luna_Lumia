@@ -15,6 +15,8 @@ class Dashboard:
     groups: list[Item]
     scenes: list[Item]
     schedules: list[Item]
+    transitions: list[Item] = field(default_factory=list)
+    playing: dict[int, int] = field(default_factory=dict)  # light id -> playing scheme id
     room_names_by_light: dict[int, list[str]] = field(init=False)
 
     def __post_init__(self) -> None:
@@ -33,7 +35,21 @@ class Dashboard:
             groups=data.get("groups", []),
             scenes=data["scenes"],
             schedules=data["schedules"],
+            transitions=data.get("transitions", []),
+            playing={int(light_id): scene_id for light_id, scene_id in data.get("playing", {}).items()},
         )
+
+    def target_options(self) -> dict[str, tuple[str, int | None]]:
+        """Map target labels to API (target_type, target_id); rooms are groups."""
+        return (
+            {"All lights": ("all", None)}
+            | {f'Light · {item["name"]}': ("light", item["id"]) for item in self.lights}
+            | {f'Room · {item["name"]}': ("group", item["id"]) for item in self.rooms}
+            | {f'Group · {item["name"]}': ("group", item["id"]) for item in self.groups}
+        )
+
+    def lights_playing(self, scene_id: int) -> int:
+        return sum(1 for playing in self.playing.values() if playing == scene_id)
 
     @property
     def collections(self) -> list[Item]:

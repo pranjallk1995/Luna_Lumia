@@ -22,6 +22,7 @@ from .models import (
     RoomImageUpdate,
     SceneCreate,
     ScheduleCreate,
+    TransitionCreate,
 )
 from .services import LumiaService
 
@@ -195,6 +196,23 @@ class LumiaHTTPRoutes:
         self.route("POST", "/api/scenes", create, 201)
         self.route("DELETE", "/api/scenes/{item_id}", delete, NO_CONTENT)
         self.route("POST", "/api/scenes/{item_id}/apply", apply)
+
+        async def stop(request: Request):
+            body = await request.json()
+            return scenes.stop(body.get("target_type", "all"), body.get("target_id"))
+
+        self.route("POST", "/api/scenes/stop", stop)
+
+        transitions = self.service.transitions
+
+        async def create_transition(request: Request):
+            return transitions.add(await self.payload(request, TransitionCreate))
+
+        async def delete_transition(request: Request):
+            transitions.delete(self.path_id(request))
+
+        self.route("POST", "/api/transitions", create_transition, 201)
+        self.route("DELETE", "/api/transitions/{item_id}", delete_transition, NO_CONTENT)
 
     def _register_schedules(self) -> None:
         schedules = self.service.schedules

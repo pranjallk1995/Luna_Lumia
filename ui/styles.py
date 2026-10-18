@@ -81,6 +81,12 @@ class LunaStyle:
         .light-card-status i{display:block;width:.45rem;height:.45rem;border-radius:50%;background:#666}
         .light-card-status.online i{background:#22c55e;box-shadow:0 0 10px rgba(34,197,94,.8)}
         .light-stats-row{display:flex;align-items:center;justify-content:space-between;gap:.65rem;width:100%;min-height:3rem;margin-bottom:0;padding:.5rem .7rem;border:1px solid var(--lv-border);border-radius:.7rem;background:rgba(18,18,22,.72);box-shadow:0 8px 22px rgba(0,0,0,.18);box-sizing:border-box}
+        .scheme-preview{height:2.6rem;margin:-.15rem 0 .65rem;border-radius:.6rem;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 6px 18px rgba(0,0,0,.25)}
+        .scheme-title{display:flex;align-items:center;flex-wrap:wrap;gap:.4rem;color:var(--lv-text);font-size:.98rem;font-weight:650}
+        .scheme-details{margin:.2rem 0 .55rem;color:var(--lv-muted);font-size:.72rem}
+        .scheme-badge{padding:.12rem .45rem;border:1px solid var(--lv-border);border-radius:999px;color:var(--lv-muted);font-size:.6rem;font-weight:500}
+        .scheme-badge.playing{border-color:rgba(255,190,85,.45);color:#ffbe55}
+        .scheme-step-title{color:var(--lv-text);font-size:.85rem;font-weight:650}
         .st-key-all_lights_bar{margin-top:1rem;margin-bottom:1rem}
         .st-key-all_lights_bar .light-stats-row{min-height:3.6rem}
         .st-key-all_lights_bar [data-testid="stMarkdownContainer"]:has(>.light-stats-row){margin-bottom:0!important}
@@ -143,6 +149,10 @@ class LunaStyle:
         @media(max-width:700px){
             .st-key-room_creation_tabs div[data-testid="stTabs"] [data-baseweb="tab"]:nth-of-type(1)::before{content:"meeting_room"}
             .st-key-room_creation_tabs div[data-testid="stTabs"] [data-baseweb="tab"]:nth-of-type(2)::before{content:"group"}
+            .st-key-scheme_sections div[data-testid="stTabs"] [data-baseweb="tab"]:nth-of-type(1)::before{content:"palette"}
+            .st-key-scheme_sections div[data-testid="stTabs"] [data-baseweb="tab"]:nth-of-type(2)::before{content:"lens"}
+            .st-key-scheme_sections div[data-testid="stTabs"] [data-baseweb="tab"]:nth-of-type(3)::before{content:"timeline"}
+            .st-key-scheme_sections div[data-testid="stTabs"] [data-baseweb="tab"]:nth-of-type(4)::before{content:"swap_horiz"}
             div[class*="st-key-room_layout_"]{width:100%!important}
             div[class*="st-key-room_layout_"] div[data-testid="stHorizontalBlock"]:has(div[class*="st-key-room_image_"]){position:relative!important;flex-direction:column!important;flex-wrap:nowrap!important;padding-top:9rem!important;gap:0!important}
             div[class*="st-key-room_layout_"] div[data-testid="stHorizontalBlock"]:has(div[class*="st-key-room_image_"])>div[data-testid="stColumn"]{position:static!important;flex:0 0 auto!important;width:100%!important;min-width:100%!important;max-width:100%!important}

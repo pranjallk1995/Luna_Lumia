@@ -4,8 +4,8 @@ from datetime import time
 
 import streamlit as st
 
-from dashboard import Item
-from tabs.shared import ActionRunner, LumiaTab
+from domain.dashboard import Item
+from views.shared import ActionRunner, LumiaTab
 
 
 class SchedulesTab(LumiaTab):
@@ -28,16 +28,6 @@ class SchedulesTab(LumiaTab):
             if actions.button("Remove", key=f"dsch{schedule['id']}"):
                 ActionRunner.run(lambda: self.api.delete("schedules", schedule["id"]))
 
-    def target_options(self) -> dict[str, tuple[str, int | None]]:
-        """Map target labels to API (target_type, target_id); rooms are groups."""
-        dashboard = self.dashboard
-        return (
-            {"All lights": ("all", None)}
-            | {f'Light · {item["name"]}': ("light", item["id"]) for item in dashboard.lights}
-            | {f'Room · {item["name"]}': ("group", item["id"]) for item in dashboard.rooms}
-            | {f'Group · {item["name"]}': ("group", item["id"]) for item in dashboard.groups}
-        )
-
     def _scene_selector(self) -> int | None:
         scenes = self.dashboard.scenes
         if not scenes:
@@ -52,7 +42,7 @@ class SchedulesTab(LumiaTab):
             name = name_column.text_input("Name", placeholder="Wake up")
             kind = kind_column.selectbox("Type", ["schedule", "alarm"], format_func=str.title)
             run_time = time_column.time_input("Time", value=time(7, 0))
-            targets = self.target_options()
+            targets = self.dashboard.target_options()
             target_column, action_column = st.columns(2)
             target_label = target_column.selectbox("Target", list(targets))
             action = action_column.selectbox(

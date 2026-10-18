@@ -7,15 +7,15 @@ import httpx
 import streamlit as st
 from PIL import Image
 
-from api import LumiaAPI
+from services.api import LumiaAPI
 from config import UIConfig
-from dashboard import Dashboard
+from domain.dashboard import Dashboard
 from styles import LunaStyle
-from tabs.lights_tab import LightsTab
-from tabs.rooms_tab import RoomsTab
-from tabs.schedules_tab import SchedulesTab
-from tabs.schemes_tab import SchemesTab
-from tabs.shared import ActionRunner
+from views.lights_tab import LightsTab
+from views.rooms_tab import RoomsTab
+from views.schedules_tab import SchedulesTab
+from views.schemes_tab import SchemesTab
+from views.shared import ActionRunner
 
 
 class LunaLumiaApp:

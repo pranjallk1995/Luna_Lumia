@@ -1,9 +1,18 @@
 """MCP tools that let LLM clients manage Luna Lumia lights."""
 
+from typing import Any
+
 from mcp.server.fastmcp import FastMCP
 
 from .devices import GLOBAL_BROADCAST
-from .models import GroupCreate, LightImageUpdate, LightState, RoomImageUpdate
+from .models import (
+    GroupCreate,
+    LightImageUpdate,
+    LightState,
+    RoomImageUpdate,
+    SceneCreate,
+    TransitionCreate,
+)
 from .services import LumiaService
 
 
@@ -15,6 +24,7 @@ class LumiaMCPTools:
         self.service = service
         self._register_inventory_tools()
         self._register_image_tools()
+        self._register_scheme_tools()
         self._register_control_tools()
 
     def _register_inventory_tools(self) -> None:
@@ -79,6 +89,42 @@ class LumiaMCPTools:
             entry = LightImageUpdate(image_url=image_url)
             return images.apply_collection_image(group_id, entry.image_url, room_name)
 
+    def _register_scheme_tools(self) -> None:
+        server, scenes, transitions = self.server, self.service.scenes, self.service.transitions
+
+        @server.tool()
+        def list_schemes():
+            """List color schemes (solid and sequence), transitions, and what is playing per light."""
+            return {
+                "schemes": scenes.list(),
+                "transitions": transitions.list(),
+                "playing": scenes.playing(),
+            }
+
+        @server.tool()
+        def create_solid_scheme(
+            name: str, brightness: int, color: str | None = None, color_temp: int | None = None
+        ):
+            """Save a solid scheme: one #RRGGBB color or one white color_temp (2200-6500 K)."""
+            return scenes.add(
+                SceneCreate(name=name, brightness=brightness, color=color, color_temp=color_temp)
+            )
+
+        @server.tool()
+        def create_sequence_scheme(name: str, steps: list[dict[str, Any]], loops: bool = True):
+            """Save a sequence scheme of 2-24 steps that play in order (and repeat if loops).
+
+            Each step: {"color": "#RRGGBB"} or {"color_temp": 2200-6500}, "brightness" 1-100,
+            "hold_ms" (time to stay on the step), and "transition_id" (the fade into the step;
+            see list_schemes for transitions; omit for an instant change).
+            """
+            return scenes.add(SceneCreate(name=name, kind="sequence", steps=steps, loops=loops))
+
+        @server.tool()
+        def create_transition(name: str, duration_ms: int, curve: str = "ease-in-out"):
+            """Save a reusable fade: duration_ms (0-600000) and curve (linear, ease-in, ease-out, ease-in-out)."""
+            return transitions.add(TransitionCreate(name=name, duration_ms=duration_ms, curve=curve))
+
     def _register_control_tools(self) -> None:
         server, control, scenes = self.server, self.service.control, self.service.scenes
 
@@ -113,5 +159,14 @@ class LumiaMCPTools:
 
         @server.tool()
         async def activate_scene(scene_id: int, target_type: str = "all", target_id: int | None = None):
-            """Apply a saved dynamic color scheme to all lights, one light, or a group."""
+            """Apply a saved scheme to "all" lights, one "light", or a "group" (rooms are groups).
+
+            Solid schemes are set at once; sequence schemes start playing (and loop if set)
+            until stopped or the lights are changed manually.
+            """
             return await scenes.apply(target_type, target_id, scene_id)
+
+        @server.tool()
+        def stop_scene(target_type: str = "all", target_id: int | None = None):
+            """Stop sequence schemes playing on "all" lights, one "light", or a "group"."""
+            return scenes.stop(target_type, target_id)

@@ -52,6 +52,12 @@ class LumiaAPI:
             json={"target_type": target_type, "target_id": target_id},
         )
 
+    def stop_scenes(self, target_type: str = "all", target_id: int | None = None):
+        """Stop sequence schemes playing on the target lights."""
+        return self.request(
+            "POST", "/api/scenes/stop", json={"target_type": target_type, "target_id": target_id}
+        )
+
     def rename_light(self, light_id: int, name: str) -> dict[str, Any]:
         """Rename a light, then re-infer its background from the new name."""
         self.update("lights", light_id, {"name": name})

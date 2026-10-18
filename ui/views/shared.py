@@ -6,9 +6,9 @@ from typing import Any
 import httpx
 import streamlit as st
 
-from api import LumiaAPI
+from services.api import LumiaAPI
 from config import UIConfig
-from dashboard import Dashboard
+from domain.dashboard import Dashboard
 
 
 class ActionRunner:
