@@ -7,6 +7,8 @@ from mcp.server.fastmcp import FastMCP
 from .devices import GLOBAL_BROADCAST
 from .models import (
     GroupCreate,
+    GroupMembersUpdate,
+    GroupUpdate,
     LightImageUpdate,
     LightState,
     RoomImageUpdate,
@@ -36,6 +38,26 @@ class LumiaMCPTools:
             return lights.list()
 
         @server.tool()
+        def list_rooms():
+            """List available rooms, their member lights, and background images."""
+            return collections.list_with_images("room")
+
+        @server.tool()
+        def list_groups():
+            """List available reusable groups, their member lights, and background images."""
+            return collections.list_with_images("group")
+
+        @server.tool()
+        def get_room(room_id: int):
+            """Get one room by id."""
+            return collections.get(room_id, "room")
+
+        @server.tool()
+        def get_group(group_id: int):
+            """Get one reusable group by id."""
+            return collections.get(group_id, "group")
+
+        @server.tool()
         def create_room(name: str, light_ids: list[int]):
             """Create a room. A light can belong to only one room."""
             return collections.create(GroupCreate(name=name, light_ids=light_ids), "room")
@@ -44,6 +66,54 @@ class LumiaMCPTools:
         def create_group(name: str, light_ids: list[int]):
             """Create a reusable group. Lights may belong to multiple groups."""
             return collections.create(GroupCreate(name=name, light_ids=light_ids), "group")
+
+        @server.tool()
+        def rename_room(room_id: int, name: str):
+            """Rename a room and refresh its inferred background image."""
+            entry = GroupUpdate(name=name)
+            return collections.rename(room_id, "room", entry.name)
+
+        @server.tool()
+        def rename_group(group_id: int, name: str):
+            """Rename a reusable group."""
+            entry = GroupUpdate(name=name)
+            return collections.rename(group_id, "group", entry.name)
+
+        @server.tool()
+        def add_lights_to_room(room_id: int, light_ids: list[int]):
+            """Add lights to a room. Lights already assigned to another room are rejected."""
+            entry = GroupMembersUpdate(light_ids=light_ids)
+            return collections.add_members(room_id, "room", entry.light_ids)
+
+        @server.tool()
+        def add_lights_to_group(group_id: int, light_ids: list[int]):
+            """Add lights to a group. The same lights may also belong to other groups."""
+            entry = GroupMembersUpdate(light_ids=light_ids)
+            return collections.add_members(group_id, "group", entry.light_ids)
+
+        @server.tool()
+        def remove_light_from_room(room_id: int, light_id: int):
+            """Remove one light from a room without deleting the light."""
+            collections.remove_member(room_id, "room", light_id)
+            return {"removed": True, "room_id": room_id, "light_id": light_id}
+
+        @server.tool()
+        def remove_light_from_group(group_id: int, light_id: int):
+            """Remove one light from a group without deleting the light."""
+            collections.remove_member(group_id, "group", light_id)
+            return {"removed": True, "group_id": group_id, "light_id": light_id}
+
+        @server.tool()
+        def delete_room(room_id: int):
+            """Delete a room without deleting its lights."""
+            collections.delete(room_id, "room")
+            return {"deleted": True, "room_id": room_id}
+
+        @server.tool()
+        def delete_group(group_id: int):
+            """Delete a reusable group without deleting its lights."""
+            collections.delete(group_id, "group")
+            return {"deleted": True, "group_id": group_id}
 
         @server.tool()
         async def discover_lights_on_network(broadcast_space: str = GLOBAL_BROADCAST):
@@ -124,6 +194,34 @@ class LumiaMCPTools:
         def create_transition(name: str, duration_ms: int, curve: str = "ease-in-out"):
             """Save a reusable fade: duration_ms (0-600000) and curve (linear, ease-in, ease-out, ease-in-out)."""
             return transitions.add(TransitionCreate(name=name, duration_ms=duration_ms, curve=curve))
+
+        @server.tool()
+        async def apply_scheme(
+            scheme_id: int, target_type: str = "all", target_id: int | None = None
+        ):
+            """Apply a scheme to all lights, one light, or a room/group.
+
+            Use target_type "all", "light", or "group". Rooms and groups both use
+            "group" with their collection id.
+            """
+            return await scenes.apply(target_type, target_id, scheme_id)
+
+        @server.tool()
+        def stop_scheme(target_type: str = "all", target_id: int | None = None):
+            """Stop sequence schemes on all lights, one light, or a room/group."""
+            return scenes.stop(target_type, target_id)
+
+        @server.tool()
+        def delete_scheme(scheme_id: int):
+            """Delete a user-created light scheme. Built-in schemes are protected."""
+            scenes.delete(scheme_id)
+            return {"deleted": True, "scheme_id": scheme_id}
+
+        @server.tool()
+        def delete_transition(transition_id: int):
+            """Delete a user-created transition. Built-in transitions are protected."""
+            transitions.delete(transition_id)
+            return {"deleted": True, "transition_id": transition_id}
 
     def _register_control_tools(self) -> None:
         server, control, scenes = self.server, self.service.control, self.service.scenes
