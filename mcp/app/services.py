@@ -92,10 +92,23 @@ class LightControlService:
         return results
 
     async def poll_statuses(self) -> list[dict[str, Any]]:
-        """Read every light's current state from the bulb and save it (on demand)."""
+        """Read every light's current state from the bulb and save it (on demand).
+
+        Routers can reassign addresses, so the bulb answering at a light's IP may
+        be a different bulb. Its reported MAC is checked first; on a mismatch the
+        light is reported as ``moved`` and its saved state is left untouched.
+        """
         async def poll(light: Row) -> dict[str, Any]:
             try:
                 state = await self.adapter.status(light["ip_address"])
+                reported = Validators.mac_address(state.pop("mac_address", None) or None)
+                if light.get("mac_address") and reported and reported != light["mac_address"]:
+                    return {
+                        "light": light,
+                        "ok": False,
+                        "moved": True,
+                        "error": f"A different bulb ({reported}) now answers at {light['ip_address']}",
+                    }
                 saved = self.lights.update_state(light["id"], **state, reachable=True)
                 return {"light": saved, "ok": True}
             except Exception as error:
@@ -321,6 +334,13 @@ class LightService:
             if light and mac_address and not light.get("mac_address") and mac_address not in owned:
                 self.lights.store_mac_address(light["id"], mac_address)
                 owned.add(mac_address)
+
+    def subnet_broadcast(self) -> str:
+        """The /24 broadcast address most saved lights live on (directed scans cross Docker)."""
+        prefixes = [light["ip_address"].rsplit(".", 1)[0] for light in self.lights.list()]
+        if not prefixes:
+            return GLOBAL_BROADCAST
+        return f"{max(set(prefixes), key=prefixes.count)}.255"
 
     async def discover(self, broadcast_space: str = GLOBAL_BROADCAST) -> list[dict]:
         """Scan for lights, follow saved lights to new IPs, and flag configured ones."""
@@ -571,6 +591,19 @@ class LumiaService:
         self.scenes = scenes
         self.transitions = transitions
         self.schedules = schedules
+
+    async def refresh_lights(self) -> list[dict[str, Any]]:
+        """Read every bulb's state; if a known bulb moved, find its new IP and read again.
+
+        Routers can hand bulbs new addresses. A known bulb (one with a saved MAC)
+        that is silent, or whose IP now answers with another bulb's MAC, triggers
+        a LAN scan that moves every light to the IP where its MAC answers.
+        """
+        results = await self.control.poll_statuses()
+        if not any(not item["ok"] and item["light"].get("mac_address") for item in results):
+            return results
+        await self.lights.discover(self.lights.subnet_broadcast())
+        return await self.control.poll_statuses()
 
     def dashboard(self) -> dict[str, Any]:
         return {

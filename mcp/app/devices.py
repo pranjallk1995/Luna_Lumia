@@ -58,10 +58,12 @@ class WizLightAdapter:
                 await asyncio.wait_for(bulb.turn_on(PilotBuilder(**pilot)), self.timeout)
 
     async def status(self, ip_address: str) -> dict:
+        """The bulb's state, plus the MAC it reports so callers can confirm its identity."""
         async with wiz_bulb(ip_address) as bulb:
             state = await asyncio.wait_for(bulb.updateState(), self.timeout)
             brightness = state.get_brightness()
             return {
+                "mac_address": state.get_mac() or bulb.mac,
                 "on": bool(state.get_state()),
                 "brightness": max(1, round(brightness / 2.55)) if brightness else None,
                 "color": self.hex_color(state.get_rgb()),
@@ -81,8 +83,9 @@ class WizDiscovery:
     """Discover WiZ bulbs by directed /24 probing or LAN broadcast."""
 
     wait_time: float = 5.0
-    probe_timeout: float = 0.8
-    concurrency: int = 64
+    # Some bulbs take over a second to answer getPilot; a short wait misses them.
+    probe_timeout: float = 2.0
+    concurrency: int = 128
 
     @staticmethod
     def identity(ip_address: str, mac_address: str | None) -> dict:

@@ -176,7 +176,7 @@ class LumiaHTTPRoutes:
         self.route("PUT", "/api/lights/{item_id}/background", background)
 
         async def refresh(request: Request):
-            return await self.service.control.poll_statuses()
+            return await self.service.refresh_lights()
 
         self.route("POST", "/api/lights/refresh", refresh)
 

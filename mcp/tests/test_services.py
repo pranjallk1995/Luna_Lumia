@@ -171,3 +171,43 @@ class HTTPErrorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RefreshTests(unittest.TestCase):
+    def test_subnet_broadcast_uses_the_lights_network(self):
+        lights = FakeLights([
+            {"id": 1, "name": "A", "ip_address": "192.168.1.8", "mac_address": None},
+            {"id": 2, "name": "B", "ip_address": "192.168.1.9", "mac_address": None},
+        ])
+        self.assertEqual(LightService(lights, None, None).subnet_broadcast(), "192.168.1.255")
+
+    def test_silent_known_bulb_triggers_a_rescan_then_a_second_read(self):
+        from app.services import LumiaService
+
+        class Control:
+            def __init__(self): self.polls = 0
+            async def poll_statuses(self):
+                self.polls += 1
+                ok = self.polls > 1
+                return [{"light": {"id": 13, "mac_address": "98:77:D5:D6:9E:A2"}, "ok": ok}]
+
+        class Lights:
+            scanned = None
+            def subnet_broadcast(self): return "192.168.1.255"
+            async def discover(self, space): Lights.scanned = space
+
+        control = Control()
+        service = LumiaService(Lights(), None, None, control, None, None, None)
+        result = asyncio.run(service.refresh_lights())
+        self.assertEqual((control.polls, Lights.scanned, result[0]["ok"]), (2, "192.168.1.255", True))
+
+    def test_all_answering_needs_no_rescan(self):
+        from app.services import LumiaService
+
+        class Control:
+            async def poll_statuses(self): return [{"light": {"id": 1, "mac_address": "x"}, "ok": True}]
+
+        class Lights:
+            async def discover(self, space): raise AssertionError("no scan expected")
+
+        asyncio.run(LumiaService(Lights(), None, None, Control(), None, None, None).refresh_lights())

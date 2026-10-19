@@ -17,7 +17,7 @@ class FakeAdapter:
     async def apply(self,ip_address,**state): self.calls.append((ip_address,state))
     async def status(self,ip_address):
         self.calls.append((ip_address,"status"))
-        return {"on":True,"brightness":64,"color":"#AABBCC"}
+        return {"mac_address":None,"on":True,"brightness":64,"color":"#AABBCC"}
 
 
 class DeviceTests(unittest.TestCase):
@@ -65,3 +65,24 @@ class DeviceTests(unittest.TestCase):
         asyncio.run(LightControlService(repo,adapter).control("light",1,LightState(color="#FF0000")))
         self.assertIsNone(adapter.calls[0][1]["on"])
         self.assertTrue(repo.saved[0][1]["on"])
+    def test_poll_flags_a_different_bulb_answering_at_a_lights_ip(self):
+        class Repo(FakeRepository):
+            def targets(self,target_type,target_id):
+                return [{"id":13,"ip_address":"192.168.1.9","name":"Bedroom","mac_address":"98:77:D5:D6:9E:A2"}]
+        class SwappedAdapter(FakeAdapter):
+            async def status(self,ip_address):
+                return {"mac_address":"9877d5d6d5fe","on":False,"brightness":10,"color":None}
+        repo=Repo()
+        result=asyncio.run(LightControlService(repo,SwappedAdapter()).poll_statuses())
+        self.assertTrue(result[0]["moved"]); self.assertFalse(result[0]["ok"])
+        self.assertEqual(repo.saved,[])  # the other bulb's state is not written onto this light
+    def test_poll_accepts_matching_mac_in_any_format(self):
+        class Repo(FakeRepository):
+            def targets(self,target_type,target_id):
+                return [{"id":1,"ip_address":"192.168.1.8","name":"A","mac_address":"98:77:D5:D6:D5:FE"}]
+        class Adapter(FakeAdapter):
+            async def status(self,ip_address):
+                return {"mac_address":"9877d5d6d5fe","on":True,"brightness":50,"color":None}
+        repo=Repo()
+        self.assertTrue(asyncio.run(LightControlService(repo,Adapter()).poll_statuses())[0]["ok"])
+        self.assertNotIn("mac_address",repo.saved[0][1])

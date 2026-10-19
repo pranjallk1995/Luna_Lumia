@@ -42,9 +42,10 @@ class LumiaMCPTools:
             """Ask every light for its current power, brightness, color, and reachability, and save it.
 
             Lumia does not poll in the background, so call this before relying on
-            list_lights if a light may have been changed outside Lumia.
+            list_lights if a light may have been changed outside Lumia. A light that
+            moved to a new IP address is found again by its MAC address.
             """
-            return await self.service.control.poll_statuses()
+            return await self.service.refresh_lights()
 
         @server.tool()
         def list_rooms():
