@@ -442,6 +442,14 @@ class TransitionService:
     def add(self, entry: TransitionCreate) -> Row | None:
         return self.transitions.add(entry)
 
+    def update(self, transition_id: int, entry: TransitionCreate) -> Row:
+        if transition_id in {row["id"] for row in self.list() if row["is_preset"]}:
+            raise ValueError("Built-in transitions can't be edited")
+        updated = self.transitions.update(transition_id, entry)
+        if not updated:
+            raise NotFoundError("Transition not found")
+        return updated
+
     def delete(self, transition_id: int) -> None:
         if transition_id in {row["id"] for row in self.list() if row["is_preset"]}:
             raise ValueError("Built-in transitions can't be deleted")
@@ -485,12 +493,33 @@ class SceneService:
         transitions = self.transitions.by_id()
         return [self.describe(scene, transitions) for scene in self.scenes.list()]
 
-    def add(self, entry: SceneCreate) -> Row | None:
+    def _known_transitions(self, entry: SceneCreate) -> dict[int, Row]:
         known = self.transitions.by_id()
         unknown = {step.transition_id for step in entry.steps} - set(known) - {None}
         if unknown:
             raise ValueError(f"Unknown transition id(s): {sorted(unknown)}")
+        return known
+
+    def add(self, entry: SceneCreate) -> Row | None:
+        known = self._known_transitions(entry)
         return self.describe(self.scenes.add(entry), known)
+
+    def update(self, scene_id: int, entry: SceneCreate) -> Row:
+        """Replace a user scheme; a sequence that is playing restarts with the new steps."""
+        if self.get(scene_id)["is_preset"]:
+            raise ValueError("Built-in schemes can't be edited")
+        known = self._known_transitions(entry)
+        updated = self.scenes.update(scene_id, entry)
+        if not updated:
+            raise NotFoundError("Scene not found")
+        playing_ids = {light_id for light_id, playing in self.engine.playing().items() if playing == scene_id}
+        if playing_ids:
+            lights = [light for light in self.control.lights.targets("all", None) if light["id"] in playing_ids]
+            if updated["kind"] == "sequence":
+                self.engine.play(scene_id, Step.from_scene(updated, known), updated["loops"], lights)
+            else:
+                self.engine.stop(list(playing_ids))
+        return self.describe(updated, known)
 
     def get(self, scene_id: int) -> Row:
         scene = self.scenes.get(scene_id)

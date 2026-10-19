@@ -42,3 +42,8 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(LightState(color_temp=2700).color_temp,2700)
         with self.assertRaises(ValidationError): LightState(color_temp=1800)
         with self.assertRaises(ValidationError): LightState(color="#FFFFFF",color_temp=2700)
+    def test_black_color_turns_the_light_off(self):
+        state=LightState(color="#000000",brightness=50)
+        self.assertEqual((state.on,state.color,state.brightness),(False,None,50))
+        self.assertEqual(LightState(on=True,color="#000000").on,False)
+        self.assertEqual(LightState(color="#010000").color,"#010000")

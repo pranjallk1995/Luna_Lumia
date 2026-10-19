@@ -108,6 +108,13 @@ class LightState(BaseModel):
             raise ValueError("Set either color or color_temp, not both")
         return self
 
+    @model_validator(mode="after")
+    def black_means_off(self):
+        """WiZ bulbs cannot show black (RGB 0,0,0 falls back to warm white), so black turns the light off."""
+        if self.color is not None and self.color.upper() == "#000000":
+            self.color, self.on = None, False
+        return self
+
 
 class LightImageUpdate(BaseModel):
     image_url: str | None = Field(default=None, max_length=2048)

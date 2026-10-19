@@ -86,3 +86,24 @@ class DeviceTests(unittest.TestCase):
         repo=Repo()
         self.assertTrue(asyncio.run(LightControlService(repo,Adapter()).poll_statuses())[0]["ok"])
         self.assertNotIn("mac_address",repo.saved[0][1])
+    def test_adapter_turns_bulb_off_for_black_frames(self):
+        import app.devices as devices
+        calls=[]
+        class Bulb:
+            mac=None
+            async def turn_off(self): calls.append("off")
+            async def turn_on(self,pilot): calls.append(("on",pilot.pilot_params))
+            async def async_close(self): pass
+        original=devices.wizlight
+        devices.wizlight=lambda ip: Bulb()
+        try:
+            asyncio.run(WizLightAdapter().apply("10.0.0.1",brightness=40,color="#000000"))
+            asyncio.run(WizLightAdapter().apply("10.0.0.1",color="#FF0000"))
+        finally:
+            devices.wizlight=original
+        self.assertEqual(calls[0],"off"); self.assertEqual(calls[1][0],"on")
+    def test_controller_records_black_as_off(self):
+        repo,adapter=FakeRepository(),FakeAdapter()
+        asyncio.run(LightControlService(repo,adapter).control("light",1,LightState(color="#000000")))
+        self.assertEqual(adapter.calls[0][1]["on"],False)
+        self.assertFalse(repo.saved[0][1]["on"]); self.assertIsNone(repo.saved[0][1]["color"])

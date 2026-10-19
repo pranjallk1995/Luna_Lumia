@@ -239,6 +239,11 @@ class LumiaHTTPRoutes:
 
         self.route("POST", "/api/scenes/stop", stop)
 
+        async def update(request: Request):
+            return scenes.update(self.path_id(request), await self.payload(request, SceneCreate))
+
+        self.route("PUT", "/api/scenes/{item_id}", update)
+
         transitions = self.service.transitions
 
         async def create_transition(request: Request):
@@ -249,6 +254,11 @@ class LumiaHTTPRoutes:
 
         self.route("POST", "/api/transitions", create_transition, 201)
         self.route("DELETE", "/api/transitions/{item_id}", delete_transition, NO_CONTENT)
+
+        async def update_transition(request: Request):
+            return transitions.update(self.path_id(request), await self.payload(request, TransitionCreate))
+
+        self.route("PUT", "/api/transitions/{item_id}", update_transition)
 
     def _register_schedules(self) -> None:
         schedules = self.service.schedules

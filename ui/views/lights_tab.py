@@ -120,17 +120,31 @@ class ColorControls:
             self.picker(picker_column, color_key, on_pick, disabled)
         self.chip_row(suffix, on_preset, disabled)
 
-    @staticmethod
-    def picker(container, color_key: str, on_pick: tuple, disabled: bool = False) -> None:
-        pick_callback, pick_args = on_pick
+    @classmethod
+    def picker(cls, container, color_key: str, on_pick: tuple, disabled: bool = False) -> None:
+        """A color picker showing ``st.session_state[color_key]``.
+
+        Streamlit's color picker ignores values seeded into its own key and
+        returns to black whenever it is redrawn, which then looks like a pick.
+        So the color lives in a plain key, the picker gets it as ``value``, and
+        the widget key includes the color so a new color draws a fresh picker.
+        """
+        color = st.session_state.get(color_key) or "#FFFFFF"
+        widget_key = f"{color_key}_picker_{color.lstrip('#').upper()}"
         container.color_picker(
             "Color",
-            key=color_key,
+            value=color,
+            key=widget_key,
             label_visibility="collapsed",
             disabled=disabled,
-            on_change=pick_callback,
-            args=pick_args,
+            on_change=cls._picked,
+            args=(color_key, widget_key, *on_pick),
         )
+
+    @staticmethod
+    def _picked(color_key: str, widget_key: str, callback, args: tuple) -> None:
+        st.session_state[color_key] = st.session_state[widget_key]
+        callback(*args)
 
     def chip_row(self, suffix, on_preset: tuple, disabled: bool = False) -> None:
         preset_callback, preset_args = on_preset
@@ -250,18 +264,32 @@ class AllLightsControls(LumiaTab):
             return
         cls.refresh_cards(light_ids, ("brightness", "color", "color_temp"))
 
+    @staticmethod
+    def changed_by_user(key: str) -> bool:
+        """False when a widget merely re-reports the value it was last shown with."""
+        return str(st.session_state.get(key)).lower() != str(st.session_state.get(f"{key}_shown")).lower()
+
+    @staticmethod
+    def remember_shown(*keys: str) -> None:
+        for key in keys:
+            st.session_state[f"{key}_shown"] = st.session_state.get(key)
+
     @classmethod
     def apply_brightness(cls, api, light_ids: list[int]) -> None:
-        cls.apply(api, light_ids, "brightness", st.session_state[cls.BRIGHTNESS_KEY])
+        if cls.changed_by_user(cls.BRIGHTNESS_KEY):
+            cls.apply(api, light_ids, "brightness", st.session_state[cls.BRIGHTNESS_KEY])
 
     @classmethod
     def apply_temp(cls, api, light_ids: list[int]) -> None:
-        cls.apply(api, light_ids, "color_temp", st.session_state[cls.TEMP_KEY])
+        if cls.changed_by_user(cls.TEMP_KEY):
+            cls.apply(api, light_ids, "color_temp", st.session_state[cls.TEMP_KEY])
 
     @classmethod
     def apply_color(cls, api, light_ids: list[int], color: str | None = None) -> None:
-        if color is not None:
+        if color is not None:  # a preset chip click is always deliberate
             st.session_state[cls.COLOR_KEY] = color
+        elif not cls.changed_by_user(cls.COLOR_KEY):
+            return
         cls.apply(api, light_ids, "color", st.session_state[cls.COLOR_KEY])
 
     @classmethod
@@ -294,6 +322,7 @@ class AllLightsControls(LumiaTab):
             on_change=self.apply_brightness,
             args=(self.api, [light["id"] for light in lights]),
         )
+        self.remember_shown(self.BRIGHTNESS_KEY)
 
     def render_mode(self) -> None:
         """A Temperature | Color toggle with its slider or picker, and its chips below."""
@@ -319,6 +348,7 @@ class AllLightsControls(LumiaTab):
                 on_change=self.apply_temp,
                 args=args,
             )
+            self.remember_shown(self.TEMP_KEY)
             TemperaturePresets.from_dashboard(self.dashboard, self.config.TEMPERATURE_PRESETS).render(
                 "all", on_select=(self.apply_temperature_preset, args), disabled=not lights
             )
@@ -329,6 +359,7 @@ class AllLightsControls(LumiaTab):
             )
         controls = ColorControls(self.config.PRESET_COLORS)
         controls.picker(control_column, self.COLOR_KEY, (self.apply_color, args), disabled=not lights)
+        self.remember_shown(self.COLOR_KEY)
         controls.chip_row("all", (self.apply_color, args), disabled=not lights)
 
     def render_error(self) -> None:
@@ -354,18 +385,30 @@ class LightCard(LumiaTab):
         Sending the other controls' values too is unsafe: if a stale "off"
         rode along with a brightness or color change, the bulb would turn off.
         A bulb also shows either an RGB ``color`` or a white ``color_temp``.
+
+        A value equal to the light's saved state is ignored: widgets re-report
+        their value when they reappear or disappear (e.g. the color picker when
+        switching Temperature/Color), and sending it would turn an off bulb on.
         """
-        state = {changed: st.session_state[f"{changed}_{light_id}"]}
+        value = st.session_state[f"{changed}_{light_id}"]
+        if str(value).lower() == str(st.session_state.get(f"{changed}_seen_{light_id}")).lower():
+            return
+        state = {changed: value}
         try:
             api.control("light", light_id, **state)
             st.session_state.pop(f"control_error_{light_id}", None)
         except httpx.HTTPError as error:
             st.session_state[f"control_error_{light_id}"] = str(error)
 
-    @classmethod
-    def select_preset_color(cls, api, light_id: int, color: str) -> None:
+    @staticmethod
+    def select_preset_color(api, light_id: int, color: str) -> None:
+        """A chip click is deliberate, so it is sent even if the color matches."""
         st.session_state[f"color_{light_id}"] = color
-        cls.sync_controls(api, light_id, "color")
+        try:
+            api.control("light", light_id, color=color)
+            st.session_state.pop(f"control_error_{light_id}", None)
+        except httpx.HTTPError as error:
+            st.session_state[f"control_error_{light_id}"] = str(error)
 
     @staticmethod
     def apply_temperature_preset(api, light_id: int, scheme_id: int) -> None:
@@ -394,9 +437,11 @@ class LightCard(LumiaTab):
             "color": light["color"],
         }
         for control, value in server.items():
-            seen_key = f"{control}_seen_{self.light_id}"
-            if st.session_state.get(seen_key) != value:
-                st.session_state[f"{control}_{self.light_id}"] = value
+            widget_key, seen_key = f"{control}_{self.light_id}", f"{control}_seen_{self.light_id}"
+            # Streamlit also discards a hidden widget's value (e.g. the color picker in
+            # Temperature mode); reseed it so it does not reappear at its default (black).
+            if st.session_state.get(seen_key) != value or widget_key not in st.session_state:
+                st.session_state[widget_key] = value
                 st.session_state[seen_key] = value
 
     def render(self) -> None:

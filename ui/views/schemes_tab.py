@@ -93,7 +93,7 @@ class SchemeLibrary(LumiaTab):
                 f'<div class="scheme-details">{kind} · {html.escape(SchemeFormat.details(scheme))}</div>',
                 unsafe_allow_html=True,
             )
-            apply_column, stop_column, delete_column = st.columns([3, 1, 1])
+            apply_column, stop_column, edit_column, delete_column = st.columns([3, 1, 1, 1])
             if apply_column.button(
                 "Apply", icon=":material/play_arrow:", key=f"scene{scheme_id}",
                 use_container_width=True,
@@ -103,6 +103,10 @@ class SchemeLibrary(LumiaTab):
                 "", icon=":material/stop:", key=f"stop_scene_{scheme_id}"
             ):
                 ActionRunner.run(lambda: self._stop(scheme_id))
+            if not scheme["is_preset"] and edit_column.button(
+                "", icon=":material/edit:", key=f"edit_scheme_{scheme_id}"
+            ):
+                SchemeEditor.open_scheme(self.api, self.config, self.dashboard, scheme)
             if not scheme["is_preset"] and delete_column.button(
                 "", icon=":material/delete:", key=f"ds{scheme_id}"
             ):
@@ -158,50 +162,112 @@ class LightValueInput:
         return {"color_temp": st.session_state[f"{key}_temp"]}
 
 
-class SolidBuilder(LumiaTab):
-    """Create a scheme with one color or one white temperature."""
+class SchemeBuilder(LumiaTab):
+    """Shared create/edit behavior for the Solid and Sequence builders.
 
-    KEY, ERROR = "solid", "solid_error"
+    The Schemes tab uses a builder to create; the edit dialog uses another
+    instance with ``prefix="edit_"`` and the scheme being edited, so the two
+    never share widget keys. Saving an edit closes the dialog via ``DONE_KEY``.
+    """
+
+    DONE_KEY = "scheme_edit_done"
+
+    def __init__(self, api, config, dashboard, prefix: str = "", editing: Item | None = None) -> None:
+        super().__init__(api, config, dashboard)
+        self.prefix = prefix
+        self.editing = editing
+
+    def k(self, name: str) -> str:
+        return f"{self.prefix}{name}"
+
+    @property
+    def save_label(self) -> str:
+        return "Save changes" if self.editing else self.CREATE_LABEL
+
+    def submit(self, payload: dict[str, Any], name_key: str) -> None:
+        if self.editing:
+            FormFeedback.run(
+                self.k(self.ERROR),
+                lambda: self.api.update("scenes", self.editing["id"], payload),
+                lambda: st.session_state.update({self.DONE_KEY: True}),
+            )
+        else:
+            FormFeedback.run(
+                self.k(self.ERROR),
+                lambda: self.api.create("scenes", payload),
+                lambda: st.session_state.update({name_key: ""}),
+            )
+
+
+class SolidBuilder(SchemeBuilder):
+    """Create or edit a scheme with one color or one white temperature."""
+
+    KEY, ERROR, CREATE_LABEL = "solid", "solid_error", "Save solid scheme"
+
+    def load(self, scheme: Item) -> None:
+        """Fill the form from an existing solid scheme."""
+        key = self.k(self.KEY)
+        st.session_state[self.k("solid_name")] = scheme["name"]
+        st.session_state[self.k("solid_brightness")] = scheme["brightness"]
+        st.session_state[f"{key}_mode"] = COLOR if scheme["color"] else TEMPERATURE
+        st.session_state[f"{key}_color"] = scheme["color"] or LightValueInput.FALLBACKS["color"]
+        st.session_state[f"{key}_temp"] = scheme["color_temp"] or LightValueInput.FALLBACKS["temp"]
+        st.session_state.pop(self.k(self.ERROR), None)
 
     def render(self) -> None:
-        LightValueInput.defaults(self.KEY)
-        st.session_state.setdefault("solid_brightness", 80)
-        st.text_input("Name", placeholder="Evening glow", key="solid_name", max_chars=100)
-        LightValueInput(self.config).render(self.KEY)
-        st.slider(":material/brightness_6: Brightness", 1, 100, key="solid_brightness")
+        LightValueInput.defaults(self.k(self.KEY))
+        st.session_state.setdefault(self.k("solid_brightness"), 80)
+        st.text_input("Name :red[*]", placeholder="Evening glow", key=self.k("solid_name"), max_chars=100)
+        LightValueInput(self.config).render(self.k(self.KEY))
+        st.slider(":material/brightness_6: Brightness", 1, 100, key=self.k("solid_brightness"))
         st.button(
-            "Save solid scheme", icon=":material/save:", use_container_width=True,
-            key="save_solid", on_click=self.save, args=(self.api,),
+            self.save_label, icon=":material/save:", use_container_width=True,
+            key=self.k("save_solid"), on_click=self.save,
         )
-        FormFeedback.show(self.ERROR)
+        FormFeedback.show(self.k(self.ERROR))
 
-    @classmethod
-    def save(cls, api) -> None:
-        payload = {
-            "name": st.session_state.get("solid_name", ""),
-            "kind": "solid",
-            "brightness": st.session_state["solid_brightness"],
-            **LightValueInput.payload(cls.KEY),
-        }
-        FormFeedback.run(
-            cls.ERROR,
-            lambda: api.create("scenes", payload),
-            lambda: st.session_state.update(solid_name=""),
+    def save(self) -> None:
+        name_key = self.k("solid_name")
+        if not st.session_state.get(name_key, "").strip():
+            st.session_state[self.k(self.ERROR)] = "Give the scheme a name."
+            return
+        self.submit(
+            {
+                "name": st.session_state[name_key],
+                "kind": "solid",
+                "brightness": st.session_state[self.k("solid_brightness")],
+                **LightValueInput.payload(self.k(self.KEY)),
+            },
+            name_key,
         )
 
 
-class SequenceBuilder(LumiaTab):
-    """Chain colors and temperatures, each held for a time and faded into."""
+class SequenceBuilder(SchemeBuilder):
+    """Create or edit a chain of colors and temperatures, each held and faded into.
 
-    STEPS_KEY, ERROR = "sequence_steps", "sequence_error"
+    Step widget keys are ``seq_<uid>_*`` and ``sequence_step_<uid>`` (the
+    stylesheet targets them); edit-dialog steps use uids like ``e7``.
+    """
+
+    ERROR, CREATE_LABEL = "sequence_error", "Save sequence"
+    INSTANT = 0  # option value for "no transition"; None would read as "nothing selected"
+    DEFAULT_TRANSITION = "Smooth"
     _ids = count()
 
-    @classmethod
-    def new_step(cls, after: int | None = None) -> int:
-        """Add a step, copying the previous step's settings as a starting point."""
-        uid = next(cls._ids)
+    @property
+    def steps_key(self) -> str:
+        return self.k("sequence_steps")
+
+    def new_uid(self) -> str:
+        tag = "e" if self.prefix else ""
+        uid = f"{tag}{next(self._ids)}"
         while f"seq_{uid}_mode" in st.session_state:
-            uid = next(cls._ids)
+            uid = f"{tag}{next(self._ids)}"
+        return uid
+
+    def new_step(self, after: str | None = None) -> str:
+        """Add a step, copying the previous step's settings as a starting point."""
+        uid = self.new_uid()
         key = f"seq_{uid}"
         if after is None:
             LightValueInput.defaults(key)
@@ -215,17 +281,33 @@ class SequenceBuilder(LumiaTab):
                     st.session_state[f"{key}_{suffix}"] = value
         return uid
 
-    @classmethod
-    def add_step(cls) -> None:
-        steps = st.session_state[cls.STEPS_KEY]
-        steps.append(cls.new_step(steps[-1] if steps else None))
+    def load(self, scheme: Item) -> None:
+        """Fill the form from an existing sequence scheme."""
+        options = self.transition_options()
+        uids = []
+        for step in scheme["steps"]:
+            uid = self.new_uid()
+            key = f"seq_{uid}"
+            st.session_state[f"{key}_mode"] = COLOR if step.get("color") else TEMPERATURE
+            st.session_state[f"{key}_color"] = step.get("color") or LightValueInput.FALLBACKS["color"]
+            st.session_state[f"{key}_temp"] = step.get("color_temp") or LightValueInput.FALLBACKS["temp"]
+            st.session_state[f"{key}_brightness"] = step["brightness"]
+            st.session_state[f"{key}_hold"] = step.get("hold_ms", 0) / 1000
+            # Built-in "Instant" (or a deleted transition) is the form's Instant option.
+            transition_id = step.get("transition_id")
+            st.session_state[f"{key}_transition"] = transition_id if transition_id in options else self.INSTANT
+            uids.append(uid)
+        st.session_state[self.steps_key] = uids
+        st.session_state[self.k("sequence_name")] = scheme["name"]
+        st.session_state[self.k("sequence_loops")] = scheme["loops"]
+        st.session_state.pop(self.k(self.ERROR), None)
 
-    @classmethod
-    def remove_step(cls, uid: int) -> None:
-        st.session_state[cls.STEPS_KEY].remove(uid)
+    def add_step(self) -> None:
+        steps = st.session_state[self.steps_key]
+        steps.append(self.new_step(steps[-1] if steps else None))
 
-    INSTANT = 0  # option value for "no transition"; None would read as "nothing selected"
-    DEFAULT_TRANSITION = "Smooth"
+    def remove_step(self, uid: str) -> None:
+        st.session_state[self.steps_key].remove(uid)
 
     def transition_options(self) -> dict[int, str]:
         options = {self.INSTANT: "Instant"}
@@ -243,27 +325,28 @@ class SequenceBuilder(LumiaTab):
         )
 
     def render(self) -> None:
-        if self.STEPS_KEY not in st.session_state:
-            st.session_state[self.STEPS_KEY] = [self.new_step(), self.new_step()]
-        st.text_input("Name", placeholder="Aurora", key="sequence_name", max_chars=100)
+        if self.steps_key not in st.session_state:
+            st.session_state[self.steps_key] = [self.new_step(), self.new_step()]
+        st.session_state.setdefault(self.k("sequence_loops"), True)
+        st.text_input("Name :red[*]", placeholder="Aurora", key=self.k("sequence_name"), max_chars=100)
         transitions = self.transition_options()
-        steps = st.session_state[self.STEPS_KEY]
+        steps = st.session_state[self.steps_key]
         for position, uid in enumerate(steps, start=1):
             self._render_step(position, uid, transitions, removable=len(steps) > 2)
         add_column, loop_column = st.columns([1, 1], vertical_alignment="center")
         add_column.button(
-            "Add step", icon=":material/add:", key="sequence_add_step",
+            "Add step", icon=":material/add:", key=self.k("sequence_add_step"),
             on_click=self.add_step, disabled=len(steps) >= 24,
         )
-        loop_column.toggle("Loop", value=True, key="sequence_loops")
+        loop_column.toggle("Loop", key=self.k("sequence_loops"))
         st.button(
-            "Save sequence", icon=":material/save:", use_container_width=True,
-            key="save_sequence", on_click=self.save, args=(self.api,),
+            self.save_label, icon=":material/save:", use_container_width=True,
+            key=self.k("save_sequence"), on_click=self.save,
         )
-        FormFeedback.show(self.ERROR)
+        FormFeedback.show(self.k(self.ERROR))
 
     def _render_step(
-        self, position: int, uid: int, transitions: dict[int, str], removable: bool
+        self, position: int, uid: str, transitions: dict[int, str], removable: bool
     ) -> None:
         key = f"seq_{uid}"
         if st.session_state.get(f"{key}_transition") not in transitions:
@@ -271,11 +354,11 @@ class SequenceBuilder(LumiaTab):
         with st.container(border=True, key=f"sequence_step_{uid}"):
             title_column, remove_column = st.columns([8, 1], vertical_alignment="center")
             title_column.markdown(f'<div class="scheme-step-title">Step {position}</div>', unsafe_allow_html=True)
-            if removable:
-                remove_column.button(
-                    "", icon=":material/close:", key=f"{key}_remove",
-                    on_click=self.remove_step, args=(uid,),
-                )
+            # Always shown; disabled at the two-step minimum a sequence needs.
+            remove_column.button(
+                "", icon=":material/delete:", key=f"{key}_remove",
+                disabled=not removable, on_click=self.remove_step, args=(uid,),
+            )
             value_column, brightness_column = st.columns(2, vertical_alignment="bottom")
             LightValueInput(self.config).render(key, value_column)
             brightness_column.slider(":material/brightness_6: Brightness", 1, 100, key=f"{key}_brightness")
@@ -293,8 +376,11 @@ class SequenceBuilder(LumiaTab):
                 "Hold (seconds)", min_value=0.0, max_value=3600.0, step=0.1, key=f"{key}_hold",
             )
 
-    @classmethod
-    def save(cls, api) -> None:
+    def save(self) -> None:
+        name_key = self.k("sequence_name")
+        if not st.session_state.get(name_key, "").strip():
+            st.session_state[self.k(self.ERROR)] = "Give the sequence a name."
+            return
         steps = [
             {
                 **LightValueInput.payload(f"seq_{uid}"),
@@ -302,29 +388,72 @@ class SequenceBuilder(LumiaTab):
                 "hold_ms": round(st.session_state[f"seq_{uid}_hold"] * 1000),
                 "transition_id": st.session_state.get(f"seq_{uid}_transition") or None,
             }
-            for uid in st.session_state[cls.STEPS_KEY]
+            for uid in st.session_state[self.steps_key]
         ]
-        payload = {
-            "name": st.session_state.get("sequence_name", ""),
-            "kind": "sequence",
-            "loops": st.session_state.get("sequence_loops", True),
-            "steps": steps,
-        }
-        FormFeedback.run(
-            cls.ERROR,
-            lambda: api.create("scenes", payload),
-            lambda: st.session_state.update(sequence_name=""),
+        self.submit(
+            {
+                "name": st.session_state[name_key],
+                "kind": "sequence",
+                "loops": st.session_state.get(self.k("sequence_loops"), True),
+                "steps": steps,
+            },
+            name_key,
         )
 
 
+class SchemeEditor:
+    """Edit dialogs for user schemes and transitions (built-ins are read-only)."""
+
+    @staticmethod
+    def open_scheme(api, config, dashboard, scheme: Item) -> None:
+        builder_class = SequenceBuilder if scheme["kind"] == "sequence" else SolidBuilder
+        builder_class(api, config, dashboard, prefix="edit_", editing=scheme).load(scheme)
+        st.session_state.pop(SchemeBuilder.DONE_KEY, None)
+
+        @st.dialog(f'Edit {scheme["name"]}', width="large")
+        def dialog() -> None:
+            if st.session_state.pop(SchemeBuilder.DONE_KEY, False):
+                st.rerun()
+            builder_class(api, config, dashboard, prefix="edit_", editing=scheme).render()
+
+        dialog()
+
+    @staticmethod
+    def open_transition(api, transition: Item) -> None:
+        @st.dialog(f'Edit {transition["name"]}')
+        def dialog() -> None:
+            with st.form(f"edit_transition_{transition['id']}", border=False):
+                name = st.text_input("Name :red[*]", value=transition["name"], max_chars=60)
+                seconds = st.number_input(
+                    "Fade (seconds)", min_value=0.0, max_value=600.0,
+                    value=transition["duration_ms"] / 1000, step=0.1,
+                )
+                curves = TransitionManager.CURVES
+                curve = st.selectbox("Curve", curves, index=curves.index(transition["curve"]))
+                if st.form_submit_button("Save changes", icon=":material/save:", use_container_width=True):
+                    if not name.strip():
+                        st.error("Give the transition a name.")
+                    else:
+                        ActionRunner.run(
+                            lambda: api.update(
+                                "transitions", transition["id"],
+                                {"name": name, "duration_ms": round(seconds * 1000), "curve": curve},
+                            )
+                        )
+
+        dialog()
+
+
 class TransitionManager(LumiaTab):
-    """Saved fades: built-ins are fixed, custom ones can be deleted."""
+    """Saved fades: built-ins are fixed, custom ones can be edited or deleted."""
 
     CURVES = ("ease-in-out", "linear", "ease-in", "ease-out")
 
     def render(self) -> None:
         for item in self.dashboard.transitions:
-            name_column, detail_column, delete_column = st.columns([3, 3, 1], vertical_alignment="center")
+            name_column, detail_column, edit_column, delete_column = st.columns(
+                [3, 3, 0.5, 0.5], vertical_alignment="center"
+            )
             badge = '<span class="scheme-badge">Built-in</span>' if item["is_preset"] else ""
             name_column.markdown(
                 f'<div class="scheme-title">{html.escape(item["name"])}{badge}</div>', unsafe_allow_html=True
@@ -333,6 +462,10 @@ class TransitionManager(LumiaTab):
                 f'<div class="scheme-details">{SchemeFormat.seconds(item["duration_ms"])} · {item["curve"]}</div>',
                 unsafe_allow_html=True,
             )
+            if not item["is_preset"] and edit_column.button(
+                "", icon=":material/edit:", key=f"edit_transition_{item['id']}"
+            ):
+                SchemeEditor.open_transition(self.api, item)
             if not item["is_preset"] and delete_column.button(
                 "", icon=":material/delete:", key=f"delete_transition_{item['id']}"
             ):

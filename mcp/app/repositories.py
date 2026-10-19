@@ -275,6 +275,15 @@ class SceneRepository(Repository):
                 self.values(entry, True),
             )
 
+    def update(self, scene_id: int, entry: SceneCreate) -> Row | None:
+        """Replace a user scheme; built-in presets are never changed."""
+        return self.fetch_one(
+            """UPDATE scenes SET name=%s, kind=%s, color=%s, color_temp=%s, brightness=%s,
+                steps=%s, loops=%s
+            WHERE id=%s AND NOT is_preset RETURNING *""",
+            (*self.values(entry, False)[:-1], scene_id),
+        )
+
     def delete(self, scene_id: int) -> bool:
         return self.affects_row(
             "DELETE FROM scenes WHERE id=%s AND NOT is_preset RETURNING id", (scene_id,)
@@ -302,6 +311,14 @@ class TransitionRepository(Repository):
                 WHERE transitions.is_preset""",
                 (entry.name, entry.duration_ms, entry.curve),
             )
+
+    def update(self, transition_id: int, entry: TransitionCreate) -> Row | None:
+        """Replace a user transition; built-in presets are never changed."""
+        return self.fetch_one(
+            "UPDATE transitions SET name=%s, duration_ms=%s, curve=%s "
+            "WHERE id=%s AND NOT is_preset RETURNING *",
+            (entry.name.strip(), entry.duration_ms, entry.curve, transition_id),
+        )
 
     def delete(self, transition_id: int) -> bool:
         return self.affects_row(

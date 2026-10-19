@@ -20,14 +20,30 @@ MODE_ICONS = {TEMPERATURE: ":material/device_thermostat:", COLOR: ":material/pal
 class ActionRunner:
     """Run a backend mutation, then rerun on success or surface its error."""
 
-    @staticmethod
-    def error_message(error: httpx.HTTPError) -> str:
+    @classmethod
+    def error_message(cls, error: httpx.HTTPError) -> str:
+        """The backend's reason for rejecting a request, not just "Invalid request"."""
         if isinstance(error, httpx.HTTPStatusError):
             try:
-                return error.response.json().get("error", str(error))
+                body = error.response.json()
             except ValueError:
                 return str(error)
+            reasons = [cls.validation_reason(detail) for detail in body.get("details") or []]
+            return "; ".join(reasons) if reasons else body.get("error", str(error))
         return f"Luna Lumia service is unavailable: {error}"
+
+    @staticmethod
+    def validation_reason(detail: dict) -> str:
+        """One readable validation failure, e.g. "Step 2 brightness: ..."."""
+        message = str(detail.get("msg", "")).removeprefix("Value error, ")
+        parts = []
+        for part in detail.get("loc") or []:
+            if isinstance(part, int):
+                parts[-1:] = [f"{parts[-1].rstrip('s') if parts else 'item'} {part + 1}"]
+            else:
+                parts.append(str(part).replace("_", " "))
+        field = " ".join(parts)
+        return f"{field[:1].upper()}{field[1:]}: {message}" if field else message
 
     @classmethod
     def run(cls, action: Callable[[], Any]) -> None:

@@ -44,7 +44,8 @@ class WizLightAdapter:
         self, ip_address: str, *, on=None, brightness=None, color=None, color_temp=None
     ) -> None:
         async with wiz_bulb(ip_address) as bulb:
-            if on is False:
+            # A bulb cannot show black; RGB 0,0,0 would fall back to warm white.
+            if on is False or (color is not None and not any(self.rgb(color))):
                 await asyncio.wait_for(bulb.turn_off(), self.timeout)
                 return
             if on is True or any(value is not None for value in (brightness, color, color_temp)):

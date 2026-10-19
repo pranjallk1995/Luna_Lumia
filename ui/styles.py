@@ -33,7 +33,7 @@ class LunaStyle:
         div[class*="st-key-room_header_"] h3{margin:0!important;padding:0!important}
         div[class*="st-key-room_header_"] div[class*="st-key-dg"] button{width:2.25rem!important;min-width:2.25rem!important;height:2.25rem!important;min-height:2.25rem!important;padding:0!important}
         div[class*="st-key-room_light_row_"]{display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:.4rem!important;flex-wrap:nowrap!important;width:100%!important;min-width:0!important;margin-top:.65rem!important}
-        div[class*="st-key-room_light_row_"] div[data-testid="stPopover"] button{width:1.45rem!important;min-width:1.45rem!important;height:1.45rem!important;min-height:1.45rem!important;padding:0!important}
+        div[class*="st-key-room_light_row_"] div[data-testid="stPopover"] button{width:2.25rem!important;min-width:2.25rem!important;height:1.45rem!important;min-height:1.45rem!important;padding:0!important}
         div[class*="st-key-room_light_row_"] div[data-testid="stPopover"]{margin-left:.35rem;transform:translateY(.12rem)}
         div[class*="st-key-room_light_row_"] div[data-testid="stPopover"] button,div[class*="st-key-room_light_row_"] div[data-testid="stPopover"] button:hover,div[class*="st-key-room_light_row_"] div[data-testid="stPopover"] button:focus,div[class*="st-key-room_light_row_"] div[data-testid="stPopover"] button:active{border:0!important;outline:0!important;background:transparent!important;background-color:transparent!important;box-shadow:none!important}
         div[class*="st-key-room_light_row_"] div[data-testid="stPopover"] button svg{display:none!important}
@@ -86,6 +86,9 @@ class LunaStyle:
         .scheme-details{margin:.2rem 0 .55rem;color:var(--lv-muted);font-size:.72rem}
         .scheme-badge{padding:.12rem .45rem;border:1px solid var(--lv-border);border-radius:999px;color:var(--lv-muted);font-size:.6rem;font-weight:500}
         .scheme-badge.playing{border-color:rgba(255,190,85,.45);color:#ffbe55}
+        div[class*="st-key-sequence_step_"]{position:relative!important}
+        div[class*="st-key-sequence_step_"] div[class*="st-key-seq_"][class*="_remove"]{position:absolute!important;top:.3rem;right:.3rem;z-index:2;width:auto!important}
+        div[class*="st-key-seq_"][class*="_remove"] button,div[class*="st-key-seq_"][class*="_remove"] button:hover{width:2.25rem!important;min-width:2.25rem!important;height:2.25rem!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important}
         .scheme-step-title{color:var(--lv-text);font-size:.85rem;font-weight:650}
         div[class*="st-key-light_mode_body_"]{min-height:5.45rem;justify-content:center}
         div[class*="st-key-room_actions_"]{justify-content:flex-end!important;gap:.9rem!important}

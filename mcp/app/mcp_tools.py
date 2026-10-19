@@ -201,6 +201,31 @@ class LumiaMCPTools:
             return scenes.add(SceneCreate(name=name, kind="sequence", steps=steps, loops=loops))
 
         @server.tool()
+        def update_solid_scheme(
+            scheme_id: int, name: str, brightness: int, color: str | None = None, color_temp: int | None = None
+        ):
+            """Replace one of your solid schemes (built-ins cannot be edited); same fields as create_solid_scheme."""
+            return scenes.update(
+                scheme_id,
+                SceneCreate(name=name, brightness=brightness, color=color, color_temp=color_temp),
+            )
+
+        @server.tool()
+        def update_sequence_scheme(scheme_id: int, name: str, steps: list[dict[str, Any]], loops: bool = True):
+            """Replace one of your sequence schemes (built-ins cannot be edited); same fields as create_sequence_scheme.
+
+            A sequence that is playing restarts with the new steps.
+            """
+            return scenes.update(scheme_id, SceneCreate(name=name, kind="sequence", steps=steps, loops=loops))
+
+        @server.tool()
+        def update_transition(transition_id: int, name: str, duration_ms: int, curve: str = "ease-in-out"):
+            """Replace one of your transitions (built-ins cannot be edited); same fields as create_transition."""
+            return transitions.update(
+                transition_id, TransitionCreate(name=name, duration_ms=duration_ms, curve=curve)
+            )
+
+        @server.tool()
         def create_transition(name: str, duration_ms: int, curve: str = "ease-in-out"):
             """Save a reusable fade: duration_ms (0-600000) and curve (linear, ease-in, ease-out, ease-in-out)."""
             return transitions.add(TransitionCreate(name=name, duration_ms=duration_ms, curve=curve))

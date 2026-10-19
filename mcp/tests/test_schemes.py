@@ -130,6 +130,12 @@ class FakeScenes:
     def get(self, scene_id): return self.ROWS.get(scene_id)
     def list(self): return list(self.ROWS.values())
     def delete(self, scene_id): return True
+    def update(self, scene_id, entry):
+        row = self.ROWS.get(scene_id)
+        if not row or row["is_preset"]:
+            return None
+        return {**row, "name": entry.name, "kind": entry.kind, "loops": entry.loops,
+                "steps": [step.model_dump() for step in entry.steps]}
 
 
 class FakeTransitions:
@@ -163,6 +169,19 @@ class SceneServiceTests(unittest.TestCase):
         pulse = next(scene for scene in self.service.list() if scene["id"] == 2)
         self.assertEqual(len(pulse["preview_colors"]), 2)
         self.assertEqual(pulse["cycle_ms"], 2 * (300 + 1500))
+
+    def test_built_in_schemes_cannot_be_edited(self):
+        with self.assertRaises(ValueError):
+            self.service.update(1, SceneCreate(name="Focus", color_temp=4000, brightness=50))
+
+    def test_editing_a_playing_sequence_restarts_it(self):
+        self.engine.active = {3: 2}
+        steps = [SceneStep(color="#0B1A4A", brightness=15, hold_ms=2000, transition_id=5),
+                 SceneStep(color="#CFE3FF", brightness=45, hold_ms=200, transition_id=5)]
+        updated = self.service.update(2, SceneCreate(name="Pulse 2", kind="sequence", steps=steps, loops=True))
+        self.assertEqual(updated["name"], "Pulse 2")
+        self.assertEqual(self.engine.played[-1][:3], (2, 2, True))
+        self.assertEqual([light["id"] for light in self.engine.played[-1][3]], [3])
 
     def test_built_in_schemes_cannot_be_deleted(self):
         with self.assertRaises(ValueError):
