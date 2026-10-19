@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -30,6 +31,9 @@ from .repositories import (
 )
 from .room_images import ImageScheme, RoomImageCatalog, RoomKeyDetector
 
+
+# Uvicorn's logger, so these lines appear in the container log.
+LOG = logging.getLogger("uvicorn.error")
 
 class LightControlService:
     """Send states to physical lights and persist what they report back."""
@@ -500,9 +504,21 @@ class SceneService:
         if not self.scenes.delete(scene_id):
             raise NotFoundError("Scene not found")
 
-    async def apply(self, target_type: str, target_id: int | None, scene_id: int) -> Any:
-        """Set a solid scheme, or start a sequence (replacing any already playing)."""
+    async def apply(self, target_type: str, target_id: int | None, scene_id: int) -> dict[str, Any]:
+        """Set a solid scheme, or start a sequence (replacing any already playing).
+
+        Returns the scheme, the target, and the ids of the lights it was applied to.
+        """
         scene = self.get(scene_id)
+        lights = self.control.resolve_targets(target_type, target_id)
+        summary = {
+            "scene": scene["name"],
+            "kind": scene["kind"],
+            "target_type": target_type,
+            "target_id": target_id,
+            "light_ids": [light["id"] for light in lights],
+        }
+        LOG.info("Applying scheme %r to %s %s: lights %s", scene["name"], target_type, target_id, summary["light_ids"])
         if scene["kind"] == "solid":
             state = LightState(
                 on=True,
@@ -510,13 +526,13 @@ class SceneService:
                 color=scene["color"],
                 color_temp=scene["color_temp"],
             )
-            return await self.control.control(target_type, target_id, state)
-        lights = self.control.resolve_targets(target_type, target_id)
+            results = await self.control.control(target_type, target_id, state)
+            return {**summary, "playing": False, "results": results}
         steps = Step.from_scene(scene, self.transitions.by_id())
         self.engine.play(scene["id"], steps, scene["loops"], lights)
         for light in lights:
             self.control.lights.update_state(light["id"], on=True)
-        return {"scene": scene["name"], "playing": True, "light_ids": [light["id"] for light in lights]}
+        return {**summary, "playing": True}
 
     def stop(self, target_type: str = "all", target_id: int | None = None) -> dict[str, Any]:
         lights = self.control.resolve_targets(target_type, target_id)

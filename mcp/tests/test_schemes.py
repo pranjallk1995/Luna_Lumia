@@ -152,6 +152,13 @@ class SceneServiceTests(unittest.TestCase):
         self.assertEqual(self.control.lights.updates, [(3, {"on": True})])
         self.assertTrue(result["playing"])
 
+    def test_apply_reports_only_the_targeted_lights(self):
+        result = asyncio.run(self.service.apply("group", 23, 1))
+        self.assertEqual(
+            (result["target_type"], result["target_id"], result["light_ids"], result["playing"]),
+            ("group", 23, [3], False),
+        )
+
     def test_list_adds_previews_and_cycle_length(self):
         pulse = next(scene for scene in self.service.list() if scene["id"] == 2)
         self.assertEqual(len(pulse["preview_colors"]), 2)

@@ -21,9 +21,26 @@ class RoomSchemePicker:
         self.member_ids = [light["id"] for light in members]
 
     # Button callbacks run before the next script pass; errors are shown on that pass.
+    NOTICE_KEY = "room_scheme_notice"
+
     @classmethod
-    def apply(cls, api, collection_id: int, scheme_id: int) -> None:
-        cls._call(collection_id, lambda: api.apply_scene(scheme_id, "group", collection_id))
+    def apply(cls, api, collection_id: int, collection_name: str, scheme_id: int) -> None:
+        def run():
+            result = api.apply_scene(scheme_id, "group", collection_id) or {}
+            count = len(result.get("light_ids", []))
+            st.session_state[cls.NOTICE_KEY] = (
+                f'{result.get("scene", "Scheme")} applied to {collection_name} '
+                f'({count} light{"" if count == 1 else "s"})'
+            )
+
+        cls._call(collection_id, run)
+
+    @classmethod
+    def show_notice(cls) -> None:
+        """Confirm the last room/group apply, naming its target and light count."""
+        notice = st.session_state.pop(cls.NOTICE_KEY, None)
+        if notice:
+            st.toast(notice, icon=":material/palette:")
 
     @classmethod
     def stop(cls, api, collection_id: int) -> None:
@@ -68,7 +85,7 @@ class RoomSchemePicker:
                         columns[index % 2].button(
                             scheme["name"], icon=icon, key=f"room_scheme_{collection_id}_{scheme['id']}",
                             use_container_width=True, on_click=self.apply,
-                            args=(self.api, collection_id, scheme["id"]),
+                            args=(self.api, collection_id, self.collection["name"], scheme["id"]),
                         )
         if st.session_state.get(self.ERROR_KEY.format(collection_id)):
             st.error(st.session_state[self.ERROR_KEY.format(collection_id)])
@@ -316,6 +333,7 @@ class RoomsTab(LumiaTab):
     """List every room then group, followed by the creation forms."""
 
     def render(self) -> None:
+        RoomSchemePicker.show_notice()
         with st.container():
             for collection in self.dashboard.collections:
                 CollectionCard(self.api, self.config, self.dashboard, collection).render()
