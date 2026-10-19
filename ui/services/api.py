@@ -13,10 +13,12 @@ class LumiaAPI:
     def __init__(self, config: UIConfig) -> None:
         self.base_url = config.api_url
         self.timeout = config.api_timeout
+        self.headers = {"Authorization": f"Bearer {config.api_token}"}
 
     def request(self, method: str, path: str, **kwargs: Any) -> Any:
         response = httpx.request(
-            method, f"{self.base_url}{path}", timeout=self.timeout, **kwargs
+            method, f"{self.base_url}{path}", timeout=self.timeout,
+            headers=self.headers, **kwargs
         )
         response.raise_for_status()
         return None if response.status_code == 204 else response.json()

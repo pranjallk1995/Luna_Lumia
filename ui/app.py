@@ -7,6 +7,7 @@ import streamlit as st
 from PIL import Image
 
 from services.api import LumiaAPI
+from auth import OIDCAuthentication
 from config import UIConfig
 from domain.dashboard import Dashboard
 from styles import LunaStyle
@@ -55,6 +56,9 @@ class LunaLumiaApp:
         with power_column, st.container(
             key="header_actions", horizontal=True, vertical_alignment="center", gap="small"
         ):
+            st.button(
+                "Sign out", icon=":material/logout:", key="header_sign_out", on_click=st.logout
+            )
             # Light states are only read from the bulbs on demand (no background polling).
             if st.button(
                 "", icon=":material/refresh:", key="header_refresh_lights",
@@ -73,6 +77,7 @@ class LunaLumiaApp:
 
     def render(self) -> None:
         LunaStyle.apply()
+        OIDCAuthentication(self.config.allowed_emails).require_login()
         dashboard = self.load_dashboard()
         self.render_header(dashboard)
         containers = st.tabs([label for label, _ in self.TABS])

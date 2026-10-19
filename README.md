@@ -21,6 +21,7 @@ Luna Visia and Luna Vita.
 - Display room photography from Luna Visia on each light card
 - Create recurring on/off or color-scheme schedules and alarms in Asia/Kolkata
 - Control lights through the dashboard, REST endpoints, or MCP tools
+- Require Google OIDC login and an explicit email allowlist before the dashboard is shown
 
 The initial `Living room light` is seeded at `192.168.1.8`. Lumia sends commands
 directly over the local network; no cloud account or light credential is stored.
@@ -83,6 +84,59 @@ The shared Luna Visia network must already exist (`luna_visia_lunavisia_network`
 ```bash
 docker compose -f docker-compose.yaml up --build
 ```
+
+### Authentication setup
+
+Lumia uses Streamlit's native OpenID Connect authorization-code flow for the
+browser login. Streamlit validates the provider's ID token and stores the
+identity in its signed identity cookie. Lumia additionally checks the verified
+email claim against an explicit allowlist. The UI authenticates its private
+REST calls with a separate bearer credential; `/api/*` rejects requests that do
+not have that credential. Health and icon routes remain public for probes and
+client branding.
+
+1. In Google Cloud Console, configure the OAuth consent screen and create an
+   **OAuth client ID** of type **Web application**. Add this exact authorized
+   redirect URI for local use:
+
+   ```text
+   http://localhost:18503/oauth2callback
+   ```
+
+   If Google keeps the consent screen in testing mode, add every authorized
+   Lumia user as a test user. For a deployed HTTPS hostname, create a separate
+   client or add its exact `https://<host>/oauth2callback` redirect URI.
+
+2. Copy `ui/.streamlit/secrets.example.toml` to
+   `ui/.streamlit/secrets.toml`. Replace the client ID and client secret, set
+   `redirect_uri` to the browser-visible Lumia origin, and generate a strong
+   independent `cookie_secret`. The real file is gitignored, excluded from the
+   image build, and mounted read-only at runtime.
+
+3. Create a local `.env` (also gitignored) with an independent random API token
+   and the only Google accounts that may control the lights:
+
+   ```dotenv
+   LUNALUMIA_API_TOKEN=replace-with-a-random-value-of-at-least-32-characters
+   LUNALUMIA_ALLOWED_EMAILS=you@example.com
+   ```
+
+   Separate multiple email addresses with commas. Generate the two random
+   values independently; do not reuse the Google client secret as either the
+   cookie secret or the API token.
+
+4. Start Lumia normally and open `http://localhost:18503`. The dashboard does
+   not load data or expose controls until Google login succeeds and the returned
+   email is both verified and allowlisted. Use **Sign out** in the header to
+   delete the Streamlit identity cookie and end the provider session when the
+   provider supports OIDC logout.
+
+The backend remains bound to localhost on port `18002`, and its REST routes are
+intended to be reached by the UI over the private Compose network. If you expose
+Lumia through a reverse proxy, use HTTPS, forward the original host/protocol,
+and keep port `18002` private. The MCP endpoint is separate from the dashboard
+login and remains localhost-only; do not publish it to the internet without a
+dedicated MCP OAuth 2.1 authorization server or an authenticated gateway.
 
 Open `http://127.0.0.1:18503`. The MCP endpoint is
 `http://127.0.0.1:18002/mcp`.

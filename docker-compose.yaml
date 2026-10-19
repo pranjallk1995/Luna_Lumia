@@ -24,6 +24,7 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://lunalumia:${POSTGRES_PASSWORD:-lunalumia-dev}@luna-lumia-db:5432/lunalumia
+      LUNALUMIA_API_TOKEN: ${LUNALUMIA_API_TOKEN:?Set LUNALUMIA_API_TOKEN to a random value of at least 32 characters}
       TZ: Asia/Kolkata
     expose: ["8000"]
     ports: ["127.0.0.1:18002:8000"]
@@ -54,14 +55,18 @@ services:
     restart: unless-stopped
     environment:
       LUNALUMIA_API_URL: http://luna-lumia-mcp:8000
+      LUNALUMIA_API_TOKEN: ${LUNALUMIA_API_TOKEN:?Set LUNALUMIA_API_TOKEN to a random value of at least 32 characters}
+      LUNALUMIA_ALLOWED_EMAILS: ${LUNALUMIA_ALLOWED_EMAILS:?Set LUNALUMIA_ALLOWED_EMAILS to the Google accounts allowed to control Lumia}
       TZ: Asia/Kolkata
+    volumes:
+      - ./ui/.streamlit/secrets.toml:/workspace/ui/.streamlit/secrets.toml:ro
     ports: ["127.0.0.1:18503:8501"]
     develop:
       watch:
         - action: sync
           path: ./ui
           target: /workspace/ui
-          ignore: [__pycache__/, "*.py[cod]", requirements.txt, Dockerfile]
+          ignore: [__pycache__/, "*.py[cod]", requirements.txt, Dockerfile, .streamlit/secrets.toml]
         - action: rebuild
           path: ./ui/requirements.txt
         - action: rebuild

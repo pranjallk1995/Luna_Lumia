@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response
 
+from .auth import APIAuthenticator
 from .devices import GLOBAL_BROADCAST
 from .branding import ServerBranding
 from .errors import NotFoundError
@@ -36,11 +37,12 @@ class LumiaHTTPRoutes:
     """Translate HTTP requests into service calls and results into JSON."""
 
     def __init__(
-        self, server: FastMCP, service: LumiaService, branding: ServerBranding
+        self, server: FastMCP, service: LumiaService, branding: ServerBranding, api_token: str
     ) -> None:
         self.server = server
         self.service = service
         self.branding = branding
+        self.authenticator = APIAuthenticator(api_token)
         self._register()
 
     @classmethod
@@ -89,6 +91,10 @@ class LumiaHTTPRoutes:
         """Register ``handler`` with uniform error translation."""
 
         async def endpoint(request: Request) -> Response:
+            if path.startswith("/api/"):
+                rejection = self.authenticator.rejection(request)
+                if rejection is not None:
+                    return rejection
             try:
                 return self.response(await handler(request), status)
             except Exception as error:

@@ -27,7 +27,7 @@ class BrandingTests(unittest.TestCase):
     def test_icons_are_served_over_http(self):
         branding = ServerBranding()
         server = FastMCP("Luna Lumia", icons=branding.mcp_icons())
-        LumiaHTTPRoutes(server, MagicMock(), branding)
+        LumiaHTTPRoutes(server, MagicMock(), branding, "t" * 32)
         client = TestClient(server.streamable_http_app())
         favicon = client.get("/favicon.ico")
         self.assertEqual((favicon.status_code, favicon.headers["content-type"]), (200, "image/x-icon"))

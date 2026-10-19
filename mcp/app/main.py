@@ -56,7 +56,7 @@ class LunaLumiaApplication:
             json_response=True,
         )
         LumiaMCPTools(self.mcp, self.service)
-        LumiaHTTPRoutes(self.mcp, self.service, self.branding)
+        LumiaHTTPRoutes(self.mcp, self.service, self.branding, config.api_token)
         self.workers = [
             ScheduleWorker(
                 self.service.schedules, config.timezone, config.schedule_interval_seconds

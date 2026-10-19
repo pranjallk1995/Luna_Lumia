@@ -33,6 +33,8 @@ class UIConfig:
     DEFAULT_COLOR_TEMP: ClassVar[int] = 4000
 
     api_url: str
+    api_token: str
+    allowed_emails: frozenset[str]
     api_timeout: float = 8.0
     discovery_broadcast: str = "192.168.1.255"
     card_columns: int = 3
@@ -43,4 +45,14 @@ class UIConfig:
         parsed = urlparse(api_url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise RuntimeError("LUNALUMIA_API_URL must be a valid HTTP(S) URL.")
-        return cls(api_url=api_url)
+        api_token = os.getenv("LUNALUMIA_API_TOKEN", "").strip()
+        if len(api_token) < 32:
+            raise RuntimeError("LUNALUMIA_API_TOKEN must contain at least 32 characters.")
+        allowed_emails = frozenset(
+            email.strip().casefold()
+            for email in os.getenv("LUNALUMIA_ALLOWED_EMAILS", "").split(",")
+            if email.strip()
+        )
+        if not allowed_emails:
+            raise RuntimeError("LUNALUMIA_ALLOWED_EMAILS must list at least one account.")
+        return cls(api_url=api_url, api_token=api_token, allowed_emails=allowed_emails)
