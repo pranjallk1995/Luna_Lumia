@@ -20,6 +20,7 @@ from .models import (
     LightImageUpdate,
     LightState,
     LightUpdate,
+    LocationUpdate,
     RoomImageUpdate,
     SceneCreate,
     ScheduleCreate,
@@ -269,5 +270,10 @@ class LumiaHTTPRoutes:
         async def delete(request: Request):
             schedules.delete(self.path_id(request))
 
+        async def save_location(request: Request):
+            schedules.location.save(await self.payload(request, LocationUpdate))
+            return schedules.location.today()
+
+        self.route("PUT", "/api/location", save_location)
         self.route("POST", "/api/schedules", create, 201)
         self.route("DELETE", "/api/schedules/{item_id}", delete, NO_CONTENT)

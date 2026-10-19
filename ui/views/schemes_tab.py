@@ -126,10 +126,23 @@ class LightValueInput:
     def __init__(self, config) -> None:
         self.config = config
 
-    def render(self, key: str, container=st) -> None:
+    def render(
+        self,
+        key: str,
+        container=st,
+        color_presets: dict[str, str] | None = None,
+        temperature_presets: list[Item] | None = None,
+    ) -> None:
+        """The toggle plus a picker or slider, and optional preset chips beneath it.
+
+        ``color_presets`` (hex -> label) and ``temperature_presets`` (built-in
+        temperature schemes) add one-tap chips that set the picker or slider.
+        """
         # Only one picker is drawn at a time and Streamlit forgets a widget's
         # state while it is hidden, so each value lives in a plain session key
         # ("<key>_color" / "<key>_temp") that seeds the picker when it is drawn.
+        # The widget keys include that value, so a chip tap draws a fresh widget
+        # showing the new value (a keyed widget otherwise keeps its old one).
         self.defaults(key)
         mode = container.segmented_control(
             "Mode", [TEMPERATURE, COLOR], format_func=MODE_ICONS.__getitem__,
@@ -138,16 +151,36 @@ class LightValueInput:
         # Fixed-height body so switching Temperature/Color does not resize the form.
         body = container.container(key=f"{key}_value_body")
         if (mode or TEMPERATURE) == COLOR:
-            st.session_state[f"{key}_color"] = body.color_picker(
-                "Color", value=st.session_state[f"{key}_color"],
-                key=f"{key}_color_widget", label_visibility="collapsed",
+            color = st.session_state[f"{key}_color"]
+            # With presets, the picker and its chips share one line.
+            row = (
+                body.container(key=f"color_presets_{key}", horizontal=True, vertical_alignment="center", gap="small")
+                if color_presets else body
             )
+            with row:
+                st.session_state[f"{key}_color"] = st.color_picker(
+                    "Color", value=color,
+                    key=f"{key}_color_widget_{color.lstrip('#').upper()}", label_visibility="collapsed",
+                )
+                for hex_color, label in (color_presets or {}).items():
+                    st.button(
+                        label, key=f"preset_color_{key}_{hex_color[1:]}",
+                        on_click=st.session_state.__setitem__, args=(f"{key}_color", hex_color),
+                    )
         else:
+            temp = st.session_state[f"{key}_temp"]
             st.session_state[f"{key}_temp"] = body.slider(
                 "Temperature", self.config.MIN_COLOR_TEMP, self.config.MAX_COLOR_TEMP,
-                value=st.session_state[f"{key}_temp"], step=100, format="%dK",
-                key=f"{key}_temp_widget", label_visibility="collapsed",
+                value=temp, step=100, format="%dK",
+                key=f"{key}_temp_widget_{temp}", label_visibility="collapsed",
             )
+            if temperature_presets:
+                with body.container(key=f"temp_presets_{key}", horizontal=True, gap="small"):
+                    for scheme in temperature_presets:
+                        st.button(
+                            scheme["name"], key=f"temp_preset_{scheme['id']}_{key}",
+                            on_click=st.session_state.__setitem__, args=(f"{key}_temp", scheme["color_temp"]),
+                        )
 
     @classmethod
     def defaults(cls, key: str, mode: str = TEMPERATURE) -> None:
@@ -204,6 +237,15 @@ class SolidBuilder(SchemeBuilder):
 
     KEY, ERROR, CREATE_LABEL = "solid", "solid_error", "Save solid scheme"
 
+    def temperature_presets(self) -> list[Item]:
+        """The built-in temperature schemes offered as chips (as on the light cards)."""
+        built_in = {
+            scheme["name"]: scheme
+            for scheme in self.dashboard.scenes
+            if scheme["is_preset"] and scheme["kind"] == "solid" and scheme.get("color_temp")
+        }
+        return [built_in[name] for name in self.config.TEMPERATURE_PRESETS if name in built_in]
+
     def load(self, scheme: Item) -> None:
         """Fill the form from an existing solid scheme."""
         key = self.k(self.KEY)
@@ -218,7 +260,11 @@ class SolidBuilder(SchemeBuilder):
         LightValueInput.defaults(self.k(self.KEY))
         st.session_state.setdefault(self.k("solid_brightness"), 80)
         st.text_input("Name :red[*]", placeholder="Evening glow", key=self.k("solid_name"), max_chars=100)
-        LightValueInput(self.config).render(self.k(self.KEY))
+        LightValueInput(self.config).render(
+            self.k(self.KEY),
+            color_presets=self.config.PRESET_COLORS,
+            temperature_presets=self.temperature_presets(),
+        )
         st.slider(":material/brightness_6: Brightness", 1, 100, key=self.k("solid_brightness"))
         st.button(
             self.save_label, icon=":material/save:", use_container_width=True,
@@ -352,10 +398,9 @@ class SequenceBuilder(SchemeBuilder):
         if st.session_state.get(f"{key}_transition") not in transitions:
             st.session_state[f"{key}_transition"] = self.default_transition()
         with st.container(border=True, key=f"sequence_step_{uid}"):
-            title_column, remove_column = st.columns([8, 1], vertical_alignment="center")
-            title_column.markdown(f'<div class="scheme-step-title">Step {position}</div>', unsafe_allow_html=True)
-            # Always shown; disabled at the two-step minimum a sequence needs.
-            remove_column.button(
+            # Pinned to the card's top-right corner by the stylesheet; always shown,
+            # disabled at the two-step minimum a sequence needs.
+            st.button(
                 "", icon=":material/delete:", key=f"{key}_remove",
                 disabled=not removable, on_click=self.remove_step, args=(uid,),
             )
@@ -449,42 +494,86 @@ class TransitionManager(LumiaTab):
 
     CURVES = ("ease-in-out", "linear", "ease-in", "ease-out")
 
-    def render(self) -> None:
-        for item in self.dashboard.transitions:
-            name_column, detail_column, edit_column, delete_column = st.columns(
-                [3, 3, 0.5, 0.5], vertical_alignment="center"
-            )
+    # Same six-color rotation as the light pills on the Rooms tab: (text, fill RGB, edge RGB).
+    PALETTE = (
+        ("#fca5a5", "220,38,38", "248,113,113"),
+        ("#fcd34d", "217,119,6", "251,191,36"),
+        ("#93c5fd", "37,99,235", "96,165,250"),
+        ("#6ee7b7", "5,150,105", "52,211,153"),
+        ("#d8b4fe", "147,51,234", "192,132,252"),
+        ("#67e8f9", "8,145,178", "34,211,238"),
+    )
+    EASE = {
+        "linear": lambda t: t,
+        "ease-in": lambda t: t * t,
+        "ease-out": lambda t: 1 - (1 - t) ** 2,
+        "ease-in-out": lambda t: t * t * (3 - 2 * t),
+    }
+
+    @classmethod
+    def curve_svg(cls, curve: str, duration_ms: int) -> str:
+        """A small sketch of how the fade progresses; a 0 s transition is a straight jump."""
+        ease = cls.EASE.get(curve, cls.EASE["linear"])
+        points = (
+            "0,28 0,4 100,4" if duration_ms == 0
+            else " ".join(f"{i * 5},{28 - ease(i / 20) * 24:.1f}" for i in range(21))
+        )
+        return (
+            '<svg class="transition-curve" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">'
+            '<line x1="0" y1="28" x2="100" y2="28"/>'
+            f'<polyline points="{points}"/></svg>'
+        )
+
+    def card_styles(self) -> str:
+        rules = "".join(
+            f".st-key-transition_card_{item['id']}"
+            f"{{--pill-accent:{accent};--pill-fill:{fill};--pill-edge:{edge}}}"
+            for index, item in enumerate(self.dashboard.transitions)
+            for accent, fill, edge in [self.PALETTE[index % len(self.PALETTE)]]
+        )
+        return f"<style>{rules}</style>"
+
+    def render_card(self, item: Item) -> None:
+        with st.container(key=f"transition_card_{item['id']}"):
             badge = '<span class="scheme-badge">Built-in</span>' if item["is_preset"] else ""
-            name_column.markdown(
-                f'<div class="scheme-title">{html.escape(item["name"])}{badge}</div>', unsafe_allow_html=True
-            )
-            detail_column.markdown(
-                f'<div class="scheme-details">{SchemeFormat.seconds(item["duration_ms"])} · {item["curve"]}</div>',
+            st.markdown(
+                f'<div class="transition-name">{html.escape(item["name"])}{badge}</div>'
+                f'<div class="transition-meta">{SchemeFormat.seconds(item["duration_ms"])} · {item["curve"]}</div>'
+                f"{self.curve_svg(item['curve'], item['duration_ms'])}",
                 unsafe_allow_html=True,
             )
-            if not item["is_preset"] and edit_column.button(
-                "", icon=":material/edit:", key=f"edit_transition_{item['id']}"
-            ):
-                SchemeEditor.open_transition(self.api, item)
-            if not item["is_preset"] and delete_column.button(
-                "", icon=":material/delete:", key=f"delete_transition_{item['id']}"
-            ):
-                ActionRunner.run(lambda item_id=item["id"]: self.api.delete("transitions", item_id))
-        with st.form("add_transition", clear_on_submit=True):
-            st.subheader("New transition")
-            name_column, duration_column, curve_column = st.columns(3)
-            name = name_column.text_input("Name", placeholder="Gentle", max_chars=60)
-            seconds = duration_column.number_input(
-                "Fade (seconds)", min_value=0.0, max_value=600.0, value=1.0, step=0.1
-            )
-            curve = curve_column.selectbox("Curve", self.CURVES)
-            if st.form_submit_button("Save transition", use_container_width=True):
-                ActionRunner.run(
-                    lambda: self.api.create(
-                        "transitions",
-                        {"name": name, "duration_ms": round(seconds * 1000), "curve": curve},
-                    )
+            if item["is_preset"]:
+                return
+            with st.container(key=f"transition_actions_{item['id']}", horizontal=True, gap="small"):
+                if st.button("", icon=":material/edit:", key=f"edit_transition_{item['id']}"):
+                    SchemeEditor.open_transition(self.api, item)
+                if st.button("", icon=":material/delete:", key=f"delete_transition_{item['id']}"):
+                    ActionRunner.run(lambda item_id=item["id"]: self.api.delete("transitions", item_id))
+
+    def render(self) -> None:
+        st.html(self.card_styles())
+        per_row = self.config.card_columns
+        transitions = self.dashboard.transitions
+        for index in range(0, len(transitions), per_row):
+            for column, item in zip(st.columns(per_row), transitions[index : index + per_row]):
+                with column:
+                    self.render_card(item)
+        # Collapsed like "Add a light" on the Lights tab.
+        with st.expander("Add a transition", icon=":material/add_circle:"):
+            with st.form("add_transition", clear_on_submit=True):
+                name_column, duration_column, curve_column = st.columns(3)
+                name = name_column.text_input("Name", placeholder="Gentle", max_chars=60)
+                seconds = duration_column.number_input(
+                    "Fade (seconds)", min_value=0.0, max_value=600.0, value=1.0, step=0.1
                 )
+                curve = curve_column.selectbox("Curve", self.CURVES)
+                if st.form_submit_button("Save transition", use_container_width=True):
+                    ActionRunner.run(
+                        lambda: self.api.create(
+                            "transitions",
+                            {"name": name, "duration_ms": round(seconds * 1000), "curve": curve},
+                        )
+                    )
 
 
 class SchemesTab(LumiaTab):

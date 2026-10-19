@@ -14,11 +14,13 @@ class UIConfig:
     UI_ROOT: ClassVar[Path] = Path(__file__).resolve().parent
     LOGO_PATH: ClassVar[Path] = UI_ROOT / "assets" / "lunalumia_logo.png"
     # Built-in color chips: hex -> label. Iterating yields the hex values.
+    # Balanced for the dark UI and checked as a set (dataviz palette validator,
+    # dark surface): distinct for normal and color-blind vision, >= 3:1 contrast.
     PRESET_COLORS: ClassVar[dict[str, str]] = {
-        "#F5F5F5": "White",
-        "#FFBE55": "Amber",
-        "#FF836A": "Coral",
-        "#B86DE0": "Violet",
+        "#2BC8E2": "Cyan",
+        "#F4BC42": "Amber",
+        "#EE6860": "Coral",
+        "#CF5BD8": "Magenta",
     }
     # Built-in solid schemes offered as one-tap chips in a light card's Temperature mode.
     TEMPERATURE_PRESETS: ClassVar[tuple[str, ...]] = ("Focus", "Daylight", "Reading", "Bedtime")

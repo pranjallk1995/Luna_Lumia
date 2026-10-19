@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from .devices import GLOBAL_BROADCAST, WizDiscovery, WizLightAdapter
 from .errors import NotFoundError
@@ -14,6 +15,7 @@ from .models import (
     GroupCreate,
     LightCreate,
     LightState,
+    LocationUpdate,
     SceneCreate,
     ScheduleCreate,
     TransitionCreate,
@@ -23,6 +25,7 @@ from .playback import ColorMath, SceneEngine, Step
 from .repositories import (
     CollectionRepository,
     LightRepository,
+    LocationRepository,
     RoomImageRepository,
     Row,
     SceneRepository,
@@ -30,6 +33,7 @@ from .repositories import (
     TransitionRepository,
 )
 from .room_images import ImageScheme, RoomImageCatalog, RoomKeyDetector
+from .sun import SunCalculator
 
 
 # Uvicorn's logger, so these lines appear in the container log.
@@ -574,6 +578,38 @@ class SceneService:
         return self.engine.playing()
 
 
+class LocationService:
+    """The saved location, and the sunrise/sunset times computed for it."""
+
+    def __init__(self, locations: LocationRepository, zone: ZoneInfo) -> None:
+        self.locations = locations
+        self.zone = zone
+
+    def get(self) -> Row | None:
+        return self.locations.get()
+
+    def save(self, entry: LocationUpdate) -> Row | None:
+        return self.locations.save(entry)
+
+    def sun_times(self, day: date) -> dict[str, datetime | None] | None:
+        """Local sunrise and sunset on ``day``, or None when no location is saved."""
+        location = self.get()
+        if not location:
+            return None
+        return SunCalculator.times(day, location["latitude"], location["longitude"], self.zone)
+
+    def today(self) -> dict[str, Any] | None:
+        """Location plus today's sunrise/sunset as HH:MM (None when the sun does not rise/set)."""
+        location = self.get()
+        if not location:
+            return None
+        times = self.sun_times(datetime.now(self.zone).date())
+        return {
+            **location,
+            **{event: moment.strftime("%H:%M") if moment else None for event, moment in times.items()},
+        }
+
+
 class ScheduleService:
     """Manage recurring schedules and alarms, and run the ones that are due."""
 
@@ -582,16 +618,49 @@ class ScheduleService:
         schedules: ScheduleRepository,
         control: LightControlService,
         scenes: SceneService,
+        location: LocationService,
     ) -> None:
         self.schedules = schedules
         self.control = control
         self.scenes = scenes
+        self.location = location
+
+    def time_on(self, schedule: Row, day: date) -> time | None:
+        """When ``schedule`` runs on ``day``: its fixed time, or sunrise/sunset plus its offset.
+
+        None means it cannot run that day (no saved location, or no sunrise/sunset).
+        """
+        if schedule["time_mode"] == "time":
+            run_time = schedule["run_time"]
+            return time.fromisoformat(run_time) if isinstance(run_time, str) else run_time
+        sun = self.location.sun_times(day) or {}
+        moment = sun.get(schedule["time_mode"])
+        if moment is None:
+            return None
+        shifted = moment + timedelta(minutes=schedule["offset_minutes"])
+        # An offset that crosses midnight is clamped to the same day.
+        if shifted.date() != day:
+            return time(0, 0) if shifted.date() < day else time(23, 59)
+        return shifted.time().replace(second=0, microsecond=0)
 
     def list(self) -> list[Row]:
-        return self.schedules.list()
+        """Schedules with their time today (HH:MM), soonest first."""
+        today = datetime.now(self.location.zone).date()
+        rows = self.schedules.list()
+        for row in rows:
+            at = self.time_on(row, today)
+            row["today_time"] = at.strftime("%H:%M") if at else None
+        return sorted(rows, key=lambda row: (row["today_time"] is None, row["today_time"] or "", row["name"]))
 
     def add(self, entry: ScheduleCreate) -> Row | None:
-        return self.schedules.add(entry)
+        if entry.time_mode != "time" and not self.location.get():
+            raise ValueError("Set your location in the Schedules tab to use sunrise or sunset times")
+        now = datetime.now(self.location.zone)
+        row = entry.model_dump()
+        at = self.time_on(row, now.date())
+        # A time that has already passed today waits for the next scheduled day.
+        already_passed = at is not None and at <= now.time() and now.weekday() in entry.weekdays
+        return self.schedules.add(entry, now.date() if already_passed else None)
 
     def delete(self, schedule_id: int) -> None:
         if not self.schedules.delete(schedule_id):
@@ -608,12 +677,16 @@ class ScheduleService:
 
     def run_due(self, now: datetime) -> None:
         """Run each schedule due today once; failures are retried next tick."""
-        for schedule in self.schedules.due(now.date(), now.weekday(), now.time()):
+        today = now.date()
+        for schedule in self.schedules.pending(today, now.weekday()):
+            at = self.time_on(schedule, today)
+            if at is None or at > now.time():
+                continue
             try:
                 asyncio.run(self.execute(schedule))
             except Exception:
                 continue
-            self.schedules.mark_ran(schedule["id"], now.date())
+            self.schedules.mark_ran(schedule["id"], today)
 
 
 class LumiaService:
@@ -652,6 +725,7 @@ class LumiaService:
 
     def dashboard(self) -> dict[str, Any]:
         return {
+            "location": self.schedules.location.today(),
             "lights": self.lights.list_with_images(),
             "rooms": self.collections.list_with_images("room"),
             "groups": self.collections.list_with_images("group"),

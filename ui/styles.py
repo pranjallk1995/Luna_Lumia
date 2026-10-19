@@ -81,7 +81,8 @@ class LunaStyle:
         .light-card-status i{display:block;width:.45rem;height:.45rem;border-radius:50%;background:#666}
         .light-card-status.online i{background:#22c55e;box-shadow:0 0 10px rgba(34,197,94,.8)}
         .light-stats-row{display:flex;align-items:center;justify-content:space-between;gap:.65rem;width:100%;min-height:3rem;margin-bottom:0;padding:.5rem .7rem;border:1px solid var(--lv-border);border-radius:.7rem;background:rgba(18,18,22,.72);box-shadow:0 8px 22px rgba(0,0,0,.18);box-sizing:border-box}
-        .scheme-preview{height:2.6rem;margin:-.15rem 0 .65rem;border-radius:.6rem;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 6px 18px rgba(0,0,0,.25)}
+        div[class*="st-key-scheme_card_"]{overflow:hidden!important}
+        .scheme-preview{display:block;width:calc(100% + 2rem);height:3.4rem;margin:-1rem -1rem .8rem;border-radius:0;box-shadow:inset 0 -1px 0 rgba(255,255,255,.08)}
         .scheme-title{display:flex;align-items:center;flex-wrap:wrap;gap:.4rem;color:var(--lv-text);font-size:.98rem;font-weight:650}
         .scheme-details{margin:.2rem 0 .55rem;color:var(--lv-muted);font-size:.72rem}
         .scheme-badge{padding:.12rem .45rem;border:1px solid var(--lv-border);border-radius:999px;color:var(--lv-muted);font-size:.6rem;font-weight:500}
@@ -89,7 +90,23 @@ class LunaStyle:
         div[class*="st-key-sequence_step_"]{position:relative!important}
         div[class*="st-key-sequence_step_"] div[class*="st-key-seq_"][class*="_remove"]{position:absolute!important;top:.3rem;right:.3rem;z-index:2;width:auto!important}
         div[class*="st-key-seq_"][class*="_remove"] button,div[class*="st-key-seq_"][class*="_remove"] button:hover{width:2.25rem!important;min-width:2.25rem!important;height:2.25rem!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important}
-        .scheme-step-title{color:var(--lv-text);font-size:.85rem;font-weight:650}
+        div[class*="solid_value_body"]{min-height:5.45rem;justify-content:center}
+        div[class*="st-key-color_presets_"][class*="solid"]{gap:.6rem!important}
+        div[class*="st-key-color_presets_"][class*="solid"]>div:first-child{flex:0 0 auto!important;width:auto!important;margin-right:1.1rem!important}
+        div[class*="st-key-color_presets_"][class*="solid"] button{height:2.35rem!important;min-height:2.35rem!important;padding:0 .9rem!important}
+        div[class*="st-key-color_presets_"][class*="solid"] button p{font-size:.74rem!important}
+        .sun-summary{display:flex;align-items:center;flex-wrap:wrap;gap:.45rem 1.1rem;margin:.1rem 0 .6rem;color:var(--lv-muted);font-size:.8rem}
+        .sun-summary strong{color:var(--lv-text);font-size:.9rem}
+        .sun-summary>span,.sun-summary span span{display:inline-flex;align-items:center;gap:.3rem}
+        .sun-summary .material-symbols-rounded{font-family:"Material Symbols Rounded"!important;font-size:1.1rem;line-height:1;font-weight:normal;font-style:normal;font-feature-settings:"liga";-webkit-font-feature-settings:"liga";color:#ffbe55}
+        div[class*="st-key-transition_card_"]{position:relative!important;gap:.3rem!important;min-height:7.2rem;padding:.8rem .9rem .7rem;border:1px solid rgba(var(--pill-edge),.16);border-radius:12px;background:linear-gradient(135deg,rgba(var(--pill-fill),.26),rgba(var(--pill-fill),.06));box-sizing:border-box}
+        .transition-name{display:flex;align-items:center;flex-wrap:wrap;gap:.4rem;padding-right:4.6rem;color:var(--pill-accent);font-size:.95rem;font-weight:650}
+        .transition-meta{margin-top:.15rem;color:var(--lv-muted);font-size:.7rem}
+        .transition-curve{display:block;width:100%;height:2.3rem;margin-top:.5rem;overflow:visible}
+        .transition-curve polyline{fill:none;stroke:var(--pill-accent);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+        .transition-curve line{stroke:rgba(255,255,255,.12);stroke-width:1;vector-effect:non-scaling-stroke}
+        div[class*="st-key-transition_actions_"]{position:absolute!important;top:.45rem;right:.5rem;z-index:2;width:auto!important;gap:.1rem!important}
+        div[class*="st-key-transition_actions_"] button,div[class*="st-key-transition_actions_"] button:hover{width:2rem!important;min-width:2rem!important;height:2rem!important;min-height:2rem!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;color:var(--pill-accent)!important}
         div[class*="st-key-light_mode_body_"]{min-height:5.45rem;justify-content:center}
         div[class*="st-key-room_actions_"]{justify-content:flex-end!important;gap:.9rem!important}
         div[class*="st-key-room_actions_"]>div[data-testid="stLayoutWrapper"]{flex:0 0 auto!important;width:auto!important}
@@ -184,6 +201,7 @@ class LunaStyle:
         }
         @media(max-width:700px){div[class*="st-key-icon_slider_"] div[data-testid="stHorizontalBlock"]{flex-wrap:nowrap!important}div[class*="st-key-icon_slider_"] div[data-testid="stColumn"]:first-child{flex:0 0 1.6rem!important;min-width:1.6rem!important;width:1.6rem!important}div[class*="st-key-icon_slider_"] div[data-testid="stColumn"]:last-child{flex:1 1 0!important;min-width:0!important;width:auto!important}}
         @media(max-width:700px){.st-key-all_lights_bar .light-stats-row,.st-key-all_lights_brightness_box{min-height:3.6rem!important}.st-key-all_lights_color_box{min-height:0!important}.st-key-all_lights_color_box div[data-testid="stHorizontalBlock"]{flex-wrap:nowrap!important}.st-key-all_lights_color_box div[data-testid="stHorizontalBlock"]>div[data-testid="stColumn"]:first-child{flex:0 0 auto!important;width:auto!important;min-width:0!important}.st-key-all_lights_color_box div[data-testid="stHorizontalBlock"]>div[data-testid="stColumn"]:last-child{flex:1 1 0!important;min-width:0!important;width:auto!important}}
+        @media(max-width:700px){.st-key-schedule_when_row div[data-testid="stHorizontalBlock"]{flex-wrap:nowrap!important;gap:.6rem!important}.st-key-schedule_when_row div[data-testid="stColumn"]:first-child{flex:0 0 auto!important;width:auto!important;min-width:0!important}.st-key-schedule_when_row div[data-testid="stColumn"]:last-child{flex:1 1 0!important;width:auto!important;min-width:0!important}.st-key-schedule_when button{padding-inline:.7rem!important}.st-key-schedule_when button p{font-size:0!important;line-height:0!important}.st-key-schedule_when button span[data-testid="stIconMaterial"]{font-size:1.15rem!important;line-height:1!important}}
         </style>""")
         st.html(f"<style>{LunaStyle.preset_swatch_rules()}</style>")
 

@@ -94,9 +94,22 @@ class Step:
             )
         return steps
 
+    @property
+    def is_black(self) -> bool:
+        """Black means "off" (WiZ cannot show it)."""
+        return bool(self.color) and self.color.upper() == "#000000"
+
     def blend(self, previous: Step, t: float) -> dict[str, Any]:
         """The light state ``t`` (0..1, already eased) of the way from ``previous``."""
         brightness = max(1, round(previous.brightness + (self.brightness - previous.brightness) * t))
+        if previous.is_black or self.is_black:
+            # Fading to/from black dims the lit color at full strength. Scaling its
+            # RGB toward 0 instead gives very dark values that WiZ bulbs render as
+            # orange or warm white rather than a dim version of the color.
+            lit = previous if self.is_black else self
+            if lit.is_black:
+                return self.state
+            return {**lit.state, "brightness": brightness}
         if previous.color_temp and self.color_temp:
             kelvin = round(previous.color_temp + (self.color_temp - previous.color_temp) * t)
             return {"brightness": brightness, "color_temp": kelvin}

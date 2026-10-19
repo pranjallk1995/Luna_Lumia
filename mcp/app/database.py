@@ -73,6 +73,19 @@ CREATE TABLE IF NOT EXISTS schedules (
 );
 INSERT INTO lights (name, ip_address) VALUES ('Living room light', '192.168.1.8')
 ON CONFLICT (ip_address) DO NOTHING;
+-- Schedules run at a fixed time, or at sunrise/sunset (plus an offset) for the saved location.
+ALTER TABLE schedules ALTER COLUMN run_time DROP NOT NULL;
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS time_mode TEXT NOT NULL DEFAULT 'time'
+    CHECK (time_mode IN ('time', 'sunrise', 'sunset'));
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS offset_minutes SMALLINT NOT NULL DEFAULT 0
+    CHECK (offset_minutes BETWEEN -180 AND 180);
+CREATE TABLE IF NOT EXISTS location (
+ id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+ name TEXT NOT NULL,
+ latitude DOUBLE PRECISION NOT NULL CHECK (latitude BETWEEN -90 AND 90),
+ longitude DOUBLE PRECISION NOT NULL CHECK (longitude BETWEEN -180 AND 180),
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 CREATE TABLE IF NOT EXISTS transitions (
  id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE,
  duration_ms INTEGER NOT NULL CHECK (duration_ms BETWEEN 0 AND 600000),

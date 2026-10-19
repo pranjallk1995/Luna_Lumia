@@ -16,6 +16,7 @@ class Dashboard:
     scenes: list[Item]
     schedules: list[Item]
     transitions: list[Item] = field(default_factory=list)
+    location: Item | None = None  # saved location with today's "sunrise"/"sunset" (HH:MM)
     playing: dict[int, int] = field(default_factory=dict)  # light id -> playing scheme id
     room_names_by_light: dict[int, list[str]] = field(init=False)
 
@@ -36,6 +37,7 @@ class Dashboard:
             scenes=data["scenes"],
             schedules=data["schedules"],
             transitions=data.get("transitions", []),
+            location=data.get("location"),
             playing={int(light_id): scene_id for light_id, scene_id in data.get("playing", {}).items()},
         )
 

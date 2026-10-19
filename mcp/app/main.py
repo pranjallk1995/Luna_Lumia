@@ -13,6 +13,7 @@ from .presets import PresetCatalog
 from .repositories import (
     CollectionRepository,
     LightRepository,
+    LocationRepository,
     RoomImageRepository,
     SceneRepository,
     ScheduleRepository,
@@ -23,6 +24,7 @@ from .services import (
     CollectionService,
     LightControlService,
     LightService,
+    LocationService,
     LumiaService,
     SceneService,
     ScheduleService,
@@ -77,7 +79,12 @@ class LunaLumiaApplication:
             control=control,
             scenes=scenes,
             transitions=transitions,
-            schedules=ScheduleService(ScheduleRepository(self.database), control, scenes),
+            schedules=ScheduleService(
+                ScheduleRepository(self.database),
+                control,
+                scenes,
+                LocationService(LocationRepository(self.database), self.config.timezone),
+            ),
         )
 
     def run(self) -> None:

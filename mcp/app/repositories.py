@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, time
+from datetime import date
 from typing import Any
 
 from psycopg.types.json import Jsonb
@@ -12,6 +12,7 @@ from .models import (
     CollectionKind,
     GroupCreate,
     LightCreate,
+    LocationUpdate,
     SceneCreate,
     ScheduleCreate,
     TransitionCreate,
@@ -326,17 +327,35 @@ class TransitionRepository(Repository):
         )
 
 
+class LocationRepository(Repository):
+    """The single saved location used for sunrise/sunset schedules."""
+
+    def get(self) -> Row | None:
+        return self.fetch_one("SELECT name, latitude, longitude, updated_at FROM location WHERE id=1")
+
+    def save(self, entry: LocationUpdate) -> Row | None:
+        return self.fetch_one(
+            """INSERT INTO location(id,name,latitude,longitude) VALUES(1,%s,%s,%s)
+            ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, latitude=EXCLUDED.latitude,
+                longitude=EXCLUDED.longitude, updated_at=NOW()
+            RETURNING name, latitude, longitude, updated_at""",
+            (entry.name, entry.latitude, entry.longitude),
+        )
+
+
 class ScheduleRepository(Repository):
     def list(self) -> list[Row]:
-        return self.fetch_all("SELECT * FROM schedules ORDER BY run_time,name")
+        return self.fetch_all("SELECT * FROM schedules ORDER BY name")
 
-    def add(self, entry: ScheduleCreate) -> Row | None:
+    def add(self, entry: ScheduleCreate, last_run_date: date | None = None) -> Row | None:
         return self.fetch_one(
-            """INSERT INTO schedules(name,kind,target_type,target_id,action,scene_id,run_time,weekdays,enabled)
-            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+            """INSERT INTO schedules(name,kind,target_type,target_id,action,scene_id,time_mode,
+                run_time,offset_minutes,weekdays,enabled,last_run_date)
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
             (
                 entry.name.strip(), entry.kind, entry.target_type, entry.target_id,
-                entry.action, entry.scene_id, entry.run_time, entry.weekdays, entry.enabled,
+                entry.action, entry.scene_id, entry.time_mode, entry.run_time,
+                entry.offset_minutes, entry.weekdays, entry.enabled, last_run_date,
             ),
         )
 
@@ -345,11 +364,12 @@ class ScheduleRepository(Repository):
             "DELETE FROM schedules WHERE id=%s RETURNING id", (schedule_id,)
         )
 
-    def due(self, today: date, weekday: int, now_time: time) -> list[Row]:
+    def pending(self, today: date, weekday: int) -> list[Row]:
+        """Enabled schedules for this weekday that have not run today (due time checked by the service)."""
         return self.fetch_all(
             "SELECT * FROM schedules WHERE enabled AND %s=ANY(weekdays) "
-            "AND run_time<=%s AND last_run_date IS DISTINCT FROM %s",
-            (weekday, now_time, today),
+            "AND last_run_date IS DISTINCT FROM %s",
+            (weekday, today),
         )
 
     def mark_ran(self, schedule_id: int, day: date) -> None:

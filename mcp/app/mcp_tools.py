@@ -11,8 +11,10 @@ from .models import (
     GroupUpdate,
     LightImageUpdate,
     LightState,
+    LocationUpdate,
     RoomImageUpdate,
     SceneCreate,
+    ScheduleCreate,
     TransitionCreate,
 )
 from .services import LumiaService
@@ -28,6 +30,7 @@ class LumiaMCPTools:
         self._register_image_tools()
         self._register_scheme_tools()
         self._register_control_tools()
+        self._register_schedule_tools()
 
     def _register_inventory_tools(self) -> None:
         server, lights, collections = self.server, self.service.lights, self.service.collections
@@ -303,3 +306,55 @@ class LumiaMCPTools:
         def stop_scene(target_type: str = "all", target_id: int | None = None):
             """Stop sequence schemes playing on "all" lights, one "light", or a "group"."""
             return scenes.stop(target_type, target_id)
+
+    def _register_schedule_tools(self) -> None:
+        server = self.server
+
+        def schedules():
+            # Resolved when a tool runs, not at registration.
+            return self.service.schedules
+
+        @server.tool()
+        def get_location():
+            """The saved location for sunrise/sunset schedules, with today's sunrise and sunset (HH:MM)."""
+            return schedules().location.today()
+
+        @server.tool()
+        def set_location(name: str, latitude: float, longitude: float):
+            """Save the location (decimal latitude/longitude) used to compute sunrise and sunset."""
+            schedules().location.save(LocationUpdate(name=name, latitude=latitude, longitude=longitude))
+            return schedules().location.today()
+
+        @server.tool()
+        def list_schedules():
+            """List schedules and alarms, each with its time today ("today_time", HH:MM)."""
+            return schedules().list()
+
+        @server.tool()
+        def create_schedule(
+            name: str,
+            action: str,
+            time_mode: str = "time",
+            run_time: str | None = None,
+            offset_minutes: int = 0,
+            target_type: str = "all",
+            target_id: int | None = None,
+            scene_id: int | None = None,
+            weekdays: list[int] | None = None,
+            kind: str = "schedule",
+        ):
+            """Create a recurring schedule or alarm.
+
+            action: "on", "off", or "scene" (with scene_id). time_mode: "time" (run_time
+            "HH:MM"), "sunrise", or "sunset" (offset_minutes -180..180, e.g. -30 = 30 min
+            before; needs set_location first). target_type: "all", "light", or "group"
+            (rooms are groups) with target_id. weekdays: 0=Mon..6=Sun (default every day).
+            """
+            return schedules().add(
+                ScheduleCreate(
+                    name=name, action=action, time_mode=time_mode, run_time=run_time,
+                    offset_minutes=offset_minutes, target_type=target_type, target_id=target_id,
+                    scene_id=scene_id, weekdays=weekdays if weekdays is not None else list(range(7)),
+                    kind=kind,
+                )
+            )

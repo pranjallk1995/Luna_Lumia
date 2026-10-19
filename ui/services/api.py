@@ -52,6 +52,12 @@ class LumiaAPI:
             json={"target_type": target_type, "target_id": target_id},
         )
 
+    def save_location(self, name: str, latitude: float, longitude: float) -> dict[str, Any]:
+        """Save where sunrise/sunset are calculated for."""
+        return self.request(
+            "PUT", "/api/location", json={"name": name, "latitude": latitude, "longitude": longitude}
+        )
+
     def refresh_lights(self) -> list[dict[str, Any]]:
         """Ask every bulb for its current state now (Lumia does not poll)."""
         return self.request("POST", "/api/lights/refresh")

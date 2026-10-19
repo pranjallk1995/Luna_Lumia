@@ -51,7 +51,7 @@ class StepTests(unittest.TestCase):
         self.assertEqual(state["color_temp"], 3100)
 
     def test_color_to_temperature_fades_through_rgb(self):
-        state = step(brightness=100, color_temp=6500).blend(step(brightness=0 + 1, color="#000000"), 0.5)
+        state = step(brightness=100, color_temp=6500).blend(step(brightness=0 + 1, color="#FF0000"), 0.5)
         self.assertIn("color", state)
         self.assertEqual(state["brightness"], 50)
 
@@ -209,3 +209,17 @@ class PresetTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BlackFadeTests(unittest.TestCase):
+    def test_fade_to_and_from_black_keeps_the_color_pure(self):
+        red, black = step(color="#FF0000", brightness=100), step(color="#000000", brightness=10)
+        down = [black.blend(red, t / 10) for t in range(1, 10)]
+        up = [red.blend(black, t / 10) for t in range(1, 10)]
+        self.assertTrue(all(frame["color"] == "#FF0000" for frame in down + up))
+        self.assertEqual([frame["brightness"] for frame in down][:3], [91, 82, 73])
+        self.assertEqual(up[0]["brightness"], 19)
+
+    def test_fade_from_black_to_white_light_stays_white(self):
+        frame = step(color_temp=2700, brightness=80).blend(step(color="#000000", brightness=10), 0.5)
+        self.assertEqual((frame.get("color_temp"), frame.get("color")), (2700, None))

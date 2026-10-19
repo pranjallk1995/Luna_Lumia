@@ -226,14 +226,34 @@ class SceneCreate(BaseModel):
         return self
 
 
+class LocationUpdate(BaseModel):
+    """Where sunrise and sunset are calculated for."""
+
+    name: str = Field(min_length=1, max_length=80)
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Location name cannot be blank")
+        return cleaned
+
+
 class ScheduleCreate(BaseModel):
+    """A recurring schedule: at ``run_time``, or at sunrise/sunset plus ``offset_minutes``."""
+
     name: str = Field(min_length=1, max_length=100)
     kind: Literal["schedule", "alarm"] = "schedule"
     target_type: ScheduleTarget = "all"
     target_id: int | None = None
     action: Literal["on", "off", "scene"]
     scene_id: int | None = None
-    run_time: time
+    time_mode: Literal["time", "sunrise", "sunset"] = "time"
+    run_time: time | None = None
+    offset_minutes: int = Field(default=0, ge=-180, le=180)
     weekdays: list[int] = Field(default_factory=lambda: list(range(7)))
     enabled: bool = True
 
@@ -250,4 +270,10 @@ class ScheduleCreate(BaseModel):
             raise ValueError("A light or group target is required")
         if self.action == "scene" and self.scene_id is None:
             raise ValueError("A color scheme is required")
+        if self.time_mode == "time":
+            if self.run_time is None:
+                raise ValueError("Choose a time")
+            self.offset_minutes = 0
+        else:
+            self.run_time = None
         return self
