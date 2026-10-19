@@ -58,7 +58,6 @@ class LunaLumiaApp:
             # Light states are only read from the bulbs on demand (no background polling).
             if st.button(
                 "", icon=":material/refresh:", key="header_refresh_lights",
-                help="Check every light's current state",
             ):
                 with st.spinner("Checking lights…"):
                     ActionRunner.run(self.api.refresh_lights)

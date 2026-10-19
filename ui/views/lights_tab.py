@@ -139,7 +139,6 @@ class ColorControls:
                 st.button(
                     label,
                     key=f"preset_color_{suffix}_{preset_color[1:]}",
-                    help=f"Use {label.lower()} ({preset_color})",
                     disabled=disabled,
                     on_click=preset_callback,
                     args=(*preset_args, preset_color),
@@ -186,7 +185,6 @@ class TemperaturePresets:
                 st.button(
                     scheme["name"],
                     key=f"temp_preset_{scheme['id']}_{suffix}",
-                    help=f'{scheme["color_temp"]} K · {scheme["brightness"]}% brightness',
                     disabled=disabled,
                     on_click=callback,
                     args=(*args, scheme["id"]),

@@ -66,7 +66,6 @@ class RoomSchemePicker:
             with st.popover(
                 label,
                 icon=":material/timeline:" if playing else ":material/palette:",
-                help="Apply a scheme",
                 disabled=not self.member_ids,
             ):
                 st.caption(f'Apply a scheme to {html.escape(self.collection["name"])}')

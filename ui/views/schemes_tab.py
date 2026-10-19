@@ -96,15 +96,15 @@ class SchemeLibrary(LumiaTab):
             apply_column, stop_column, delete_column = st.columns([3, 1, 1])
             if apply_column.button(
                 "Apply", icon=":material/play_arrow:", key=f"scene{scheme_id}",
-                use_container_width=True, help=f"Apply to {label}",
+                use_container_width=True,
             ):
                 ActionRunner.run(lambda: self.api.apply_scene(scheme_id, *target))
             if playing and stop_column.button(
-                "", icon=":material/stop:", key=f"stop_scene_{scheme_id}", help="Stop this sequence"
+                "", icon=":material/stop:", key=f"stop_scene_{scheme_id}"
             ):
                 ActionRunner.run(lambda: self._stop(scheme_id))
             if not scheme["is_preset"] and delete_column.button(
-                "", icon=":material/delete:", key=f"ds{scheme_id}", help="Delete scheme"
+                "", icon=":material/delete:", key=f"ds{scheme_id}"
             ):
                 ActionRunner.run(lambda: self.api.delete("scenes", scheme_id))
 
@@ -273,7 +273,7 @@ class SequenceBuilder(LumiaTab):
             title_column.markdown(f'<div class="scheme-step-title">Step {position}</div>', unsafe_allow_html=True)
             if removable:
                 remove_column.button(
-                    "", icon=":material/close:", key=f"{key}_remove", help="Remove step",
+                    "", icon=":material/close:", key=f"{key}_remove",
                     on_click=self.remove_step, args=(uid,),
                 )
             value_column, brightness_column = st.columns(2, vertical_alignment="bottom")
