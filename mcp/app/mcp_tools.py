@@ -34,8 +34,17 @@ class LumiaMCPTools:
 
         @server.tool()
         def list_lights():
-            """List configured Luna Lumia lights and their last known states."""
+            """List configured Luna Lumia lights and their last known states (see refresh_light_statuses)."""
             return lights.list()
+
+        @server.tool()
+        async def refresh_light_statuses():
+            """Ask every light for its current power, brightness, color, and reachability, and save it.
+
+            Lumia does not poll in the background, so call this before relying on
+            list_lights if a light may have been changed outside Lumia.
+            """
+            return await self.service.control.poll_statuses()
 
         @server.tool()
         def list_rooms():

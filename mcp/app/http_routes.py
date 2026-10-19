@@ -175,6 +175,11 @@ class LumiaHTTPRoutes:
         self.route("DELETE", "/api/lights/{item_id}", delete, NO_CONTENT)
         self.route("PUT", "/api/lights/{item_id}/background", background)
 
+        async def refresh(request: Request):
+            return await self.service.control.poll_statuses()
+
+        self.route("POST", "/api/lights/refresh", refresh)
+
     def _register_collections(self, kind: str) -> None:
         collections, images = self.service.collections, self.service.images
         base = f"/api/{kind}s"

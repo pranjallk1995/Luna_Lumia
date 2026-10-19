@@ -92,6 +92,7 @@ class LightControlService:
         return results
 
     async def poll_statuses(self) -> list[dict[str, Any]]:
+        """Read every light's current state from the bulb and save it (on demand)."""
         async def poll(light: Row) -> dict[str, Any]:
             try:
                 state = await self.adapter.status(light["ip_address"])

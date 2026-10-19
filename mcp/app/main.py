@@ -28,7 +28,7 @@ from .services import (
     ScheduleService,
     TransitionService,
 )
-from .workers import LightStatusPoller, ScheduleWorker
+from .workers import ScheduleWorker
 
 
 class LunaLumiaApplication:
@@ -59,7 +59,6 @@ class LunaLumiaApplication:
             ScheduleWorker(
                 self.service.schedules, config.timezone, config.schedule_interval_seconds
             ),
-            LightStatusPoller(self.service.control, config.status_poll_interval_seconds),
         ]
         for worker in self.workers:
             worker.start()

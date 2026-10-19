@@ -1,7 +1,6 @@
 """Luna Lumia Streamlit application entry point."""
 
 import base64
-from time import monotonic
 
 import httpx
 import streamlit as st
@@ -32,16 +31,6 @@ class LunaLumiaApp:
         self.config = UIConfig.from_env()
         self.api = LumiaAPI(self.config)
 
-    @staticmethod
-    @st.fragment(run_every=UIConfig.STATUS_REFRESH_SECONDS)
-    def refresh_polled_light_statuses() -> None:
-        """Refresh the full dashboard after the backend's periodic status poll."""
-        now = monotonic()
-        previous = st.session_state.get("last_light_status_refresh")
-        st.session_state.last_light_status_refresh = now
-        if previous is not None and now - previous >= UIConfig.STATUS_REFRESH_SECONDS - 1:
-            st.rerun()
-
     def load_dashboard(self) -> Dashboard:
         try:
             return Dashboard.from_payload(self.api.dashboard())
@@ -63,7 +52,16 @@ class LunaLumiaApp:
                 f'<div class="lv-header">{self.logo_markup()}<div><h1 class="lv-title">Luna Lumia</h1><p class="lv-subtitle">Private AI-managed smart lighting</p></div></div>',
                 unsafe_allow_html=True,
             )
-        with power_column:
+        with power_column, st.container(
+            key="header_actions", horizontal=True, vertical_alignment="center", gap="small"
+        ):
+            # Light states are only read from the bulbs on demand (no background polling).
+            if st.button(
+                "", icon=":material/refresh:", key="header_refresh_lights",
+                help="Check every light's current state",
+            ):
+                with st.spinner("Checking lights…"):
+                    ActionRunner.run(self.api.refresh_lights)
             all_on = dashboard.all_on
             if st.button(
                 "Turn all off" if all_on else "Turn all on",
@@ -76,7 +74,6 @@ class LunaLumiaApp:
 
     def render(self) -> None:
         LunaStyle.apply()
-        self.refresh_polled_light_statuses()
         dashboard = self.load_dashboard()
         self.render_header(dashboard)
         containers = st.tabs([label for label, _ in self.TABS])

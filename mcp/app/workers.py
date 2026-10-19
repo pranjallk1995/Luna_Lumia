@@ -1,11 +1,10 @@
-"""Background threads that run schedules and refresh light statuses."""
+"""Background threads that run due schedules."""
 
-import asyncio
 import threading
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from .services import LightControlService, ScheduleService
+from .services import ScheduleService
 
 
 class PeriodicWorker:
@@ -44,14 +43,3 @@ class ScheduleWorker(PeriodicWorker):
 
     def tick(self) -> None:
         self.schedules.run_due(datetime.now(self.timezone))
-
-
-class LightStatusPoller(PeriodicWorker):
-    name = "lumia-light-status-poller"
-
-    def __init__(self, control: LightControlService, interval: float) -> None:
-        super().__init__(interval)
-        self.control = control
-
-    def tick(self) -> None:
-        asyncio.run(self.control.poll_statuses())

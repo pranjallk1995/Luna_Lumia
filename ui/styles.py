@@ -99,10 +99,16 @@ class LunaStyle:
         div[class*="st-key-temp_preset_"] button p{font-size:.66rem!important;line-height:1!important;overflow:hidden;text-overflow:ellipsis}
         div[class*="st-key-temp_presets_"]>div{flex:1 1 0!important;min-width:0!important;width:auto!important}
         div[class*="st-key-temp_preset_"] button{width:100%!important;min-height:1.75rem!important;height:1.75rem!important;padding:0 .25rem!important;border:1px solid var(--lv-border)!important;border-radius:.65rem!important;font-size:.68rem!important;font-weight:600!important;white-space:nowrap!important}
+        .st-key-header_actions{flex-wrap:nowrap!important;width:100%!important}
+        .st-key-header_actions .st-key-header_refresh_lights{flex:0 0 auto!important;width:auto!important}
+        .st-key-header_actions .st-key-header_refresh_lights button{width:2.625rem!important;min-width:2.625rem!important;height:2.625rem!important;padding:0!important}
+        .st-key-header_actions .st-key-header_all_lights_power{flex:1 1 auto!important;min-width:0!important}
         .st-key-all_lights_bar{margin-top:1rem;margin-bottom:1rem}
-        .st-key-all_lights_bar .light-stats-row{min-height:3.6rem}
+        .st-key-all_lights_bar .light-stats-row{min-height:6.2rem}
+        .st-key-all_lights_mode [data-baseweb="button-group"],.st-key-all_lights_mode div[data-testid="stButtonGroup"]{flex-wrap:nowrap!important}
+        .st-key-all_lights_mode button{padding-inline:.7rem!important}
         .st-key-all_lights_bar [data-testid="stMarkdownContainer"]:has(>.light-stats-row){margin-bottom:0!important}
-        .st-key-all_lights_temp_box,.st-key-all_lights_color_box{justify-content:center;min-height:3.6rem;padding:.35rem .7rem;border:1px solid var(--lv-border);border-radius:.7rem;background:rgba(18,18,22,.72);box-shadow:0 8px 22px rgba(0,0,0,.18);box-sizing:border-box}
+        .st-key-all_lights_brightness_box,.st-key-all_lights_color_box{justify-content:center;min-height:6.2rem;padding:.35rem .7rem;border:1px solid var(--lv-border);border-radius:.7rem;background:rgba(18,18,22,.72);box-shadow:0 8px 22px rgba(0,0,0,.18);box-sizing:border-box}
         .inline-control-icon{display:flex;justify-content:center;align-items:center;color:var(--lv-muted);font-family:"Material Symbols Rounded"!important;font-size:1.3rem;line-height:1;font-weight:normal;font-style:normal;font-feature-settings:"liga";-webkit-font-feature-settings:"liga"}
         .light-stat-card{display:flex;align-items:center;justify-content:flex-start;gap:.42rem;min-height:2rem;padding:0;border:0;background:transparent;box-shadow:none;white-space:nowrap}
         .light-stat-card .material-symbols-rounded{font-family:"Material Symbols Rounded"!important;font-weight:normal;font-style:normal;font-size:1.35rem;line-height:1;font-feature-settings:"liga";-webkit-font-feature-settings:"liga"}
@@ -131,7 +137,10 @@ class LunaStyle:
         div[data-testid="stCheckbox"] label[data-baseweb="checkbox"]>div:first-of-type>div{background-color:#b8b8b8!important}
         div[data-testid="stVerticalBlockBorderWrapper"]:has(.light-card-hero) div[data-testid="stSlider"]{padding-top:.1rem}
         div[class*="st-key-preset_color_"]{display:flex!important;justify-content:center!important}
-        div[class*="st-key-preset_color_"] button{width:2.35rem!important;min-width:2.35rem!important;height:1.35rem!important;min-height:1.35rem!important;padding:0!important;border-radius:.65rem!important;box-shadow:none!important;font-size:0!important;line-height:0!important;color:transparent!important;-webkit-text-fill-color:transparent!important;transition:border-color .15s ease,background-color .15s ease,transform .15s ease}
+        div[class*="st-key-preset_color_"] button{width:100%!important;min-width:0!important;height:1.75rem!important;min-height:1.75rem!important;padding:0 .25rem!important;border-radius:.65rem!important;box-shadow:none!important;font-weight:600!important;white-space:nowrap!important;transition:border-color .15s ease,background-color .15s ease,transform .15s ease}
+        div[class*="st-key-preset_color_"] button p{font-size:.66rem!important;line-height:1!important;overflow:hidden;text-overflow:ellipsis}
+        div[class*="st-key-color_presets_"]{flex-wrap:nowrap!important;gap:.35rem!important;margin:-.1rem 0 .2rem}
+        div[class*="st-key-color_presets_"]>div{flex:1 1 0!important;min-width:0!important;width:auto!important}
         div[class*="st-key-preset_color_"] button:hover{transform:scale(1.06)}
         div[data-testid="stVerticalBlockBorderWrapper"]:has(.light-card-hero) .stButton>button{min-height:2.55rem}
         div[data-testid="stVerticalBlockBorderWrapper"]:has(.find-lights-card)>div{padding:1rem 1.15rem;border-color:var(--lv-border);background:var(--lv-surface);box-shadow:0 12px 30px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.025)}
@@ -171,17 +180,19 @@ class LunaStyle:
             div[class*="st-key-room_image_"]{left:calc(1px - 1rem)!important;right:auto!important;bottom:auto!important;width:calc(100% + 2rem - 2px)!important;max-width:none!important;height:calc(9.25rem - 1px)!important}
         }
         @media(max-width:700px){div[class*="st-key-icon_slider_"] div[data-testid="stHorizontalBlock"]{flex-wrap:nowrap!important}div[class*="st-key-icon_slider_"] div[data-testid="stColumn"]:first-child{flex:0 0 1.6rem!important;min-width:1.6rem!important;width:1.6rem!important}div[class*="st-key-icon_slider_"] div[data-testid="stColumn"]:last-child{flex:1 1 0!important;min-width:0!important;width:auto!important}}
+        @media(max-width:700px){.st-key-all_lights_bar .light-stats-row,.st-key-all_lights_brightness_box{min-height:3.6rem!important}.st-key-all_lights_color_box{min-height:0!important}.st-key-all_lights_color_box div[data-testid="stHorizontalBlock"]{flex-wrap:nowrap!important}.st-key-all_lights_color_box div[data-testid="stHorizontalBlock"]>div[data-testid="stColumn"]:first-child{flex:0 0 auto!important;width:auto!important;min-width:0!important}.st-key-all_lights_color_box div[data-testid="stHorizontalBlock"]>div[data-testid="stColumn"]:last-child{flex:1 1 0!important;min-width:0!important;width:auto!important}}
         </style>""")
         st.html(f"<style>{LunaStyle.preset_swatch_rules()}</style>")
 
     @staticmethod
     def preset_swatch_rules() -> str:
-        """Tint each preset like the Rooms tab light pills."""
+        """Tint each preset like the Rooms tab light pills, with its name in its color."""
         rules = []
         for color in UIConfig.PRESET_COLORS:
             red, green, blue = (int(color[index : index + 2], 16) for index in (1, 3, 5))
             selector = f'div[class*="st-key-preset_color_"][class*="_{color[1:]}"] button'
             rules.append(
+                f"{selector},{selector} *{{color:{color}!important;-webkit-text-fill-color:{color}!important}}"
                 f"{selector}{{background:rgba({red},{green},{blue},.18)!important;border:1px solid rgba({red},{green},{blue},.35)!important}}"
                 f"{selector}:hover{{background:rgba({red},{green},{blue},.28)!important;border-color:rgba({red},{green},{blue},.6)!important}}"
             )

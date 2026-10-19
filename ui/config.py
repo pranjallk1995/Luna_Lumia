@@ -13,12 +13,13 @@ class UIConfig:
 
     UI_ROOT: ClassVar[Path] = Path(__file__).resolve().parent
     LOGO_PATH: ClassVar[Path] = UI_ROOT / "assets" / "lunalumia_logo.png"
-    PRESET_COLORS: ClassVar[tuple[str, ...]] = (
-        "#F5F5F5",
-        "#FFBE55",
-        "#FF836A",
-        "#B86DE0",
-    )
+    # Built-in color chips: hex -> label. Iterating yields the hex values.
+    PRESET_COLORS: ClassVar[dict[str, str]] = {
+        "#F5F5F5": "White",
+        "#FFBE55": "Amber",
+        "#FF836A": "Coral",
+        "#B86DE0": "Violet",
+    }
     # Built-in solid schemes offered as one-tap chips in a light card's Temperature mode.
     TEMPERATURE_PRESETS: ClassVar[tuple[str, ...]] = ("Focus", "Daylight", "Reading", "Bedtime")
     WEEKDAY_NAMES: ClassVar[tuple[str, ...]] = (
@@ -28,8 +29,6 @@ class UIConfig:
     MIN_COLOR_TEMP: ClassVar[int] = 2200
     MAX_COLOR_TEMP: ClassVar[int] = 6500
     DEFAULT_COLOR_TEMP: ClassVar[int] = 4000
-    # Matches the backend's light-status poll interval.
-    STATUS_REFRESH_SECONDS: ClassVar[int] = 30
 
     api_url: str
     api_timeout: float = 8.0

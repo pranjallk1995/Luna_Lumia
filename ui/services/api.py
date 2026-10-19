@@ -52,6 +52,10 @@ class LumiaAPI:
             json={"target_type": target_type, "target_id": target_id},
         )
 
+    def refresh_lights(self) -> list[dict[str, Any]]:
+        """Ask every bulb for its current state now (Lumia does not poll)."""
+        return self.request("POST", "/api/lights/refresh")
+
     def stop_scenes(self, target_type: str = "all", target_id: int | None = None):
         """Stop sequence schemes playing on the target lights."""
         return self.request(

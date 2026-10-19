@@ -98,41 +98,48 @@ class DiscoveryPanel(LumiaTab):
 
 
 class ColorControls:
-    """A palette icon, a color picker, and preset swatches on one line.
+    """A color picker and a row of named preset color chips.
 
-    ``suffix`` keeps keys matching the stylesheet's ``light_color_controls_*``
-    and ``preset_color_*_<hex>`` selectors. Each preset callback receives the
-    ``on_preset`` args followed by the preset color.
+    ``render`` lays out a palette icon + picker row above the chip row (light
+    cards); ``picker`` and ``chip_row`` can also be placed separately. ``suffix``
+    keeps keys matching the stylesheet's ``light_color_controls_*``,
+    ``color_presets_*`` and ``preset_color_*_<hex>`` selectors. Each preset
+    callback receives the ``on_preset`` args followed by the preset color.
     """
 
-    def __init__(self, presets: tuple[str, ...]) -> None:
-        self.presets = presets
+    def __init__(self, presets: dict[str, str]) -> None:
+        self.presets = presets  # hex -> label
 
     def render(
         self, suffix, color_key: str, on_pick: tuple, on_preset: tuple, disabled: bool = False
     ) -> None:
-        pick_callback, pick_args = on_pick
-        preset_callback, preset_args = on_preset
         with st.container(key=f"light_color_controls_{suffix}"):
-            icon_column, *color_columns = st.columns(
-                [0.6, 1.35] + [1] * len(self.presets),
-                gap="small",
-                vertical_alignment="center",
-            )
+            # Same icon/control proportions as InlineIcon.slider rows.
+            icon_column, picker_column = st.columns([0.6, 6.4], gap="small", vertical_alignment="center")
             InlineIcon.render(icon_column, "palette")
-            color_columns[0].color_picker(
-                "Color",
-                key=color_key,
-                label_visibility="collapsed",
-                disabled=disabled,
-                on_change=pick_callback,
-                args=pick_args,
-            )
-            for preset_column, preset_color in zip(color_columns[1:], self.presets):
-                preset_column.button(
-                    "●",
+            self.picker(picker_column, color_key, on_pick, disabled)
+        self.chip_row(suffix, on_preset, disabled)
+
+    @staticmethod
+    def picker(container, color_key: str, on_pick: tuple, disabled: bool = False) -> None:
+        pick_callback, pick_args = on_pick
+        container.color_picker(
+            "Color",
+            key=color_key,
+            label_visibility="collapsed",
+            disabled=disabled,
+            on_change=pick_callback,
+            args=pick_args,
+        )
+
+    def chip_row(self, suffix, on_preset: tuple, disabled: bool = False) -> None:
+        preset_callback, preset_args = on_preset
+        with st.container(key=f"color_presets_{suffix}", horizontal=True, gap="small"):
+            for preset_color, label in self.presets.items():
+                st.button(
+                    label,
                     key=f"preset_color_{suffix}_{preset_color[1:]}",
-                    help=f"Use {preset_color}",
+                    help=f"Use {label.lower()} ({preset_color})",
                     disabled=disabled,
                     on_click=preset_callback,
                     args=(*preset_args, preset_color),
@@ -172,7 +179,7 @@ class TemperaturePresets:
             )
         return f"<style>{''.join(rules)}</style>"
 
-    def render(self, suffix, on_select: tuple) -> None:
+    def render(self, suffix, on_select: tuple, disabled: bool = False) -> None:
         callback, args = on_select
         with st.container(key=f"temp_presets_{suffix}", horizontal=True, gap="small"):
             for scheme in self.schemes:
@@ -180,6 +187,7 @@ class TemperaturePresets:
                     scheme["name"],
                     key=f"temp_preset_{scheme['id']}_{suffix}",
                     help=f'{scheme["color_temp"]} K · {scheme["brightness"]}% brightness',
+                    disabled=disabled,
                     on_click=callback,
                     args=(*args, scheme["id"]),
                 )
@@ -213,10 +221,12 @@ class InlineIcon:
 
 
 class AllLightsControls(LumiaTab):
-    """Set one color temperature or color on every light that is currently on."""
+    """Brightness, temperature, or color for every light that is currently on."""
 
+    BRIGHTNESS_KEY = "all_lights_brightness"
     TEMP_KEY = "all_lights_color_temp"
     COLOR_KEY = "all_lights_color"
+    MODE_KEY = "all_lights_mode"
     ERROR_KEY = "all_lights_control_error"
 
     @staticmethod
@@ -225,18 +235,26 @@ class AllLightsControls(LumiaTab):
         return max(set(values), key=values.count) if values else default
 
     @classmethod
+    def refresh_cards(cls, light_ids: list[int], controls: tuple[str, ...]) -> None:
+        """Forget what the cards last saw so they reload the updated light state."""
+        for light_id in light_ids:
+            for control in controls:
+                st.session_state.pop(f"{control}_seen_{light_id}", None)
+
+    @classmethod
     def apply(cls, api, light_ids: list[int], changed: str, value) -> None:
-        """Recolor the lights that are on (off lights stay off), then reset their card widgets."""
+        """Change one setting on the lights that are on (off lights stay off)."""
         try:
             api.control("on", **{changed: value})
             st.session_state.pop(cls.ERROR_KEY, None)
         except httpx.HTTPError as error:
             st.session_state[cls.ERROR_KEY] = str(error)
             return
-        # Forgetting what the cards last saw makes them reload the updated light state.
-        for light_id in light_ids:
-            for prefix in ("color", "color_temp"):
-                st.session_state.pop(f"{prefix}_seen_{light_id}", None)
+        cls.refresh_cards(light_ids, ("brightness", "color", "color_temp"))
+
+    @classmethod
+    def apply_brightness(cls, api, light_ids: list[int]) -> None:
+        cls.apply(api, light_ids, "brightness", st.session_state[cls.BRIGHTNESS_KEY])
 
     @classmethod
     def apply_temp(cls, api, light_ids: list[int]) -> None:
@@ -248,45 +266,72 @@ class AllLightsControls(LumiaTab):
             st.session_state[cls.COLOR_KEY] = color
         cls.apply(api, light_ids, "color", st.session_state[cls.COLOR_KEY])
 
+    @classmethod
+    def apply_temperature_preset(cls, api, light_ids: list[int], scheme_id: int) -> None:
+        """Apply a built-in temperature scheme to the lights that are on."""
+        try:
+            api.apply_scene(scheme_id, "on", None)
+            st.session_state.pop(cls.ERROR_KEY, None)
+        except httpx.HTTPError as error:
+            st.session_state[cls.ERROR_KEY] = str(error)
+            return
+        cls.refresh_cards(light_ids, ("on", "brightness", "color_temp"))
+        st.session_state.pop(cls.BRIGHTNESS_KEY, None)
+        st.session_state.pop(cls.TEMP_KEY, None)
+
     @property
     def on_lights(self) -> list:
         return [light for light in self.dashboard.lights if light.get("is_on")]
 
-    def render_temperature(self) -> None:
+    def render_brightness(self) -> None:
         lights = self.on_lights
         InlineIcon.slider(
-            "device_thermostat",
-            "All lights temperature",
-            self.config.MIN_COLOR_TEMP,
-            self.config.MAX_COLOR_TEMP,
-            int(
-                self.most_common(
-                    [light.get("color_temp") for light in lights],
-                    self.config.DEFAULT_COLOR_TEMP,
-                )
-            ),
-            step=100,
-            format="%dK",
-            key=self.TEMP_KEY,
+            "brightness_6",
+            "All lights brightness",
+            1,
+            100,
+            int(self.most_common([light.get("brightness") for light in lights], 100)),
+            key=self.BRIGHTNESS_KEY,
             disabled=not lights,
-            on_change=self.apply_temp,
+            on_change=self.apply_brightness,
             args=(self.api, [light["id"] for light in lights]),
         )
 
-    def render_color(self) -> None:
+    def render_mode(self) -> None:
+        """A Temperature | Color toggle with its slider or picker, and its chips below."""
         lights = self.on_lights
+        args = (self.api, [light["id"] for light in lights])
+        st.session_state.setdefault(self.MODE_KEY, TEMPERATURE)
+        toggle_column, control_column = st.columns([1.35, 2.65], gap="small", vertical_alignment="center")
+        mode = toggle_column.segmented_control(
+            "All lights mode", [TEMPERATURE, COLOR], format_func=MODE_ICONS.__getitem__,
+            key=self.MODE_KEY, label_visibility="collapsed",
+        )
+        if (mode or TEMPERATURE) == TEMPERATURE:
+            control_column.slider(
+                "All lights temperature",
+                self.config.MIN_COLOR_TEMP,
+                self.config.MAX_COLOR_TEMP,
+                int(self.most_common([light.get("color_temp") for light in lights], self.config.DEFAULT_COLOR_TEMP)),
+                step=100,
+                format="%dK",
+                key=self.TEMP_KEY,
+                label_visibility="collapsed",
+                disabled=not lights,
+                on_change=self.apply_temp,
+                args=args,
+            )
+            TemperaturePresets.from_dashboard(self.dashboard, self.config.TEMPERATURE_PRESETS).render(
+                "all", on_select=(self.apply_temperature_preset, args), disabled=not lights
+            )
+            return
         if self.COLOR_KEY not in st.session_state:
             st.session_state[self.COLOR_KEY] = self.most_common(
                 [light.get("color") for light in lights], "#FFFFFF"
             )
-        args = (self.api, [light["id"] for light in lights])
-        ColorControls(self.config.PRESET_COLORS).render(
-            "all",
-            self.COLOR_KEY,
-            on_pick=(self.apply_color, args),
-            on_preset=(self.apply_color, args),
-            disabled=not lights,
-        )
+        controls = ColorControls(self.config.PRESET_COLORS)
+        controls.picker(control_column, self.COLOR_KEY, (self.apply_color, args), disabled=not lights)
+        controls.chip_row("all", (self.apply_color, args), disabled=not lights)
 
     def render_error(self) -> None:
         if st.session_state.get(self.ERROR_KEY):
@@ -480,7 +525,7 @@ class LightsTab(LumiaTab):
         online_count = sum(light.get("reachable") is True for light in lights)
         all_lights = AllLightsControls(self.api, self.config, self.dashboard)
         with st.container(key="all_lights_bar"):
-            stats_column, temp_column, color_column = st.columns(
+            stats_column, brightness_column, mode_column = st.columns(
                 3, vertical_alignment="center"
             )
             stats_column.markdown(
@@ -488,10 +533,10 @@ class LightsTab(LumiaTab):
                 unsafe_allow_html=True,
             )
             # Keyed containers are boxed by the stylesheet like the stats panel.
-            with temp_column, st.container(key="all_lights_temp_box"):
-                all_lights.render_temperature()
-            with color_column, st.container(key="all_lights_color_box"):
-                all_lights.render_color()
+            with brightness_column, st.container(key="all_lights_brightness_box"):
+                all_lights.render_brightness()
+            with mode_column, st.container(key="all_lights_color_box"):
+                all_lights.render_mode()
         all_lights.render_error()
 
     def _render_cards(self) -> None:
