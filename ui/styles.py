@@ -203,7 +203,13 @@ class LunaStyle:
         @media(max-width:700px){div[class*="st-key-icon_slider_"] div[data-testid="stHorizontalBlock"]{flex-wrap:nowrap!important}div[class*="st-key-icon_slider_"] div[data-testid="stColumn"]:first-child{flex:0 0 1.6rem!important;min-width:1.6rem!important;width:1.6rem!important}div[class*="st-key-icon_slider_"] div[data-testid="stColumn"]:last-child{flex:1 1 0!important;min-width:0!important;width:auto!important}}
         @media(max-width:700px){.st-key-all_lights_bar .light-stats-row,.st-key-all_lights_brightness_box{min-height:3.6rem!important}.st-key-all_lights_color_box{min-height:0!important}.st-key-all_lights_color_box div[data-testid="stHorizontalBlock"]{flex-wrap:nowrap!important}.st-key-all_lights_color_box div[data-testid="stHorizontalBlock"]>div[data-testid="stColumn"]:first-child{flex:0 0 auto!important;width:auto!important;min-width:0!important}.st-key-all_lights_color_box div[data-testid="stHorizontalBlock"]>div[data-testid="stColumn"]:last-child{flex:1 1 0!important;min-width:0!important;width:auto!important}}
         @media(max-width:700px){.st-key-schedule_when_row div[data-testid="stHorizontalBlock"]{flex-wrap:nowrap!important;gap:.6rem!important}.st-key-schedule_when_row div[data-testid="stColumn"]:first-child{flex:0 0 auto!important;width:auto!important;min-width:0!important}.st-key-schedule_when_row div[data-testid="stColumn"]:last-child{flex:1 1 0!important;width:auto!important;min-width:0!important}.st-key-schedule_when button{padding-inline:.7rem!important}.st-key-schedule_when button p{font-size:0!important;line-height:0!important}.st-key-schedule_when button span[data-testid="stIconMaterial"]{font-size:1.15rem!important;line-height:1!important}}
-        </style>""")
+        /* mobile-sign-out-icon */
+        @media (max-width:700px) {
+            .st-key-header_sign_out,.st-key-header_sign_out .stButton { width:2.625rem!important; min-width:2.625rem!important; }
+            .st-key-header_sign_out button { width:2.625rem!important; min-width:2.625rem!important; padding:0!important; }
+            .st-key-header_sign_out button p { display:none!important; }
+            .st-key-header_sign_out button span[data-testid="stIconMaterial"] { margin:0!important; }
+        }        </style>""")
         st.html(f"<style>{LunaStyle.preset_swatch_rules()}</style>")
 
     @staticmethod
