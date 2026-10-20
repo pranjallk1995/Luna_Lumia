@@ -1,6 +1,6 @@
 # Luna Lumia
 
-> **Work in progress:** Luna Lumia is a local-first and desktop first nutrition and body-measurement tracker under active development.
+> **Work in progress:** Luna Lumia is a local-first and desktop-first nutrition and body-measurement tracker under active development.
 
 ## Control, Automate and Manage your Smart Lights LLMs
 
