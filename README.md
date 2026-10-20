@@ -94,16 +94,19 @@ Create the network once:
 docker network create luna_visia_lunavisia_network
 ```
 
-Create a private `.env`:
+Copy the example environment file and fill in the placeholders:
 
-```dotenv
-LUNALUMIA_API_TOKEN=replace-with-a-random-value-of-at-least-32-characters
-LUNALUMIA_ALLOWED_EMAILS=you@example.com
-POSTGRES_PASSWORD=replace-with-a-private-database-password
-MCP_PUBLIC_URL=https://lumia-mcp.lunaapps.fyi
+```sh
+cp .env.example .env
 ```
 
-Separate multiple emails with commas. `MCP_PUBLIC_URL` is optional but must be HTTPS when set.
+`LUNALUMIA_API_TOKEN` is a shared secret between the UI and the MCP server, not a key issued by any service. Generate your own random value of at least 32 characters:
+
+```sh
+openssl rand -hex 32
+```
+
+Separate multiple emails with commas. `MCP_PUBLIC_URL` is optional and defaults to `http://localhost:18002`; set it to your public HTTPS origin when the server is exposed (plain HTTP is accepted only for localhost).
 
 ### Google OAuth settings
 

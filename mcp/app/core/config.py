@@ -18,8 +18,9 @@ class AppConfig:
     schedule_interval_seconds: float = 20.0
     device_timeout_seconds: float = 3.0
     default_broadcast_space: str = "255.255.255.255"
-    # Public HTTPS origin of this MCP server, used for icon URLs ("" = embedded icons only).
-    mcp_public_url: str = ""
+    # Public origin of this MCP server, used for icon URLs ("" = embedded icons only).
+    mcp_public_url: str = "http://localhost:18002"
+    LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
     @classmethod
     def from_env(cls) -> "AppConfig":
@@ -30,11 +31,12 @@ class AppConfig:
         api_token = os.getenv("LUNALUMIA_API_TOKEN", "").strip()
         if len(api_token) < 32:
             raise RuntimeError("LUNALUMIA_API_TOKEN must contain at least 32 characters.")
-        mcp_public_url = os.getenv("MCP_PUBLIC_URL", "").strip().rstrip("/")
+        mcp_public_url = os.getenv("MCP_PUBLIC_URL", cls.mcp_public_url).strip().rstrip("/")
         if mcp_public_url:
             parsed_public_url = urlparse(mcp_public_url)
-            if parsed_public_url.scheme != "https" or not parsed_public_url.netloc:
-                raise RuntimeError("MCP_PUBLIC_URL must be a valid HTTPS URL.")
+            local = parsed_public_url.scheme == "http" and parsed_public_url.hostname in cls.LOCAL_HOSTS
+            if not (parsed_public_url.scheme == "https" or local) or not parsed_public_url.netloc:
+                raise RuntimeError("MCP_PUBLIC_URL must be an HTTPS URL, or HTTP on localhost.")
         return cls(
             mcp_public_url=mcp_public_url,
             database_url=database_url,

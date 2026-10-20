@@ -73,16 +73,28 @@ class SchemeLibrary(LumiaTab):
             "Stop all sequences", icon=":material/stop_circle:", key="stop_all_sequences"
         ):
             ActionRunner.run(lambda: self.api.stop_scenes("all"))
+        st.html(self.card_styles())
         per_row = self.config.card_columns
         columns = st.columns(per_row)
         for index, scheme in enumerate(self.dashboard.scenes):
             with columns[index % per_row]:
                 self._render_card(scheme, target, label)
 
+    def card_styles(self) -> str:
+        """Give each card a color from the same rotation as the transition cards."""
+        palette = TransitionManager.PALETTE
+        rules = "".join(
+            f".st-key-scheme_card_{item['id']}"
+            f"{{--pill-accent:{accent};--pill-fill:{fill};--pill-edge:{edge}}}"
+            for index, item in enumerate(self.dashboard.scenes)
+            for accent, fill, edge in [palette[index % len(palette)]]
+        )
+        return f"<style>{rules}</style>"
+
     def _render_card(self, scheme: Item, target: tuple[str, int | None], label: str) -> None:
         scheme_id = scheme["id"]
         playing = self.dashboard.lights_playing(scheme_id)
-        with st.container(border=True, key=f"scheme_card_{scheme_id}"):
+        with st.container(key=f"scheme_card_{scheme_id}"):
             badges = '<span class="scheme-badge">Built-in</span>' if scheme["is_preset"] else ""
             if playing:
                 badges += f'<span class="scheme-badge playing">Playing on {playing}</span>'
@@ -377,6 +389,7 @@ class SequenceBuilder(SchemeBuilder):
         st.text_input("Name :red[*]", placeholder="Aurora", key=self.k("sequence_name"), max_chars=100)
         transitions = self.transition_options()
         steps = st.session_state[self.steps_key]
+        st.html(self.step_styles(steps))
         for position, uid in enumerate(steps, start=1):
             self._render_step(position, uid, transitions, removable=len(steps) > 2)
         add_column, loop_column = st.columns([1, 1], vertical_alignment="center")
@@ -391,13 +404,25 @@ class SequenceBuilder(SchemeBuilder):
         )
         FormFeedback.show(self.k(self.ERROR))
 
+    @staticmethod
+    def step_styles(steps: list[str]) -> str:
+        """Color each step card by its position, from the transition cards' rotation."""
+        palette = TransitionManager.PALETTE
+        rules = "".join(
+            f".st-key-sequence_step_{uid}"
+            f"{{--pill-accent:{accent};--pill-fill:{fill};--pill-edge:{edge}}}"
+            for index, uid in enumerate(steps)
+            for accent, fill, edge in [palette[index % len(palette)]]
+        )
+        return f"<style>{rules}</style>"
+
     def _render_step(
         self, position: int, uid: str, transitions: dict[int, str], removable: bool
     ) -> None:
         key = f"seq_{uid}"
         if st.session_state.get(f"{key}_transition") not in transitions:
             st.session_state[f"{key}_transition"] = self.default_transition()
-        with st.container(border=True, key=f"sequence_step_{uid}"):
+        with st.container(key=f"sequence_step_{uid}"):
             # Pinned to the card's top-right corner by the stylesheet; always shown,
             # disabled at the two-step minimum a sequence needs.
             st.button(
