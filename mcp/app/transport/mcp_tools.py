@@ -358,3 +358,40 @@ class LumiaMCPTools:
                     kind=kind,
                 )
             )
+
+        @server.tool()
+        def update_schedule(
+            schedule_id: int,
+            name: str | None = None,
+            action: str | None = None,
+            time_mode: str | None = None,
+            run_time: str | None = None,
+            offset_minutes: int | None = None,
+            target_type: str | None = None,
+            target_id: int | None = None,
+            scene_id: int | None = None,
+            weekdays: list[int] | None = None,
+            kind: str | None = None,
+            enabled: bool | None = None,
+        ):
+            """Edit a schedule or alarm (see list_schedules for ids); only the fields given change.
+
+            Fields are as in create_schedule. enabled=False pauses it without deleting it.
+            Switching time_mode to "time" needs a run_time; switching a target to "light" or
+            "group" needs its target_id; switching action to "scene" needs a scene_id.
+            """
+            changes = {
+                "name": name, "action": action, "time_mode": time_mode, "run_time": run_time,
+                "offset_minutes": offset_minutes, "target_type": target_type, "target_id": target_id,
+                "scene_id": scene_id, "weekdays": weekdays, "kind": kind, "enabled": enabled,
+            }
+            current = schedules().get(schedule_id)
+            fields = {field: current[field] for field in ScheduleCreate.model_fields}
+            fields.update({field: value for field, value in changes.items() if value is not None})
+            return schedules().update(schedule_id, ScheduleCreate(**fields))
+
+        @server.tool()
+        def delete_schedule(schedule_id: int):
+            """Delete a schedule or alarm."""
+            schedules().delete(schedule_id)
+            return {"deleted": True, "schedule_id": schedule_id}

@@ -652,15 +652,33 @@ class ScheduleService:
             row["today_time"] = at.strftime("%H:%M") if at else None
         return sorted(rows, key=lambda row: (row["today_time"] is None, row["today_time"] or "", row["name"]))
 
-    def add(self, entry: ScheduleCreate) -> Row | None:
+    def get(self, schedule_id: int) -> Row:
+        schedule = self.schedules.get(schedule_id)
+        if not schedule:
+            raise NotFoundError("Schedule not found")
+        return schedule
+
+    def first_run_date(self, entry: ScheduleCreate) -> date | None:
+        """The ``last_run_date`` a new or edited schedule starts with.
+
+        A time that has already passed today waits for the next scheduled day.
+        """
         if entry.time_mode != "time" and not self.location.get():
             raise ValueError("Set your location in the Schedules tab to use sunrise or sunset times")
         now = datetime.now(self.location.zone)
-        row = entry.model_dump()
-        at = self.time_on(row, now.date())
-        # A time that has already passed today waits for the next scheduled day.
+        at = self.time_on(entry.model_dump(), now.date())
         already_passed = at is not None and at <= now.time() and now.weekday() in entry.weekdays
-        return self.schedules.add(entry, now.date() if already_passed else None)
+        return now.date() if already_passed else None
+
+    def add(self, entry: ScheduleCreate) -> Row | None:
+        return self.schedules.add(entry, self.first_run_date(entry))
+
+    def update(self, schedule_id: int, entry: ScheduleCreate) -> Row:
+        """Replace a schedule; its next run is worked out again from the new time."""
+        updated = self.schedules.update(schedule_id, entry, self.first_run_date(entry))
+        if not updated:
+            raise NotFoundError("Schedule not found")
+        return updated
 
     def delete(self, schedule_id: int) -> None:
         if not self.schedules.delete(schedule_id):

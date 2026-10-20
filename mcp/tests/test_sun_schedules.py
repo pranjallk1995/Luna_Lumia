@@ -18,6 +18,9 @@ class FakeSchedules:
     def __init__(self, rows=()): self.rows, self.added, self.ran = list(rows), [], []
     def pending(self, today, weekday): return [r for r in self.rows if weekday in r["weekdays"]]
     def add(self, entry, last_run_date=None): self.added.append((entry, last_run_date)); return {"id": 1}
+    def update(self, schedule_id, entry, last_run_date=None):
+        return {"id": schedule_id, "last_run_date": last_run_date} if schedule_id == 7 else None
+    def get(self, schedule_id): return next((r for r in self.rows if r["id"] == schedule_id), None)
     def mark_ran(self, schedule_id, day): self.ran.append(schedule_id)
     def list(self): return self.rows
 
@@ -56,6 +59,20 @@ class SunScheduleTests(unittest.TestCase):
         entry = ScheduleCreate(name="Dusk", action="on", time_mode="sunset")
         with self.assertRaisesRegex(ValueError, "Set your location"):
             service(location=None).add(entry)
+
+    def test_update_reports_a_missing_schedule(self):
+        from app.core.errors import NotFoundError
+        entry = ScheduleCreate(name="Wake", action="on", run_time="07:00")
+        self.assertEqual(service().update(7, entry)["id"], 7)
+        with self.assertRaises(NotFoundError):
+            service().update(99, entry)
+        with self.assertRaises(NotFoundError):
+            service().get(99)
+
+    def test_update_to_sunset_needs_a_saved_location(self):
+        entry = ScheduleCreate(name="Dusk", action="on", time_mode="sunset")
+        with self.assertRaisesRegex(ValueError, "Set your location"):
+            service(location=None).update(7, entry)
 
     def test_time_mode_requires_a_time_and_sun_mode_drops_it(self):
         with self.assertRaises(ValueError):

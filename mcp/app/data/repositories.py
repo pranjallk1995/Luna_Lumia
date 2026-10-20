@@ -359,6 +359,22 @@ class ScheduleRepository(Repository):
             ),
         )
 
+    def get(self, schedule_id: int) -> Row | None:
+        return self.fetch_one("SELECT * FROM schedules WHERE id=%s", (schedule_id,))
+
+    def update(self, schedule_id: int, entry: ScheduleCreate, last_run_date: date | None = None) -> Row | None:
+        return self.fetch_one(
+            """UPDATE schedules SET name=%s, kind=%s, target_type=%s, target_id=%s, action=%s,
+                scene_id=%s, time_mode=%s, run_time=%s, offset_minutes=%s, weekdays=%s, enabled=%s,
+                last_run_date=%s
+            WHERE id=%s RETURNING *""",
+            (
+                entry.name.strip(), entry.kind, entry.target_type, entry.target_id,
+                entry.action, entry.scene_id, entry.time_mode, entry.run_time,
+                entry.offset_minutes, entry.weekdays, entry.enabled, last_run_date, schedule_id,
+            ),
+        )
+
     def delete(self, schedule_id: int) -> bool:
         return self.affects_row(
             "DELETE FROM schedules WHERE id=%s RETURNING id", (schedule_id,)

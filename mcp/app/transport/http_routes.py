@@ -273,6 +273,9 @@ class LumiaHTTPRoutes:
         async def create(request: Request):
             return schedules.add(await self.payload(request, ScheduleCreate))
 
+        async def update(request: Request):
+            return schedules.update(self.path_id(request), await self.payload(request, ScheduleCreate))
+
         async def delete(request: Request):
             schedules.delete(self.path_id(request))
 
@@ -283,3 +286,4 @@ class LumiaHTTPRoutes:
         self.route("PUT", "/api/location", save_location)
         self.route("POST", "/api/schedules", create, 201)
         self.route("DELETE", "/api/schedules/{item_id}", delete, NO_CONTENT)
+        self.route("PUT", "/api/schedules/{item_id}", update)

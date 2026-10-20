@@ -268,8 +268,12 @@ class ScheduleCreate(BaseModel):
     def valid_target_and_action(self):
         if self.target_type != "all" and self.target_id is None:
             raise ValueError("A light or group target is required")
+        if self.target_type == "all":
+            self.target_id = None
         if self.action == "scene" and self.scene_id is None:
             raise ValueError("A color scheme is required")
+        if self.action != "scene":
+            self.scene_id = None
         if self.time_mode == "time":
             if self.run_time is None:
                 raise ValueError("Choose a time")

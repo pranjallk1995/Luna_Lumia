@@ -78,8 +78,30 @@ class FakeCollections:
         self.calls.append(("delete", collection_id, kind))
 
 
+class FakeSchedules:
+    def __init__(self):
+        self.row = {
+            "id": 5, "name": "Wake up", "kind": "alarm", "target_type": "group", "target_id": 2,
+            "action": "scene", "scene_id": 7, "time_mode": "time", "run_time": "07:00:00",
+            "offset_minutes": 0, "weekdays": [0, 1, 2, 3, 4], "enabled": True, "today_time": "07:00",
+        }
+        self.updated = []
+        self.deleted = []
+
+    def get(self, schedule_id):
+        return self.row
+
+    def update(self, schedule_id, entry):
+        self.updated.append((schedule_id, entry))
+        return {"id": schedule_id, **entry.model_dump()}
+
+    def delete(self, schedule_id):
+        self.deleted.append(schedule_id)
+
+
 class FakeService:
     def __init__(self):
+        self.schedules = FakeSchedules()
         self.scenes = FakeScenes()
         self.transitions = FakeTransitions()
         self.lights = object()
@@ -122,6 +144,31 @@ class SchemeMCPToolTests(unittest.TestCase):
         self.assertEqual(transition, {"deleted": True, "transition_id": 2})
         self.assertEqual(self.service.scenes.deleted, [7])
         self.assertEqual(self.service.transitions.deleted, [2])
+
+
+class ScheduleMCPToolTests(unittest.TestCase):
+    def setUp(self):
+        self.server = FakeServer()
+        self.service = FakeService()
+        LumiaMCPTools(self.server, self.service)
+
+    def test_update_schedule_changes_only_the_given_fields(self):
+        self.server.tools["update_schedule"](5, run_time="06:30", enabled=False)
+        schedule_id, entry = self.service.schedules.updated[0]
+        self.assertEqual(schedule_id, 5)
+        self.assertEqual(str(entry.run_time), "06:30:00")
+        self.assertFalse(entry.enabled)
+        self.assertEqual((entry.name, entry.kind, entry.scene_id, entry.weekdays), ("Wake up", "alarm", 7, [0, 1, 2, 3, 4]))
+
+    def test_update_schedule_switching_to_sunrise_and_all_lights_drops_stale_fields(self):
+        self.server.tools["update_schedule"](5, time_mode="sunrise", offset_minutes=-20, target_type="all", action="on")
+        _, entry = self.service.schedules.updated[0]
+        self.assertEqual((entry.run_time, entry.offset_minutes), (None, -20))
+        self.assertEqual((entry.target_id, entry.scene_id), (None, None))
+
+    def test_delete_schedule_returns_confirmation(self):
+        self.assertEqual(self.server.tools["delete_schedule"](5), {"deleted": True, "schedule_id": 5})
+        self.assertEqual(self.service.schedules.deleted, [5])
 
 
 class CollectionMCPToolTests(unittest.TestCase):
