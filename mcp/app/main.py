@@ -46,7 +46,7 @@ class LunaLumiaApplication:
         self.engine = SceneEngine(self.adapter.apply)
         self.engine.start()
         self.service = self._build_service()
-        self.branding = ServerBranding()
+        self.branding = ServerBranding(config.mcp_public_url)
         self.mcp = FastMCP(
             "LunaLumia",
             icons=self.branding.mcp_icons(),

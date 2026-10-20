@@ -25,6 +25,7 @@ services:
     environment:
       DATABASE_URL: postgresql://lunalumia:${POSTGRES_PASSWORD:-lunalumia-dev}@luna-lumia-db:5432/lunalumia
       LUNALUMIA_API_TOKEN: ${LUNALUMIA_API_TOKEN:?Set LUNALUMIA_API_TOKEN to a random value of at least 32 characters}
+      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-https://lumia-mcp.lunaapps.fyi}
       TZ: Asia/Kolkata
     expose: ["8000"]
     ports: ["127.0.0.1:18002:8000"]

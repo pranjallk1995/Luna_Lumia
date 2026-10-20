@@ -34,6 +34,23 @@ class BrandingTests(unittest.TestCase):
         self.assertEqual(client.get("/icons/icon-192.png").headers["content-type"], "image/png")
         self.assertEqual(client.get("/icons/missing.png").status_code, 404)
 
+    def test_public_url_icons_are_listed_before_embedded_ones(self):
+        icons = ServerBranding("https://mcp.example.com/").mcp_icons()
+        self.assertEqual(
+            [icon.src for icon in icons[:4]],
+            [f"https://mcp.example.com/icons/icon-{size}.png" for size in ServerBranding.ICON_SIZES],
+        )
+        self.assertTrue(icons[4].src.startswith("data:image/png;base64,"))
+
+    def test_home_page_links_the_icons(self):
+        branding = ServerBranding()
+        server = FastMCP("test", icons=branding.mcp_icons())
+        LumiaHTTPRoutes(server, MagicMock(), branding, "t" * 32)
+        page = TestClient(server.streamable_http_app()).get("/")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("text/html", page.headers["content-type"])
+        self.assertIn('href="/icons/icon-192.png"', page.text)
+        self.assertIn('href="/favicon.ico"', page.text)
 
 if __name__ == "__main__":
     unittest.main()
