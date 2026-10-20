@@ -1,231 +1,384 @@
 # Luna Lumia
 
-> **Work in progress:** Luna Lumia is a local-first and desktop-first nutrition and body-measurement tracker under active development.
+![Docker required](https://img.shields.io/badge/Docker-required-2496ED?logo=docker&logoColor=white)
+![Docker Compose v2](https://img.shields.io/badge/Docker_Compose-v2-2496ED?logo=docker&logoColor=white)
+![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![Luna Visia network required](https://img.shields.io/badge/Luna_Visia_network-required-6C5CE7?logo=docker&logoColor=white)
+![PostgreSQL included](https://img.shields.io/badge/PostgreSQL-included-4169E1?logo=postgresql&logoColor=white)
 
-## Control, Automate and Manage your Smart Lights LLMs
+## Control, Automate, and Manage your Smart Lights using LLMs
 
-Luna Lumia is the Luna-family smart-light controller. It uses the same
-Streamlit + Python/FastMCP + PostgreSQL structure and shared visual system as
-Luna Visia and Luna Vita.
+> **Work in progress:** Luna Lumia is a local-first and desktop-first smart-light controller under active development.
 
-## Features
+Luna Lumia combines Streamlit, FastMCP, PostgreSQL, and direct local WiZ control. It runs beside [Luna Visia](https://github.com/pranjallk1995/Luna_Visia) and [Luna Vita](https://github.com/pranjallk1995/Luna_Vita) on the same private Docker network while keeping its services, ports, database, and volumes separate.
 
-- Add and remove WiZ-compatible lights by local IPv4 address
-- Scan the `192.168.1.x` LAN for WiZ lights and add discovered devices from the UI
-- Store each discovered light's normalized MAC address with its device record
-- Turn one light, a group, or every light on and off
-- Set brightness, RGB color, and white color temperature
-- Save and apply solid color/temperature schemes and animated sequence schemes
-- Organize lights into exclusive rooms or reusable groups
-- Keep each light in at most one room while allowing it in multiple groups
-- Display room photography from Luna Visia on each light card
-- Create recurring on/off or color-scheme schedules and alarms in Asia/Kolkata
-- Control lights through the dashboard, REST endpoints, or MCP tools
-- Require Google OIDC login and an explicit email allowlist before the dashboard is shown
+> **Required Docker network:** `luna_visia_lunavisia_network` must exist before startup. Luna Visia normally creates it. Otherwise, create it manually under [Start](#start).
 
-The initial `Living room light` is seeded at `192.168.1.8`. Lumia sends commands
-directly over the local network; no cloud account or light credential is stored.
-The discovery scan is user-triggered and sends a WiZ `getPilot` request to each
-address on `192.168.1.1–254`. This works across Docker's bridge while accepting
-only valid WiZ replies; it does not probe unrelated TCP services or
-automatically save found devices.
+<p align="center">
+  <img src="ui/assets/lunalumia_logo.png" alt="Luna Lumia logo" width="220">
+</p>
 
-## Schemes
+Lumia discovers compatible bulbs, stores their IP and normalized MAC addresses, and controls power, brightness, RGB color, and white temperature. Rooms, groups, schemes, transitions, schedules, and alarms persist in PostgreSQL and are available to MCP clients. The initial `Living room light` is seeded at `192.168.1.8`.
 
-A scheme is either **solid** (one RGB color or one white temperature, at a
-brightness) or a **sequence**: 2–24 steps, each a color or temperature with a
-brightness, a hold time, and a **transition** that fades into it from the
-previous step. Sequences play once or loop. Transitions are reusable presets
-with a fade duration (0–600 s) and a curve (linear, ease-in, ease-out,
-ease-in-out).
+## Current features
 
-WiZ bulbs only accept static states, so the backend plays sequences itself
-(`mcp/app/services/playback.py`), sending interpolated frames about 8 times a second.
-Changing a light manually or applying another scheme stops its sequence.
+### Lights and network discovery
 
-Built-in presets (refreshed on startup; they can't be edited or deleted):
+- Discover WiZ bulbs without adding them automatically.
+- Persist IP and normalized MAC addresses so known bulbs can be reconciled after DHCP changes.
+- Rename, delete, and refresh lights on demand.
+- Control one light, a room/group, or all lights.
+- Set power, brightness, RGB color, or white temperature from 2200-6500 K.
+- Apply UI changes immediately. Lumia does not continuously poll bulbs in the background.
 
-- Solid: Focus, Daylight, Reading, Bedtime, Warm evening, Night light
-- Sequence: Pulse, Candle light, Fireplace, Party, Ocean, Sunrise (plays once)
-- Transitions: Instant, Flicker, Quick fade, Smooth, Slow fade, Long fade
+### Rooms, groups, and images
 
-MCP tools: `list_schemes`, `create_solid_scheme`, `create_sequence_scheme`,
-`create_transition`, `activate_scene`, and `stop_scene`.
+- Put each light in at most one room and in multiple reusable groups.
+- Add or remove memberships without deleting lights.
+- Rename rooms and groups with validated names up to 30 characters.
+- Display Luna Visia images through immutable public URLs.
+- Infer images from room or member-light names while preserving the available image scheme.
+- Set and clear light or room image overrides through MCP tools.
 
-## Room images
+### Schemes and transitions
 
-Light-card backgrounds use immutable Luna Visia public image URLs. Lumia maps
-common room words in each light name (such as `Bathroom`, `Kitchen`, `Office`,
-or `Balcony`) to the matching stored room image and uses the living-room image
-as a fallback for unmatched rooms. A light-specific URL override takes priority
-over the room image.
+- Create solid RGB or white-temperature schemes.
+- Build 2-24 step sequences with brightness, hold times, transitions, and optional looping.
+- Apply schemes to all lights, one light, or a room/group.
+- Protect built-in presets while allowing user schemes and transitions to be edited or deleted.
 
-The MCP server exposes these image-management tools:
+Built-in solids: Focus, Daylight, Reading, Bedtime, Warm evening, Night light. Built-in sequences: Pulse, Candle light, Fireplace, Party, Ocean, Sunrise. Built-in transitions: Instant, Flicker, Quick fade, Smooth, Slow fade, Long fade.
 
-- `list_room_images`
-- `update_room_image`
-- `set_light_background_image`
-- `clear_light_background_image`
+### Schedules and alarms
 
-It also exposes `create_room` for exclusive room membership and `create_group`
-for reusable, overlapping light groups.
+- Create recurring on, off, or scheme actions.
+- Target all lights, one light, or a room/group.
+- Select weekdays and pause schedules without deleting them.
+- Run at fixed times or relative to sunrise or sunset using a saved location.
+- Use `Asia/Kolkata` by default.
 
-Only `http://` and `https://` image URLs are accepted. When
-`set_light_background_image` is called without an image URL, Lumia infers the
-room from the optional `room_name` argument or the light name, and selects the
-matching configured image while preserving the available image-source scheme.
-Use `clear_light_background_image` to remove the stored override and return to
-dynamic room-image resolution.
+### Responsive and authenticated interface
 
-## Run
-
-The shared Luna Visia network must already exist (`luna_visia_lunavisia_network`).
-
-```bash
-docker compose -f docker-compose.yaml up --build
-```
-
-### Authentication setup
-
-Lumia uses Streamlit's native OpenID Connect authorization-code flow for the
-browser login. Streamlit validates the provider's ID token and stores the
-identity in its signed identity cookie. Lumia additionally checks the verified
-email claim against an explicit allowlist. The UI authenticates its private
-REST calls with a separate bearer credential; `/api/*` rejects requests that do
-not have that credential. Health and icon routes remain public for probes and
-client branding.
-
-1. In Google Cloud Console, configure the OAuth consent screen and create an
-   **OAuth client ID** of type **Web application**. Add this exact authorized
-   redirect URI for local use:
-
-   ```text
-   http://localhost:18503/oauth2callback
-   ```
-
-   If Google keeps the consent screen in testing mode, add every authorized
-   Lumia user as a test user. For a deployed HTTPS hostname, create a separate
-   client or add its exact `https://<host>/oauth2callback` redirect URI.
-
-2. Copy `ui/.streamlit/secrets.example.toml` to
-   `ui/.streamlit/secrets.toml`. Replace the client ID and client secret, set
-   `redirect_uri` to the browser-visible Lumia origin, and generate a strong
-   independent `cookie_secret`. The real file is gitignored, excluded from the
-   image build, and mounted read-only at runtime.
-
-3. Create a local `.env` (also gitignored) with an independent random API token
-   and the only Google accounts that may control the lights:
-
-   ```dotenv
-   LUNALUMIA_API_TOKEN=replace-with-a-random-value-of-at-least-32-characters
-   LUNALUMIA_ALLOWED_EMAILS=you@example.com
-   ```
-
-   Separate multiple email addresses with commas. Generate the two random
-   values independently; do not reuse the Google client secret as either the
-   cookie secret or the API token.
-
-4. Start Lumia normally and open `http://localhost:18503`. The dashboard does
-   not load data or expose controls until Google login succeeds and the returned
-   email is both verified and allowlisted. Use **Sign out** in the header to
-   delete the Streamlit identity cookie and end the provider session when the
-   provider supports OIDC logout.
-
-The backend remains bound to localhost on port `18002`, and its REST routes are
-intended to be reached by the UI over the private Compose network. If you expose
-Lumia through a reverse proxy, use HTTPS, forward the original host/protocol,
-and keep port `18002` private. The MCP endpoint is separate from the dashboard
-login and remains localhost-only; do not publish it to the internet without a
-dedicated MCP OAuth 2.1 authorization server or an authenticated gateway.
-
-Open `http://127.0.0.1:18503`. The MCP endpoint is
-`http://127.0.0.1:18002/mcp`.
-
-Favicon and icons: <http://127.0.0.1:18002/favicon.ico> and
-`/icons/icon-{48,96,192,512}.png`; the 48 and 96 px icons are also embedded in
-the MCP `initialize` server info so connector clients such as Claude can show
-them (`mcp/app/transport/branding.py`, assets in `mcp/app/assets/`).
-
-For source synchronization, run Compose Watch in the foreground:
-
-```bash
-docker compose -f docker-compose.yaml watch --no-up
-```
+- Shared Luna styling, header geometry, typography, and navigation.
+- Icon-only navigation and sign-out controls on mobile.
+- Google OpenID Connect login plus a verified-email allowlist.
+- Independent bearer authentication for private UI-to-service REST calls.
 
 ## Architecture
 
-Backend (`mcp/app`), layered so transports never touch SQL:
+| Component | Technology | Purpose |
+| --- | --- | --- |
+| UI | Streamlit | Lights, rooms, groups, schemes, schedules, and responsive controls |
+| HTTP and MCP | FastMCP custom routes + tools | UI endpoints and conversational operations |
+| Devices | Python + `pywizlight` | LAN discovery and direct WiZ control |
+| Playback and workers | Python services | Sequence interpolation and recurring schedules |
+| Database | PostgreSQL 17 | Devices, membership, images, schemes, and schedules |
+| Network | `luna_visia_lunavisia_network` | Private discovery shared with other Luna apps |
 
-- `main.py` – `LunaLumiaApplication` composes every dependency and starts the server
-- `http_routes.py` / `mcp_tools.py` – REST routes and MCP tools; both call only the `LumiaService` facade
-- `services.py` – use cases: `LightService`, `CollectionService` (rooms/groups), `BackgroundImageService`, `LightControlService`, `SceneService`, `ScheduleService`
-- `repositories.py` – one PostgreSQL repository per aggregate
-- `room_images.py` – pure room-detection and image-selection rules
-- `devices.py` – WiZ protocol adapter and LAN discovery
-- `workers.py` – schedule runner and light-status poller threads
-- `models.py`, `config.py`, `errors.py`, `database.py` – validation, settings, domain errors, schema
+Unique aliases: `luna-lumia-db`, `luna-lumia-mcp`, and `luna-lumia-ui`.
 
-UI (`ui`): `app.py` composes the page; `services/api.py` is the backend client;
-`domain/dashboard.py` wraps the API payload; `views/` holds one class per tab
-(`LightsTab`, `RoomsTab`, `SchemesTab`, `SchedulesTab`) plus shared components
-in `views/shared.py`. Widget keys are
-part of the styling contract in `styles.py`, so keep them stable.
+```text
+Streamlit UI or MCP client
+        -> Luna Lumia MCP/API
+        -> application services + PostgreSQL
+        -> WiZ bulbs on the local network
+```
 
-Run backend tests with `docker compose exec mcp python -m unittest discover -s tests`.
+Transport handlers call the `LumiaService` facade instead of SQL or device adapters directly. PostgreSQL is not published to the host.
+
+## Start
+
+Create the network once:
+
+```sh
+docker network create luna_visia_lunavisia_network
+```
+
+Create a private `.env`:
+
+```dotenv
+LUNALUMIA_API_TOKEN=replace-with-a-random-value-of-at-least-32-characters
+LUNALUMIA_ALLOWED_EMAILS=you@example.com
+POSTGRES_PASSWORD=replace-with-a-private-database-password
+MCP_PUBLIC_URL=https://lumia-mcp.lunaapps.fyi
+```
+
+Separate multiple emails with commas. `MCP_PUBLIC_URL` is optional but must be HTTPS when set.
+
+### Google OAuth settings
+
+1. Create a Google OAuth 2.0 **Web application** client.
+2. Add `http://localhost:18503/oauth2callback`.
+3. Copy `ui/.streamlit/secrets.example.toml` to `ui/.streamlit/secrets.toml`.
+4. Set `redirect_uri`, `cookie_secret`, `client_id`, and `client_secret`.
+
+Keep OAuth credentials only in the gitignored secrets file. Do not reuse secrets.
+
+Start Lumia:
+
+```sh
+docker compose up --build
+```
+
+Open:
+
+- UI: <http://127.0.0.1:18503>
+- Health: <http://127.0.0.1:18002/health>
+- MCP: <http://127.0.0.1:18002/mcp>
+- Favicon: <http://127.0.0.1:18002/favicon.ico>
+- Icons: `/icons/icon-{48,96,192,512}.png`
+
+| Setting | Default |
+| --- | --- |
+| Database | `lunalumia` |
+| Username | `lunalumia` |
+| Password | `lunalumia-dev` when unset |
+| Database host | `luna-lumia-db` |
+| Timezone | `Asia/Kolkata` |
+
+The API token and email allowlist have no defaults. Keep localhost port `18002` private, and do not expose MCP without an authenticated gateway or authorization server.
+
+## Codex MCP configuration (optional)
+
+```toml
+[mcp_servers.lunalumia]
+url = "http://127.0.0.1:18002/mcp"
+enabled = true
+required = false
+startup_timeout_sec = 20
+tool_timeout_sec = 60
+```
+
+Reload tasks that predate a newly added server or tool.
+
+## Database UI
+
+Lumia does not publish PostgreSQL or include Adminer. Inspect it through the container:
+
+```sh
+docker compose exec postgres psql -U lunalumia -d lunalumia
+```
+
+The `postgres_data` volume persists across recreation.
+
+## MCP tools
+
+The MCP surface exposes the same application services used by the Streamlit UI.
+Tools validate names, identifiers, colors, brightness, schedules, and membership
+rules before changing PostgreSQL or contacting a light. Device-control tools
+return the resulting state where possible, while management tools return the
+saved database record.
+
+### Lights and inventory
+
+- `list_lights`, `refresh_light_statuses`, `discover_lights_on_network`
+- `set_light`, `set_all_lights`, `set_group`
+
+Discovery probes the local network for compatible WiZ devices and returns their
+IP and MAC addresses without automatically adding unknown devices. It also uses
+MAC addresses to reconcile already-saved lights whose IP changed and backfills
+missing MAC values. Refresh reads live reachability and power state. The setters
+control power,
+brightness, RGB color, or color temperature for one light, every light, or a
+saved group.
+
+### Rooms, groups, and images
+
+- `list_rooms`, `get_room`, `create_room`, `rename_room`, `delete_room`
+- `list_groups`, `get_group`, `create_group`, `rename_group`, `delete_group`
+- `add_lights_to_room`, `remove_light_from_room`
+- `add_lights_to_group`, `remove_light_from_group`
+- `list_room_images`, `update_room_image`
+- `set_light_background_image`, `clear_light_background_image`, `set_room_background_image`
+
+Rooms enforce exclusive membership; reusable groups allow overlaps. Room and
+light image tools accept HTTP(S) image URLs. Automatic room-image selection uses
+the room or light name and prefers a visual scheme consistent with images
+already in use.
+
+### Schemes and transitions
+
+- `list_schemes`
+- `create_solid_scheme`, `update_solid_scheme`
+- `create_sequence_scheme`, `update_sequence_scheme`
+- `create_transition`, `update_transition`
+- `apply_scheme`, `stop_scheme`
+- `activate_scene`, `stop_scene`
+- `delete_scheme`, `delete_transition`
+
+Solid schemes store one color or color temperature with an optional brightness.
+Sequence schemes store ordered steps and may loop. Transitions define the
+duration and interpolation curve used between steps. Applying a scheme starts
+playback for the chosen target; stopping it cancels active playback without
+deleting the saved definition.
+
+### Schedules, alarms, and location
+
+- `get_location`, `set_location`
+- `list_schedules`, `create_schedule`, `update_schedule`, `delete_schedule`
+
+Weekdays use `0=Monday` through `6=Sunday`. Solar schedules require a saved
+location. Schedules can target a light or collection and perform power or scheme
+actions at a fixed time, sunrise, or sunset, including an optional solar offset.
+The background worker prevents the same schedule from running twice on one date.
+
+## Data model
+
+### `lights`
+
+One row per discovered or manually added light. It stores the editable name,
+unique IP address, optional unique MAC address, protocol, last known power,
+brightness, RGB color, color temperature, reachability, last-seen time, creation
+time, and optional background-image URL. Status refreshes update the cached
+device state; the database remains the inventory source of truth.
+
+### `light_groups` and `group_members`
+
+`light_groups` stores both rooms and reusable groups, including their names,
+kind, and optional background image. `group_members` joins lights to those
+collections. `kind` and `membership_kind` distinguish exclusive room membership
+from overlapping groups; a partial unique index ensures that each light belongs
+to at most one room.
+
+### `room_images`
+
+Canonical room keys mapped to HTTP(S) Luna Visia image URLs. These defaults give
+new rooms a suitable image without copying image data into Lumia. Stored light
+or room overrides take priority over the canonical mapping.
+
+### `scenes` and `transitions`
+
+`scenes` stores both solid and sequence schemes. Solid rows contain color or
+temperature and brightness; sequence rows keep ordered steps in JSON plus their
+loop setting. `transitions` stores reusable duration and easing definitions.
+Preset flags distinguish built-in definitions from user-created ones.
+
+### `schedules` and `location`
+
+`schedules` stores recurring schedules and alarms: target type and ID, action,
+optional scheme, selected weekdays, enabled state, last-run date, and either a
+fixed time or sunrise/sunset mode with an offset. `location` is a singleton row
+containing the name and coordinates required for solar calculations.
+
+The idempotent schema in `mcp/app/data/database.py` applies additive upgrades at
+startup.
 
 ## Project structure
 
-The backend follows the same layered package layout across all three Luna apps:
+The backend follows the same layered layout across all three Luna apps:
 
-- `mcp/app/core/` - configuration, validation models, and domain primitives.
-- `mcp/app/data/` - database setup, repositories, and storage adapters.
-- `mcp/app/services/` - transport-independent use cases and orchestration.
-- `mcp/app/integrations/` - external services, devices, and peer-app clients.
-- `mcp/app/transport/` - FastMCP tools, HTTP routes, authentication, and branding.
-- `mcp/app/main.py` - the small composition root that wires the layers together.
-
-Luna Vita, Luna Lumia, and Luna Visia share this layout:
+- `mcp/app/core/` - configuration, validation, and domain primitives.
+- `mcp/app/data/` - database setup and repositories.
+- `mcp/app/services/` - use cases and orchestration.
+- `mcp/app/integrations/` - devices and peer-app integrations.
+- `mcp/app/transport/` - MCP tools, HTTP routes, authentication, and branding.
+- `mcp/app/main.py` - composition root.
 
 ```text
 .
-├── docker-compose.yaml     # services, private network, and Compose Watch rules
-├── README.md
-├── UI_STYLE_GUIDE.md       # shared Luna visual reference
-├── docs/assets/            # README screenshots
-├── mcp/                    # FastMCP server: MCP tools plus UI-facing HTTP routes
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   ├── app/                # main.py composition root, config, database, models,
-│   │                       # repositories, services, mcp_tools, http_routes,
-│   │                       # and the app's own domain modules
-│   ├── scripts/            # one-off maintenance scripts, when needed
-│   └── tests/              # python -m unittest discover -s tests
-└── ui/                     # Streamlit interface
-    ├── Dockerfile
-    ├── requirements.txt
-    ├── .streamlit/         # Streamlit theme and server settings
-    ├── assets/             # logos
-    ├── app.py              # entry point and page composition
-    ├── config.py           # environment-backed settings
-    ├── styles.py           # shared dark theme
-    ├── services/           # backend API client, caching, and session state
-    ├── domain/             # Streamlit-free logic and view models, when the app has any
-    ├── views/              # Streamlit rendering: tabs, sections, dialogs, shared widgets
-    └── tests/              # UI logic tests, when the app has any
+|-- docker-compose.yaml
+|-- README.md
+|-- UI_STYLE_GUIDE.md
+|-- mcp/
+|   |-- Dockerfile
+|   |-- requirements.txt
+|   |-- app/
+|   |   |-- core/
+|   |   |-- data/
+|   |   |-- integrations/
+|   |   |-- services/
+|   |   |-- transport/
+|   |   |-- main.py
+|   |-- tests/
+|-- ui/
+    |-- Dockerfile
+    |-- requirements.txt
+    |-- .streamlit/
+    |-- assets/
+    |-- app.py
+    |-- auth.py
+    |-- config.py
+    |-- styles.py
+    |-- services/
+    |-- domain/
+    |-- views/
+    |-- tests/
 ```
 
-Dependencies point one way: `views/` uses `services/` and `domain/`, and `domain/`
-imports neither Streamlit nor the API client, so it can be tested on its own.
+`views/` uses `services/` and `domain/`; `domain/` imports neither Streamlit nor the API client.
 
-## Logo
+## Development workflow
 
-The Lumia logo is stored at `ui/assets/lunalumia_logo.png` and is used in both
-the branded header and the browser tab.
+```sh
+docker compose up --build --watch
+```
 
-## Notes
+UI changes synchronize into `/workspace/ui`. MCP changes synchronize into `/workspace/mcp/app` and restart MCP. Dependency or Dockerfile changes rebuild the affected service. Named volumes are never watched. Compose Watch must remain running.
 
-- Device protocol currently targets WiZ lights through `pywizlight`. If the light
-  at `192.168.1.8` is another brand, add its protocol adapter before sending
-  commands.
-- All application services use unique `luna-lumia-*` network aliases.
-- PostgreSQL data is kept in Lumia's own named Compose volume.
+Run tests:
+
+```sh
+docker compose exec mcp python -m unittest discover -s tests
+docker compose exec ui python -m unittest discover -s tests
+```
+
+### UI modules
+
+The UI is intentionally thin: views render Streamlit components, the API client
+performs authenticated requests, and the domain layer converts API payloads into
+display-ready state. Device control and persistence remain in MCP, so rerunning
+Streamlit does not duplicate backend logic.
+
+- `ui/app.py` - composition root for sign-in, shared header, navigation, manual
+  status refresh, and tab dispatch.
+- `ui/auth.py` and `ui/config.py` - Google identity/allowlist checks and validated
+  UI configuration loaded from environment variables and Streamlit secrets.
+- `ui/views/lights_tab.py` - network discovery, inventory counters, inline name
+  editing, room labels, live power controls, brightness, colors, and deletion.
+- `ui/views/rooms_tab.py` - room creation and editing, exclusive membership,
+  room-level power, member status bubbles, and background images.
+- `ui/views/schemes_tab.py` - solid and sequence scheme editors, reusable
+  transitions, previews, and apply/stop actions.
+- `ui/views/schedules_tab.py` - saved location, fixed and solar schedules,
+  alarms, weekday selection, enablement, and deletion.
+- `ui/views/shared.py` - reusable rendering helpers and mutation wrappers shared
+  by multiple tabs.
+- `ui/services/api.py` - typed authenticated HTTP client and backend error
+  translation; it is the UI's only route to Lumia data and device actions.
+- `ui/domain/dashboard.py` - Streamlit-free normalization, sorting, counters,
+  status labels, and other dashboard presentation rules.
+- `ui/styles.py` - Luna design tokens, component selectors, responsive layout,
+  mobile icon-only navigation, and card/image styling.
+
+### MCP modules
+
+The backend is split into transport, application services, persistence, and
+external integrations. HTTP routes and MCP tools are adapters over the same
+`LumiaService` facade, which keeps validation and behavior consistent for the UI
+and conversational clients.
+
+- `mcp/app/main.py` - composition root that loads settings, opens and initializes
+  PostgreSQL, builds integrations/services, registers transports, starts workers,
+  and closes resources during shutdown.
+- `mcp/app/core/config.py`, `models.py`, and `errors.py` - validated settings,
+  shared domain/request models, and transport-independent application errors.
+- `mcp/app/transport/http_routes.py` - authenticated REST endpoints used by the
+  Streamlit client, including health and public branding routes.
+- `mcp/app/transport/mcp_tools.py` - conversational tool schemas and handlers
+  that translate tool arguments into calls on the application facade.
+- `mcp/app/transport/auth.py` and `branding.py` - bearer-token enforcement plus
+  favicon, icon, and MCP server-brand metadata.
+- `mcp/app/services/application.py` - `LumiaService` facade for inventory,
+  control, rooms/groups, images, schemes, transitions, and schedules.
+- `mcp/app/services/playback.py` - active sequence tasks, timing, interpolation,
+  looping, and cancellation.
+- `mcp/app/services/presets.py` - idempotent installation of built-in schemes and
+  transitions.
+- `mcp/app/services/sun.py` and `workers.py` - sunrise/sunset calculation and the
+  recurring schedule-execution background loop.
+- `mcp/app/data/database.py` and `repositories.py` - connection-pool ownership,
+  additive schema initialization, transactions, and PostgreSQL queries.
+- `mcp/app/integrations/devices.py` - WiZ discovery, MAC lookup, live status, and
+  device commands, isolated from database and transport code.
+- `mcp/app/integrations/room_images.py` - name-based image selection and visual
+  scheme matching for room and light backgrounds.
