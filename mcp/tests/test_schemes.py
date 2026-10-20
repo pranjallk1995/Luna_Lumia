@@ -4,10 +4,10 @@ import unittest
 
 from pydantic import ValidationError
 
-from app.models import SceneCreate, SceneStep
-from app.playback import ColorMath, SceneEngine, Step
-from app.presets import SEQUENCES, SOLIDS, TRANSITIONS, PresetCatalog
-from app.services import SceneService, TransitionService
+from app.core.models import SceneCreate, SceneStep
+from app.services.playback import ColorMath, SceneEngine, Step
+from app.services.presets import SEQUENCES, SOLIDS, TRANSITIONS, PresetCatalog
+from app.services.application import SceneService, TransitionService
 
 
 def step(brightness=50, hold_s=0.0, fade_s=0.0, curve="linear", **light):

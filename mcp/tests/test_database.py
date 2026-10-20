@@ -1,6 +1,6 @@
 import unittest
 
-from app.database import SCHEMA_SQL
+from app.data.database import SCHEMA_SQL
 
 
 class CollectionSchemaTests(unittest.TestCase):

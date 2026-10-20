@@ -2,15 +2,15 @@
 
 from mcp.server.fastmcp import FastMCP
 
-from .branding import ServerBranding
-from .config import AppConfig
-from .database import Database
-from .devices import WizDiscovery, WizLightAdapter
-from .http_routes import LumiaHTTPRoutes
-from .mcp_tools import LumiaMCPTools
-from .playback import SceneEngine
-from .presets import PresetCatalog
-from .repositories import (
+from app.transport.branding import ServerBranding
+from app.core.config import AppConfig
+from app.data.database import Database
+from app.integrations.devices import WizDiscovery, WizLightAdapter
+from app.transport.http_routes import LumiaHTTPRoutes
+from app.transport.mcp_tools import LumiaMCPTools
+from app.services.playback import SceneEngine
+from app.services.presets import PresetCatalog
+from app.data.repositories import (
     CollectionRepository,
     LightRepository,
     LocationRepository,
@@ -19,7 +19,7 @@ from .repositories import (
     ScheduleRepository,
     TransitionRepository,
 )
-from .services import (
+from app.services.application import (
     BackgroundImageService,
     CollectionService,
     LightControlService,
@@ -30,7 +30,7 @@ from .services import (
     ScheduleService,
     TransitionService,
 )
-from .workers import ScheduleWorker
+from app.services.workers import ScheduleWorker
 
 
 class LunaLumiaApplication:

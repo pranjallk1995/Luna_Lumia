@@ -2,8 +2,8 @@ import unittest
 from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
-from app.models import ScheduleCreate
-from app.services import LocationService, ScheduleService
+from app.core.models import ScheduleCreate
+from app.services.application import LocationService, ScheduleService
 
 IST = ZoneInfo("Asia/Kolkata")
 BENGALURU = {"name": "Bengaluru", "latitude": 12.97, "longitude": 77.59}

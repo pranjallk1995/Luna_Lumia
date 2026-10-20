@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 from mcp.server.fastmcp import FastMCP
 from starlette.testclient import TestClient
 
-from app.branding import ServerBranding
-from app.http_routes import LumiaHTTPRoutes
+from app.transport.branding import ServerBranding
+from app.transport.http_routes import LumiaHTTPRoutes
 
 
 class BrandingTests(unittest.TestCase):

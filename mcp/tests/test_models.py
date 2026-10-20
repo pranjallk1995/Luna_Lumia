@@ -1,7 +1,7 @@
 import unittest
 from pydantic import ValidationError
-from app.models import GroupCreate, GroupMembersUpdate, GroupUpdate, LightCreate, LightImageUpdate, LightState, LightUpdate, RoomImageUpdate, ScheduleCreate
-from app.room_images import ImageScheme, RoomKeyDetector
+from app.core.models import GroupCreate, GroupMembersUpdate, GroupUpdate, LightCreate, LightImageUpdate, LightState, LightUpdate, RoomImageUpdate, ScheduleCreate
+from app.integrations.room_images import ImageScheme, RoomKeyDetector
 
 
 class ModelTests(unittest.TestCase):

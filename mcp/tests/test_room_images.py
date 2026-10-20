@@ -1,6 +1,6 @@
 import unittest
 
-from app.room_images import ImageScheme, RoomImageCatalog, RoomKeyDetector
+from app.integrations.room_images import ImageScheme, RoomImageCatalog, RoomKeyDetector
 
 VISIA = "https://visia.example/api/public/images/"
 OTHER = "https://other.example/rooms/"

@@ -40,7 +40,7 @@ with a fade duration (0–600 s) and a curve (linear, ease-in, ease-out,
 ease-in-out).
 
 WiZ bulbs only accept static states, so the backend plays sequences itself
-(`mcp/app/playback.py`), sending interpolated frames about 8 times a second.
+(`mcp/app/services/playback.py`), sending interpolated frames about 8 times a second.
 Changing a light manually or applying another scheme stops its sequence.
 
 Built-in presets (refreshed on startup; they can't be edited or deleted):
@@ -144,7 +144,7 @@ Open `http://127.0.0.1:18503`. The MCP endpoint is
 Favicon and icons: <http://127.0.0.1:18002/favicon.ico> and
 `/icons/icon-{48,96,192,512}.png`; the 48 and 96 px icons are also embedded in
 the MCP `initialize` server info so connector clients such as Claude can show
-them (`mcp/app/branding.py`, assets in `mcp/app/assets/`).
+them (`mcp/app/transport/branding.py`, assets in `mcp/app/assets/`).
 
 For source synchronization, run Compose Watch in the foreground:
 
@@ -174,6 +174,15 @@ part of the styling contract in `styles.py`, so keep them stable.
 Run backend tests with `docker compose exec mcp python -m unittest discover -s tests`.
 
 ## Project structure
+
+The backend follows the same layered package layout across all three Luna apps:
+
+- `mcp/app/core/` - configuration, validation models, and domain primitives.
+- `mcp/app/data/` - database setup, repositories, and storage adapters.
+- `mcp/app/services/` - transport-independent use cases and orchestration.
+- `mcp/app/integrations/` - external services, devices, and peer-app clients.
+- `mcp/app/transport/` - FastMCP tools, HTTP routes, authentication, and branding.
+- `mcp/app/main.py` - the small composition root that wires the layers together.
 
 Luna Vita, Luna Lumia, and Luna Visia share this layout:
 

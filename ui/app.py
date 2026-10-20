@@ -56,9 +56,6 @@ class LunaLumiaApp:
         with power_column, st.container(
             key="header_actions", horizontal=True, vertical_alignment="center", gap="small"
         ):
-            st.button(
-                "Sign out", icon=":material/logout:", key="header_sign_out", on_click=st.logout
-            )
             # Light states are only read from the bulbs on demand (no background polling).
             if st.button(
                 "", icon=":material/refresh:", key="header_refresh_lights",
@@ -74,6 +71,13 @@ class LunaLumiaApp:
                 key="header_all_lights_power",
             ):
                 ActionRunner.run(lambda: self.api.control("all", on=not all_on))
+            st.button(
+                "Sign out",
+                icon=":material/logout:",
+                key="header_sign_out",
+                on_click=st.logout,
+                width="stretch",
+            )
 
     def render(self) -> None:
         LunaStyle.apply()

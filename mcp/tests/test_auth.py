@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 from mcp.server.fastmcp import FastMCP
 from starlette.testclient import TestClient
 
-from app.branding import ServerBranding
-from app.config import AppConfig
-from app.http_routes import LumiaHTTPRoutes
+from app.transport.branding import ServerBranding
+from app.core.config import AppConfig
+from app.transport.http_routes import LumiaHTTPRoutes
 
 
 class APIAuthenticationTests(unittest.TestCase):

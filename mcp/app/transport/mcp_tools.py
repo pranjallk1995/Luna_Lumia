@@ -4,8 +4,8 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from .devices import GLOBAL_BROADCAST
-from .models import (
+from app.integrations.devices import GLOBAL_BROADCAST
+from app.core.models import (
     GroupCreate,
     GroupMembersUpdate,
     GroupUpdate,
@@ -17,7 +17,7 @@ from .models import (
     ScheduleCreate,
     TransitionCreate,
 )
-from .services import LumiaService
+from app.services.application import LumiaService
 
 
 class LumiaMCPTools:

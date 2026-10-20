@@ -4,10 +4,10 @@ import unittest
 
 from pydantic import ValidationError
 
-from app.errors import NotFoundError
-from app.http_routes import LumiaHTTPRoutes
-from app.models import GroupCreate, LightState
-from app.services import (
+from app.core.errors import NotFoundError
+from app.transport.http_routes import LumiaHTTPRoutes
+from app.core.models import GroupCreate, LightState
+from app.services.application import (
     BackgroundImageService,
     CollectionService,
     LightService,
@@ -182,7 +182,7 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual(LightService(lights, None, None).subnet_broadcast(), "192.168.1.255")
 
     def test_silent_known_bulb_triggers_a_rescan_then_a_second_read(self):
-        from app.services import LumiaService
+        from app.services.application import LumiaService
 
         class Control:
             def __init__(self): self.polls = 0
@@ -202,7 +202,7 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual((control.polls, Lights.scanned, result[0]["ok"]), (2, "192.168.1.255", True))
 
     def test_all_answering_needs_no_rescan(self):
-        from app.services import LumiaService
+        from app.services.application import LumiaService
 
         class Control:
             async def poll_statuses(self): return [{"light": {"id": 1, "mac_address": "x"}, "ok": True}]

@@ -4,7 +4,7 @@ import threading
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from .services import ScheduleService
+from app.services.application import ScheduleService
 
 
 class PeriodicWorker:

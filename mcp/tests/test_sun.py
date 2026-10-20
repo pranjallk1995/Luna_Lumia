@@ -2,7 +2,7 @@ import unittest
 from datetime import date
 from zoneinfo import ZoneInfo
 
-from app.sun import SunCalculator
+from app.services.sun import SunCalculator
 
 IST = ZoneInfo("Asia/Kolkata")
 

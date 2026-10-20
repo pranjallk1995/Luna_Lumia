@@ -9,11 +9,11 @@ from pydantic import BaseModel, ValidationError
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response
 
-from .auth import APIAuthenticator
-from .devices import GLOBAL_BROADCAST
-from .branding import ServerBranding
-from .errors import NotFoundError
-from .models import (
+from app.transport.auth import APIAuthenticator
+from app.integrations.devices import GLOBAL_BROADCAST
+from app.transport.branding import ServerBranding
+from app.core.errors import NotFoundError
+from app.core.models import (
     GroupCreate,
     GroupMembersUpdate,
     GroupUpdate,
@@ -27,7 +27,7 @@ from .models import (
     ScheduleCreate,
     TransitionCreate,
 )
-from .services import LumiaService
+from app.services.application import LumiaService
 
 Handler = Callable[[Request], Awaitable[Any]]
 NO_CONTENT = 204

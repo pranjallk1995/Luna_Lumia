@@ -8,9 +8,9 @@ from datetime import date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from .devices import GLOBAL_BROADCAST, WizDiscovery, WizLightAdapter
-from .errors import NotFoundError
-from .models import (
+from app.integrations.devices import GLOBAL_BROADCAST, WizDiscovery, WizLightAdapter
+from app.core.errors import NotFoundError
+from app.core.models import (
     CollectionKind,
     GroupCreate,
     LightCreate,
@@ -21,8 +21,8 @@ from .models import (
     TransitionCreate,
     Validators,
 )
-from .playback import ColorMath, SceneEngine, Step
-from .repositories import (
+from app.services.playback import ColorMath, SceneEngine, Step
+from app.data.repositories import (
     CollectionRepository,
     LightRepository,
     LocationRepository,
@@ -32,8 +32,8 @@ from .repositories import (
     ScheduleRepository,
     TransitionRepository,
 )
-from .room_images import ImageScheme, RoomImageCatalog, RoomKeyDetector
-from .sun import SunCalculator
+from app.integrations.room_images import ImageScheme, RoomImageCatalog, RoomKeyDetector
+from app.services.sun import SunCalculator
 
 
 # Uvicorn's logger, so these lines appear in the container log.

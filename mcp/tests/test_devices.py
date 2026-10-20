@@ -1,9 +1,9 @@
 import asyncio
 import unittest
 
-from app.devices import WizDiscovery, WizLightAdapter
-from app.models import LightState
-from app.services import LightControlService
+from app.integrations.devices import WizDiscovery, WizLightAdapter
+from app.core.models import LightState
+from app.services.application import LightControlService
 
 
 class FakeRepository:
@@ -87,7 +87,7 @@ class DeviceTests(unittest.TestCase):
         self.assertTrue(asyncio.run(LightControlService(repo,Adapter()).poll_statuses())[0]["ok"])
         self.assertNotIn("mac_address",repo.saved[0][1])
     def test_adapter_turns_bulb_off_for_black_frames(self):
-        import app.devices as devices
+        import app.integrations.devices as devices
         calls=[]
         class Bulb:
             mac=None

@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 
-from app.mcp_tools import LumiaMCPTools
+from app.transport.mcp_tools import LumiaMCPTools
 
 
 class FakeServer:

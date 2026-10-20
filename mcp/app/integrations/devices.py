@@ -9,7 +9,7 @@ from ipaddress import IPv4Address, IPv4Network
 from pywizlight import PilotBuilder, wizlight
 from pywizlight.discovery import discover_lights
 
-from .models import LightState
+from app.core.models import LightState
 
 GLOBAL_BROADCAST = "255.255.255.255"
 

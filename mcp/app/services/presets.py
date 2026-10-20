@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import SceneCreate, SceneStep, TransitionCreate
-from .repositories import SceneRepository, TransitionRepository
+from app.core.models import SceneCreate, SceneStep, TransitionCreate
+from app.data.repositories import SceneRepository, TransitionRepository
 
 TRANSITIONS = (
     TransitionCreate(name="Instant", duration_ms=0, curve="linear"),

@@ -7,8 +7,8 @@ from typing import Any
 
 from psycopg.types.json import Jsonb
 
-from .database import Database
-from .models import (
+from app.data.database import Database
+from app.core.models import (
     CollectionKind,
     GroupCreate,
     LightCreate,
