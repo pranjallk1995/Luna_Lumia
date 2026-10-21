@@ -16,6 +16,9 @@ from app.core.models import (
     SceneCreate,
     ScheduleCreate,
     TransitionCreate,
+    WeatherAutomationUpdate,
+    WeatherReport,
+    WeatherSlot,
 )
 from app.services.application import LumiaService
 
@@ -31,6 +34,7 @@ class LumiaMCPTools:
         self._register_scheme_tools()
         self._register_control_tools()
         self._register_schedule_tools()
+        self._register_weather_tools()
 
     def _register_inventory_tools(self) -> None:
         server, lights, collections = self.server, self.service.lights, self.service.collections
@@ -177,9 +181,12 @@ class LumiaMCPTools:
 
         @server.tool()
         def list_schemes():
-            """List color schemes (solid and sequence), transitions, and what is playing per light."""
+            """List color schemes (solid and sequence), transitions, and what is playing per light.
+
+            Each scheme's "weather_slots" lists the weather it plays for (e.g. "rain/night").
+            """
             return {
-                "schemes": scenes.list(),
+                "schemes": self.service.weather.decorate(scenes.list()),
                 "transitions": transitions.list(),
                 "playing": scenes.playing(),
             }
@@ -395,3 +402,126 @@ class LumiaMCPTools:
             """Delete a schedule or alarm."""
             schedules().delete(schedule_id)
             return {"deleted": True, "schedule_id": schedule_id}
+
+    def _register_weather_tools(self) -> None:
+        server = self.server
+
+        def weather():
+            # Resolved when a tool runs, not at registration.
+            return self.service.weather
+
+        @server.tool()
+        def record_weather(
+            periods: list[dict[str, Any]],
+            day: str | None = None,
+            location: str | None = None,
+            summary: str | None = None,
+            source: str | None = None,
+        ):
+            """Store a day's weather, replacing anything already saved for that day.
+
+            Look up the forecast first (e.g. hourly or morning/afternoon/evening/night),
+            then send it as periods. Each period: "start" ("HH:MM", local time) and
+            "condition", plus optional "temperature_c", "precipitation_chance" (0-100),
+            "cloud_cover" (0-100), "humidity" (0-100), "wind_kph", and "description".
+            A period lasts until the next one starts; the first also covers earlier hours.
+            condition is one of clear, partly_cloudy, cloudy, fog, rain, thunderstorm,
+            snow (common words such as sunny, overcast, drizzle, mist, storm are mapped).
+            day is "YYYY-MM-DD" (default today); summary is a short description of the day;
+            source names where the data came from.
+            """
+            day_value = weather().day_or_today(day)
+            return weather().record(
+                WeatherReport(day=day_value, periods=periods, location=location, summary=summary, source=source)
+            )
+
+        @server.tool()
+        def update_weather_period(
+            start: str,
+            condition: str | None = None,
+            temperature_c: float | None = None,
+            precipitation_chance: int | None = None,
+            cloud_cover: int | None = None,
+            humidity: int | None = None,
+            wind_kph: float | None = None,
+            description: str | None = None,
+            day: str | None = None,
+        ):
+            """Change one weather period, matched by its start ("HH:MM"), or add it if new.
+
+            Only the fields given change; other periods are kept. Use this when conditions
+            change during the day (e.g. rain arrives earlier than forecast). A new period
+            needs a condition. Creates the day's weather if none is saved yet.
+            """
+            changes = {
+                "condition": condition, "temperature_c": temperature_c,
+                "precipitation_chance": precipitation_chance, "cloud_cover": cloud_cover,
+                "humidity": humidity, "wind_kph": wind_kph, "description": description,
+            }
+            return weather().update_period(
+                day, start, {field: value for field, value in changes.items() if value is not None}
+            )
+
+        @server.tool()
+        def get_weather(day: str | None = None):
+            """Get saved weather. Without day: today's report, the weather and matching scheme
+            right now ("now"), and the automation setting. With day ("YYYY-MM-DD"): that day's report.
+            """
+            return weather().today() if day is None else weather().get(day)
+
+        @server.tool()
+        def delete_weather(day: str):
+            """Delete the weather saved for a day ("YYYY-MM-DD")."""
+            weather().delete(day)
+            return {"deleted": True, "day": day}
+
+        @server.tool()
+        def list_weather_schemes():
+            """List the scheme used for each weather condition by day and by night.
+
+            Day and night follow sunrise and sunset at the saved location (see
+            set_location), or 06:00-18:00 without one. Every slot starts with a built-in
+            "Weather · ..." scheme ("is_built_in"); set_weather_scheme changes it.
+            """
+            return weather().slot_list()
+
+        @server.tool()
+        def set_weather_scheme(condition: str, daypart: str, scheme_id: int):
+            """Use a scheme for a weather condition by "day" or "night".
+
+            To design a new look, create it first with create_solid_scheme or
+            create_sequence_scheme (or change your own with update_*_scheme), then assign
+            its id here. condition is as in record_weather.
+            """
+            slot = WeatherSlot(condition=condition, daypart=daypart)
+            return weather().set_slot(slot.condition, slot.daypart, scheme_id)
+
+        @server.tool()
+        def reset_weather_schemes(condition: str | None = None, daypart: str | None = None):
+            """Put weather slots back on their built-in schemes: one condition, one daypart,
+            both, or (with neither) every slot."""
+            if condition is not None:
+                condition = WeatherSlot(condition=condition, daypart=daypart or "day").condition
+            if daypart is not None:
+                daypart = WeatherSlot(condition="clear", daypart=daypart).daypart
+            return weather().reset_slots(condition, daypart)
+
+        @server.tool()
+        async def apply_weather_scheme(target_type: str = "all", target_id: int | None = None):
+            """Apply the scheme for the weather right now to "all" lights, lights that are
+            "on", one "light", or a "group" (rooms are groups). Needs today's weather saved."""
+            return await weather().apply_current(target_type, target_id)
+
+        @server.tool()
+        def set_weather_automation(enabled: bool, target_type: str = "on", target_id: int | None = None):
+            """Follow the weather automatically: each time today's weather changes period,
+            day turns to night, or a slot's scheme changes, apply the matching scheme.
+
+            target_type "on" (default) only changes lights that are already on, so lights
+            are never switched on by the weather; "all", "light", or "group" (with
+            target_id) apply to those lights and turn them on. It applies once per change,
+            so a manual change stays until the next one.
+            """
+            return weather().set_automation(
+                WeatherAutomationUpdate(enabled=enabled, target_type=target_type, target_id=target_id)
+            )

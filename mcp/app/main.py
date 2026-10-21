@@ -18,6 +18,9 @@ from app.data.repositories import (
     SceneRepository,
     ScheduleRepository,
     TransitionRepository,
+    WeatherAutomationRepository,
+    WeatherRepository,
+    WeatherSchemeRepository,
 )
 from app.services.application import (
     BackgroundImageService,
@@ -29,8 +32,9 @@ from app.services.application import (
     SceneService,
     ScheduleService,
     TransitionService,
+    WeatherService,
 )
-from app.services.workers import ScheduleWorker
+from app.services.workers import ScheduleWorker, WeatherWorker
 
 
 class LunaLumiaApplication:
@@ -41,7 +45,11 @@ class LunaLumiaApplication:
         self.database = Database(config.database_url)
         self.database.open()
         self.database.initialize_schema()
-        PresetCatalog(SceneRepository(self.database), TransitionRepository(self.database)).install()
+        PresetCatalog(
+            SceneRepository(self.database),
+            TransitionRepository(self.database),
+            WeatherSchemeRepository(self.database),
+        ).install()
         self.adapter = WizLightAdapter(timeout=config.device_timeout_seconds)
         self.engine = SceneEngine(self.adapter.apply)
         self.engine.start()
@@ -61,6 +69,9 @@ class LunaLumiaApplication:
             ScheduleWorker(
                 self.service.schedules, config.timezone, config.schedule_interval_seconds
             ),
+            WeatherWorker(
+                self.service.weather, config.timezone, config.schedule_interval_seconds
+            ),
         ]
         for worker in self.workers:
             worker.start()
@@ -72,6 +83,7 @@ class LunaLumiaApplication:
         control = LightControlService(lights, self.adapter, self.engine)
         transitions = TransitionService(TransitionRepository(self.database))
         scenes = SceneService(SceneRepository(self.database), transitions, control, self.engine)
+        location = LocationService(LocationRepository(self.database), self.config.timezone)
         return LumiaService(
             lights=LightService(lights, WizDiscovery(), images),
             collections=CollectionService(collections, images),
@@ -79,11 +91,13 @@ class LunaLumiaApplication:
             control=control,
             scenes=scenes,
             transitions=transitions,
-            schedules=ScheduleService(
-                ScheduleRepository(self.database),
-                control,
+            schedules=ScheduleService(ScheduleRepository(self.database), control, scenes, location),
+            weather=WeatherService(
+                WeatherRepository(self.database),
+                WeatherSchemeRepository(self.database),
+                WeatherAutomationRepository(self.database),
                 scenes,
-                LocationService(LocationRepository(self.database), self.config.timezone),
+                location,
             ),
         )
 

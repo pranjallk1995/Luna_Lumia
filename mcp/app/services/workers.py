@@ -1,10 +1,10 @@
-"""Background threads that run due schedules."""
+"""Background threads that run due schedules and follow the weather."""
 
 import threading
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from app.services.application import ScheduleService
+from app.services.application import ScheduleService, WeatherService
 
 
 class PeriodicWorker:
@@ -43,3 +43,15 @@ class ScheduleWorker(PeriodicWorker):
 
     def tick(self) -> None:
         self.schedules.run_due(datetime.now(self.timezone))
+
+
+class WeatherWorker(PeriodicWorker):
+    name = "lumia-weather"
+
+    def __init__(self, weather: WeatherService, timezone: ZoneInfo, interval: float) -> None:
+        super().__init__(interval)
+        self.weather = weather
+        self.timezone = timezone
+
+    def tick(self) -> None:
+        self.weather.follow(datetime.now(self.timezone))

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.core.models import SceneCreate, SceneStep, TransitionCreate
-from app.data.repositories import SceneRepository, TransitionRepository
+from app.core.models import DAYPARTS, WEATHER_CONDITIONS, SceneCreate, SceneStep, TransitionCreate
+from app.data.repositories import SceneRepository, TransitionRepository, WeatherSchemeRepository
 
 TRANSITIONS = (
     TransitionCreate(name="Instant", duration_ms=0, curve="linear"),
@@ -68,12 +68,80 @@ SEQUENCES: dict[str, tuple[bool, tuple]] = {
 }
 
 
-class PresetCatalog:
-    """Install the built-in transitions, then the schemes that reference them."""
+# Weather schemes: one per (condition, day/night). By day they stand in for the
+# light outside (cooler and brighter when clear, warmer when grey); by night they
+# stay warm and dim. Rain drifts slowly; thunderstorms add brief lightning flashes.
+WEATHER_SOLIDS = (
+    ("Weather · Clear day", 5500, 100),
+    ("Weather · Clear night", 2700, 50),
+    ("Weather · Partly cloudy day", 4800, 95),
+    ("Weather · Partly cloudy night", 2600, 45),
+    ("Weather · Cloudy day", 4200, 90),
+    ("Weather · Cloudy night", 2500, 40),
+    ("Weather · Fog day", 3800, 85),
+    ("Weather · Fog night", "#FFC98A", 35),
+    ("Weather · Snow day", 6000, 95),
+    ("Weather · Snow night", "#FFD7A8", 40),
+)
+WEATHER_SEQUENCES: dict[str, tuple[bool, tuple]] = {
+    "Weather · Rain day": (True, (
+        (3500, 80, 20_000, "Long fade"),
+        ("#A9C1D9", 70, 20_000, "Long fade"),
+    )),
+    "Weather · Rain night": (True, (
+        ("#FF9F5A", 40, 20_000, "Long fade"),
+        ("#E07A4F", 32, 20_000, "Long fade"),
+    )),
+    "Weather · Thunderstorm day": (True, (
+        (3200, 65, 12_000, "Slow fade"),
+        (6500, 100, 80, "Instant"),
+        (3200, 65, 150, "Flicker"),
+        (6500, 100, 60, "Instant"),
+        (3200, 65, 20_000, "Flicker"),
+    )),
+    "Weather · Thunderstorm night": (True, (
+        ("#FF8A3D", 35, 15_000, "Slow fade"),
+        ("#DDE6FF", 80, 80, "Instant"),
+        ("#FF8A3D", 35, 150, "Flicker"),
+        ("#DDE6FF", 70, 60, "Instant"),
+        ("#FF8A3D", 35, 25_000, "Flicker"),
+    )),
+}
 
-    def __init__(self, scenes: SceneRepository, transitions: TransitionRepository) -> None:
+
+class WeatherPresets:
+    """Names of the built-in weather schemes."""
+
+    LABELS = {
+        "clear": "Clear", "partly_cloudy": "Partly cloudy", "cloudy": "Cloudy", "fog": "Fog",
+        "rain": "Rain", "thunderstorm": "Thunderstorm", "snow": "Snow",
+    }
+
+    @classmethod
+    def name(cls, condition: str, daypart: str) -> str:
+        return f"Weather · {cls.LABELS[condition]} {daypart}"
+
+    @classmethod
+    def slots(cls) -> list[tuple[str, str]]:
+        return [(condition, daypart) for condition in WEATHER_CONDITIONS for daypart in DAYPARTS]
+
+
+class PresetCatalog:
+    """Install the built-in transitions, then the schemes that reference them.
+
+    With ``weather_slots``, each weather slot without a scheme is pointed at its
+    built-in weather scheme.
+    """
+
+    def __init__(
+        self,
+        scenes: SceneRepository,
+        transitions: TransitionRepository,
+        weather_slots: WeatherSchemeRepository | None = None,
+    ) -> None:
         self.scenes = scenes
         self.transitions = transitions
+        self.weather_slots = weather_slots
 
     @staticmethod
     def light(value: str | int) -> dict[str, Any]:
@@ -83,11 +151,11 @@ class PresetCatalog:
         for transition in TRANSITIONS:
             self.transitions.upsert_preset(transition)
         transition_ids = {row["name"]: row["id"] for row in self.transitions.list()}
-        for name, value, brightness in SOLIDS:
+        for name, value, brightness in SOLIDS + WEATHER_SOLIDS:
             self.scenes.upsert_preset(
                 SceneCreate(name=name, brightness=brightness, **self.light(value))
             )
-        for name, (loops, steps) in SEQUENCES.items():
+        for name, (loops, steps) in {**SEQUENCES, **WEATHER_SEQUENCES}.items():
             self.scenes.upsert_preset(
                 SceneCreate(
                     name=name,
@@ -104,3 +172,12 @@ class PresetCatalog:
                     ],
                 )
             )
+        if self.weather_slots:
+            self.seed_weather_slots()
+
+    def seed_weather_slots(self) -> None:
+        preset_ids = {row["name"]: row["id"] for row in self.scenes.list() if row["is_preset"]}
+        for condition, daypart in WeatherPresets.slots():
+            scene_id = preset_ids.get(WeatherPresets.name(condition, daypart))
+            if scene_id is not None:
+                self.weather_slots.seed(condition, daypart, scene_id)

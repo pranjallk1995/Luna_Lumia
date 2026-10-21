@@ -49,6 +49,19 @@ Lumia discovers compatible bulbs, stores their IP and normalized MAC addresses, 
 
 Built-in solids: Focus, Daylight, Reading, Bedtime, Warm evening, Night light. Built-in sequences: Pulse, Candle light, Fireplace, Party, Ocean, Sunrise. Built-in transitions: Instant, Flicker, Quick fade, Smooth, Slow fade, Long fade.
 
+### Weather
+
+- An internet-connected LLM looks up the forecast and stores the day's weather as
+  periods (start time + condition, with optional temperature, rain chance, cloud
+  cover, humidity, wind, and description).
+- 14 built-in `Weather · …` schemes cover clear, partly cloudy, cloudy, fog, rain,
+  thunderstorm, and snow, by day and by night. Day and night follow sunrise and
+  sunset at the saved location, or 06:00-18:00 without one.
+- Any scheme can replace a built-in for a condition; the Library shows a
+  **Weather** badge on schemes in use for the weather.
+- Optional automation applies the matching scheme each time the weather or
+  day/night changes. By default it only changes lights that are already on.
+
 ### Schedules and alarms
 
 - Create recurring on, off, or scheme actions.
@@ -225,6 +238,21 @@ location. Schedules can target a light or collection and perform power or scheme
 actions at a fixed time, sunrise, or sunset, including an optional solar offset.
 The background worker prevents the same schedule from running twice on one date.
 
+### Weather
+
+- `record_weather`, `update_weather_period`, `get_weather`, `delete_weather`
+- `list_weather_schemes`, `set_weather_scheme`, `reset_weather_schemes`
+- `apply_weather_scheme`, `set_weather_automation`
+
+A typical flow: look up today's forecast, call `record_weather` with its
+periods, then `apply_weather_scheme` or `set_weather_automation`. Use
+`update_weather_period` when conditions change during the day. To give a
+condition a new look, create a scheme with `create_solid_scheme` or
+`create_sequence_scheme` and assign it with `set_weather_scheme`. Conditions are
+`clear`, `partly_cloudy`, `cloudy`, `fog`, `rain`, `thunderstorm`, and `snow`;
+common forecast words such as sunny, overcast, drizzle, mist, and storm are
+mapped to them.
+
 ## Data model
 
 ### `lights`
@@ -262,6 +290,14 @@ Preset flags distinguish built-in definitions from user-created ones.
 optional scheme, selected weekdays, enabled state, last-run date, and either a
 fixed time or sunrise/sunset mode with an offset. `location` is a singleton row
 containing the name and coordinates required for solar calculations.
+
+### `weather_days`, `weather_schemes`, and `weather_automation`
+
+`weather_days` stores one report per date: location, summary, source, and the
+day's periods in JSON. `weather_schemes` maps each condition and day/night slot
+to a scheme; a slot whose scheme is deleted falls back to its built-in.
+`weather_automation` is a singleton holding whether automation is on, its
+target, and the last weather it applied.
 
 The idempotent schema in `mcp/app/data/database.py` applies additive upgrades at
 startup.

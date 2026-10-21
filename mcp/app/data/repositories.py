@@ -16,6 +16,8 @@ from app.core.models import (
     SceneCreate,
     ScheduleCreate,
     TransitionCreate,
+    WeatherAutomationUpdate,
+    WeatherReport,
 )
 
 Row = dict[str, Any]
@@ -393,3 +395,80 @@ class ScheduleRepository(Repository):
             cursor.execute(
                 "UPDATE schedules SET last_run_date=%s WHERE id=%s", (day, schedule_id)
             )
+
+
+class WeatherRepository(Repository):
+    """One weather report per day."""
+
+    def get(self, day: date) -> Row | None:
+        return self.fetch_one("SELECT * FROM weather_days WHERE day=%s", (day,))
+
+    def save(self, report: WeatherReport) -> Row | None:
+        periods = [period.model_dump(mode="json") for period in report.periods]
+        return self.fetch_one(
+            """INSERT INTO weather_days(day,location,summary,source,periods) VALUES(%s,%s,%s,%s,%s)
+            ON CONFLICT (day) DO UPDATE SET location=EXCLUDED.location, summary=EXCLUDED.summary,
+                source=EXCLUDED.source, periods=EXCLUDED.periods, updated_at=NOW()
+            RETURNING *""",
+            (report.day, report.location, report.summary, report.source, Jsonb(periods)),
+        )
+
+    def delete(self, day: date) -> bool:
+        return self.affects_row("DELETE FROM weather_days WHERE day=%s RETURNING day", (day,))
+
+
+class WeatherSchemeRepository(Repository):
+    """The scheme chosen for each (weather condition, day or night) slot."""
+
+    def list(self) -> list[Row]:
+        return self.fetch_all(
+            """SELECT ws.condition, ws.daypart, ws.scene_id, s.name scheme_name,
+                s.kind scheme_kind, s.is_preset scheme_is_preset
+            FROM weather_schemes ws LEFT JOIN scenes s ON s.id=ws.scene_id
+            ORDER BY ws.condition, ws.daypart"""
+        )
+
+    def set(self, condition: str, daypart: str, scene_id: int | None) -> None:
+        with self.database.cursor() as cursor:
+            cursor.execute(
+                """INSERT INTO weather_schemes(condition,daypart,scene_id) VALUES(%s,%s,%s)
+                ON CONFLICT (condition,daypart) DO UPDATE SET scene_id=EXCLUDED.scene_id""",
+                (condition, daypart, scene_id),
+            )
+
+    def seed(self, condition: str, daypart: str, scene_id: int) -> None:
+        """Point an empty slot (new, or whose scheme was deleted) at its built-in scheme."""
+        with self.database.cursor() as cursor:
+            cursor.execute(
+                """INSERT INTO weather_schemes(condition,daypart,scene_id) VALUES(%s,%s,%s)
+                ON CONFLICT (condition,daypart) DO UPDATE SET scene_id=EXCLUDED.scene_id
+                WHERE weather_schemes.scene_id IS NULL""",
+                (condition, daypart, scene_id),
+            )
+
+
+class WeatherAutomationRepository(Repository):
+    """The single weather-automation setting."""
+
+    DEFAULT: Row = {"enabled": False, "target_type": "on", "target_id": None, "last_applied": None}
+
+    def get(self) -> Row:
+        row = self.fetch_one(
+            "SELECT enabled,target_type,target_id,last_applied,updated_at FROM weather_automation WHERE id=1"
+        )
+        return row or dict(self.DEFAULT)
+
+    def save(self, entry: WeatherAutomationUpdate) -> Row | None:
+        """Store the setting; clearing last_applied makes it apply on the next tick."""
+        return self.fetch_one(
+            """INSERT INTO weather_automation(id,enabled,target_type,target_id,last_applied)
+            VALUES(1,%s,%s,%s,NULL)
+            ON CONFLICT (id) DO UPDATE SET enabled=EXCLUDED.enabled, target_type=EXCLUDED.target_type,
+                target_id=EXCLUDED.target_id, last_applied=NULL, updated_at=NOW()
+            RETURNING enabled,target_type,target_id,last_applied,updated_at""",
+            (entry.enabled, entry.target_type, entry.target_id),
+        )
+
+    def mark_applied(self, key: str) -> None:
+        with self.database.cursor() as cursor:
+            cursor.execute("UPDATE weather_automation SET last_applied=%s WHERE id=1", (key,))

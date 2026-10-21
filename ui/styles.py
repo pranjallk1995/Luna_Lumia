@@ -82,12 +82,26 @@ class LunaStyle:
         .light-card-status i{display:block;width:.45rem;height:.45rem;border-radius:50%;background:#666}
         .light-card-status.online i{background:#22c55e;box-shadow:0 0 10px rgba(34,197,94,.8)}
         .light-stats-row{display:flex;align-items:center;justify-content:space-between;gap:.65rem;width:100%;min-height:3rem;margin-bottom:0;padding:.5rem .7rem;border:1px solid var(--lv-border);border-radius:.7rem;background:rgba(18,18,22,.72);box-shadow:0 8px 22px rgba(0,0,0,.18);box-sizing:border-box}
-        div[class*="st-key-scheme_card_"]{overflow:hidden!important;gap:.5rem!important;margin-bottom:.6rem;padding:1rem;border:1px solid rgba(var(--pill-edge),.2);border-radius:12px;background:linear-gradient(135deg,rgba(var(--pill-fill),.32),rgba(var(--pill-fill),.07));box-shadow:0 10px 26px rgba(0,0,0,.2);box-sizing:border-box}
+        div[class*="st-key-scheme_card_"]{overflow:hidden!important;gap:.5rem!important;padding:1rem;border:1px solid rgba(var(--pill-edge),.2);border-radius:12px;background:linear-gradient(135deg,rgba(var(--pill-fill),.32),rgba(var(--pill-fill),.07));box-shadow:0 10px 26px rgba(0,0,0,.2);box-sizing:border-box}
         div[class*="st-key-scheme_card_"] .scheme-title{color:var(--pill-accent)}
         div[class*="st-key-scheme_card_"] .scheme-badge:not(.playing){border-color:rgba(var(--pill-edge),.35);color:var(--pill-accent)}
         .scheme-preview{display:block;width:calc(100% + 2rem);height:3.4rem;margin:-1rem -1rem .8rem;border-radius:0;box-shadow:inset 0 -1px 0 rgba(255,255,255,.08)}
-        .scheme-title{display:flex;align-items:center;flex-wrap:wrap;gap:.4rem;color:var(--lv-text);font-size:.98rem;font-weight:650}
-        .scheme-details{margin:.2rem 0 .55rem;color:var(--lv-muted);font-size:.72rem}
+        .scheme-title,.scheme-badges,.scheme-details{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+        .scheme-title{color:var(--lv-text);font-size:.98rem;font-weight:650;line-height:1.35rem}
+        .scheme-badges{display:flex;gap:.4rem;height:1.15rem;margin-top:.3rem}
+        .scheme-badges .scheme-badge{flex:0 0 auto;line-height:.85rem}
+        .scheme-badges .scheme-badge.playing{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+        .scheme-details{margin:.3rem 0 .55rem;color:var(--lv-muted);font-size:.72rem;line-height:1rem}
+        /* Library card actions: Apply fills the row, icon buttons stay square and side by side. */
+        div[class*="st-key-scheme_actions_"]{flex-wrap:nowrap!important;gap:.4rem!important}
+        div[class*="st-key-scheme_actions_"]>div{flex:0 0 2.5rem!important;width:2.5rem!important;min-width:2.5rem!important}
+        div[class*="st-key-scheme_actions_"]>div:has(div[class*="st-key-apply_scheme_"]),div[class*="st-key-scheme_actions_"]>div[class*="st-key-apply_scheme_"]{flex:1 1 0!important;width:auto!important;min-width:0!important}
+        div[class*="st-key-scheme_actions_"] button{width:100%!important;min-width:0!important}
+        div[class*="st-key-scheme_actions_"]>div:not(:has(div[class*="st-key-apply_scheme_"])):not([class*="st-key-apply_scheme_"]) button{padding:0!important}
+        /* Apply drops its label, keeping the icon, when the label would not fit on one line. */
+        div[class*="st-key-apply_scheme_"]{container-type:inline-size}
+        div[class*="st-key-apply_scheme_"] button p{white-space:nowrap}
+        @container (max-width:6.25rem){div[class*="st-key-apply_scheme_"] button div[data-testid="stMarkdownContainer"]{display:none!important}div[class*="st-key-apply_scheme_"] button span[data-testid="stIconMaterial"]{margin:0!important}}
         .scheme-badge{padding:.12rem .45rem;border:1px solid var(--lv-border);border-radius:999px;color:var(--lv-muted);font-size:.6rem;font-weight:500}
         .scheme-badge.playing{border-color:rgba(255,190,85,.45);color:#ffbe55}
         div[class*="st-key-sequence_step_"]{position:relative!important;padding:1rem;border:1px solid rgba(var(--pill-edge),.2);border-radius:12px;background:linear-gradient(135deg,rgba(var(--pill-fill),.32),rgba(var(--pill-fill),.07));box-shadow:0 10px 26px rgba(0,0,0,.2);box-sizing:border-box}
@@ -111,9 +125,13 @@ class LunaStyle:
         .transition-curve line{stroke:rgba(255,255,255,.12);stroke-width:1;vector-effect:non-scaling-stroke}
         div[class*="st-key-transition_actions_"]{position:absolute!important;top:.45rem;right:.5rem;z-index:2;width:auto!important;gap:.1rem!important}
         div[class*="st-key-transition_actions_"] button,div[class*="st-key-transition_actions_"] button:hover{width:2rem!important;min-width:2rem!important;height:2rem!important;min-height:2rem!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;color:var(--pill-accent)!important}
-        div[data-testid="stHorizontalBlock"]:has(div[class*="st-key-schedule_card_"]){align-items:stretch!important}
-        div[data-testid="stColumn"]:has(div[class*="st-key-schedule_card_"]),div[data-testid="stColumn"]:has(div[class*="st-key-schedule_card_"])>div[data-testid="stVerticalBlock"]{display:flex!important;flex-direction:column!important;height:100%!important}
-        div[data-testid="stLayoutWrapper"]:has(>div[class*="st-key-schedule_card_"]){flex:1 1 auto!important;display:flex!important;flex-direction:column!important}
+        /* Equal-height cards: every card in a row stretches to the tallest one. */
+        div[data-testid="stHorizontalBlock"]:has(div:is([class*="st-key-schedule_card_"],[class*="st-key-scheme_card_"],[class*="st-key-transition_card_"])){align-items:stretch!important}
+        div[data-testid="stColumn"]:has(div:is([class*="st-key-schedule_card_"],[class*="st-key-scheme_card_"],[class*="st-key-transition_card_"])),div[data-testid="stColumn"]:has(div:is([class*="st-key-schedule_card_"],[class*="st-key-scheme_card_"],[class*="st-key-transition_card_"]))>div[data-testid="stVerticalBlock"]{display:flex!important;flex-direction:column!important;height:100%!important}
+        div[data-testid="stLayoutWrapper"]:has(>div:is([class*="st-key-schedule_card_"],[class*="st-key-scheme_card_"],[class*="st-key-transition_card_"])){flex:1 1 auto!important;display:flex!important;flex-direction:column!important}
+        div:is([class*="st-key-scheme_card_"],[class*="st-key-transition_card_"]){flex:1 1 auto!important;height:100%!important}
+        /* Scheme cards keep their buttons on the bottom edge. */
+        div[class*="st-key-scheme_card_"] div[data-testid="stElementContainer"]:has(.scheme-title){flex:1 1 auto!important}
         div[class*="st-key-schedule_card_"] div[data-testid="stElementContainer"]:has(.schedule-name){flex:1 1 auto!important;display:flex!important;flex-direction:column!important}
         div[class*="st-key-schedule_card_"] div[data-testid="stElementContainer"]:has(.schedule-name) :is(div[data-testid="stMarkdown"],div[data-testid="stMarkdownContainer"]){flex:1 1 auto!important;display:flex!important;flex-direction:column!important}
         div[class*="st-key-schedule_card_"]{position:relative!important;flex:1 1 auto!important;height:100%!important;gap:.25rem!important;min-height:10.5rem;padding:.85rem .95rem 1.25rem;border:1px solid rgba(var(--pill-edge),.2);border-radius:12px;background:linear-gradient(135deg,rgba(var(--pill-fill),.32),rgba(var(--pill-fill),.07));box-shadow:0 10px 26px rgba(0,0,0,.2);box-sizing:border-box}

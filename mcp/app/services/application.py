@@ -20,6 +20,9 @@ from app.core.models import (
     ScheduleCreate,
     TransitionCreate,
     Validators,
+    WeatherAutomationUpdate,
+    WeatherPeriod,
+    WeatherReport,
 )
 from app.services.playback import ColorMath, SceneEngine, Step
 from app.data.repositories import (
@@ -31,8 +34,12 @@ from app.data.repositories import (
     SceneRepository,
     ScheduleRepository,
     TransitionRepository,
+    WeatherAutomationRepository,
+    WeatherRepository,
+    WeatherSchemeRepository,
 )
 from app.integrations.room_images import ImageScheme, RoomImageCatalog, RoomKeyDetector
+from app.services.presets import WeatherPresets
 from app.services.sun import SunCalculator
 
 
@@ -707,6 +714,208 @@ class ScheduleService:
             self.schedules.mark_ran(schedule["id"], today)
 
 
+class WeatherService:
+    """Store each day's weather and play the scheme that matches it.
+
+    A day's weather is a list of periods; each lasts until the next one starts
+    (the first also covers the hours before it). Day and night follow sunrise
+    and sunset at the saved location, or 06:00-18:00 without one.
+    """
+
+    DAY_START, DAY_END = time(6, 0), time(18, 0)
+
+    def __init__(
+        self,
+        days: WeatherRepository,
+        slots: WeatherSchemeRepository,
+        automation: WeatherAutomationRepository,
+        scenes: SceneService,
+        location: LocationService,
+    ) -> None:
+        self.days = days
+        self.slots = slots
+        self.automation_settings = automation
+        self.scenes = scenes
+        self.location = location
+
+    def now(self) -> datetime:
+        return datetime.now(self.location.zone)
+
+    def day_or_today(self, day: date | str | None) -> date:
+        if day is None:
+            return self.now().date()
+        return date.fromisoformat(day) if isinstance(day, str) else day
+
+    # Weather reports
+
+    def record(self, report: WeatherReport) -> Row | None:
+        return self.days.save(report)
+
+    def get(self, day: date | str | None = None) -> Row:
+        report = self.days.get(self.day_or_today(day))
+        if not report:
+            raise NotFoundError("No weather recorded for that day")
+        return report
+
+    def update_period(self, day: date | str | None, start: str, changes: dict[str, Any]) -> Row | None:
+        """Change one period (matched by start time), or add it; other periods are kept.
+
+        Creates the day's report if there is none yet.
+        """
+        day = self.day_or_today(day)
+        start_time = time.fromisoformat(start).replace(second=0, microsecond=0)
+        report = self.days.get(day) or {"periods": []}
+        periods = [WeatherPeriod(**period) for period in report["periods"]]
+        existing = next((period for period in periods if period.start == start_time), None)
+        merged = {**(existing.model_dump() if existing else {}), **changes, "start": start_time}
+        updated = WeatherPeriod(**merged)
+        periods = [period for period in periods if period.start != start_time] + [updated]
+        return self.days.save(
+            WeatherReport(
+                day=day, periods=periods, location=report.get("location"),
+                summary=report.get("summary"), source=report.get("source"),
+            )
+        )
+
+    def delete(self, day: date | str) -> None:
+        if not self.days.delete(self.day_or_today(day)):
+            raise NotFoundError("No weather recorded for that day")
+
+    # Matching weather to schemes
+
+    @staticmethod
+    def period_at(report: Row, at: time) -> Row:
+        periods = report["periods"]
+        current = periods[0]
+        for period in periods:
+            if time.fromisoformat(period["start"]) <= at:
+                current = period
+        return current
+
+    def daypart(self, moment: datetime) -> str:
+        sun = self.location.sun_times(moment.date()) or {}
+        sunrise, sunset = sun.get("sunrise"), sun.get("sunset")
+        if sunrise and sunset:
+            return "day" if sunrise <= moment < sunset else "night"
+        return "day" if self.DAY_START <= moment.time() < self.DAY_END else "night"
+
+    def slot_list(self) -> list[Row]:
+        """Every (condition, daypart) slot with its scheme; empty slots fall back to the built-in."""
+        presets = {row["name"]: row for row in self.scenes.scenes.list() if row["is_preset"]}
+        saved = {(row["condition"], row["daypart"]): row for row in self.slots.list()}
+        rows = []
+        for condition, daypart in WeatherPresets.slots():
+            built_in = presets.get(WeatherPresets.name(condition, daypart))
+            row = saved.get((condition, daypart))
+            if row and row["scene_id"] is not None:
+                scheme = {"id": row["scene_id"], "name": row["scheme_name"], "kind": row["scheme_kind"]}
+            elif built_in:
+                scheme = {"id": built_in["id"], "name": built_in["name"], "kind": built_in["kind"]}
+            else:
+                scheme = None
+            rows.append({
+                "condition": condition,
+                "daypart": daypart,
+                "scheme": scheme,
+                "is_built_in": bool(scheme and built_in and scheme["id"] == built_in["id"]),
+                "built_in_scheme_id": built_in["id"] if built_in else None,
+            })
+        return rows
+
+    def slot(self, condition: str, daypart: str) -> Row:
+        return next(
+            row for row in self.slot_list() if (row["condition"], row["daypart"]) == (condition, daypart)
+        )
+
+    def set_slot(self, condition: str, daypart: str, scene_id: int) -> Row:
+        self.scenes.get(scene_id)
+        self.slots.set(condition, daypart, scene_id)
+        return self.slot(condition, daypart)
+
+    def reset_slots(self, condition: str | None = None, daypart: str | None = None) -> list[Row]:
+        """Point the matching slots (all when both are None) back at their built-in schemes."""
+        for row in self.slot_list():
+            if condition not in (None, row["condition"]) or daypart not in (None, row["daypart"]):
+                continue
+            self.slots.set(row["condition"], row["daypart"], row["built_in_scheme_id"])
+        return self.slot_list()
+
+    def decorate(self, schemes: list[Row]) -> list[Row]:
+        """Add ``weather_slots`` (e.g. ["rain/night"]) to each scheme used for the weather."""
+        used: dict[int, list[str]] = {}
+        for row in self.slot_list():
+            if row["scheme"]:
+                used.setdefault(row["scheme"]["id"], []).append(f'{row["condition"]}/{row["daypart"]}')
+        for scheme in schemes:
+            scheme["weather_slots"] = used.get(scheme["id"], [])
+        return schemes
+
+    def current(self, moment: datetime | None = None) -> Row | None:
+        """The weather now and the scheme for it, or None when today has no report."""
+        moment = moment or self.now()
+        report = self.days.get(moment.date())
+        if not report or not report["periods"]:
+            return None
+        period = self.period_at(report, moment.time())
+        daypart = self.daypart(moment)
+        return {
+            "day": moment.date().isoformat(),
+            "time": moment.strftime("%H:%M"),
+            "daypart": daypart,
+            "condition": period["condition"],
+            "period": period,
+            "scheme": self.slot(period["condition"], daypart)["scheme"],
+        }
+
+    def today(self) -> Row:
+        """Today's report (or None), what applies now, and the automation setting."""
+        return {
+            "report": self.days.get(self.now().date()),
+            "now": self.current(),
+            "automation": self.automation(),
+        }
+
+    async def apply_current(
+        self, target_type: str = "all", target_id: int | None = None, moment: datetime | None = None
+    ) -> Row:
+        weather = self.current(moment)
+        if weather is None:
+            raise NotFoundError("No weather recorded for today; record it first")
+        if weather["scheme"] is None:
+            raise ValueError(f'No scheme for {weather["condition"]} by {weather["daypart"]}')
+        applied = await self.scenes.apply(target_type, target_id, weather["scheme"]["id"])
+        return {"weather": weather, **applied}
+
+    # Automation
+
+    def automation(self) -> Row:
+        return self.automation_settings.get()
+
+    def set_automation(self, entry: WeatherAutomationUpdate) -> Row:
+        if entry.target_type in ("light", "group"):
+            self.scenes.control.resolve_targets(entry.target_type, entry.target_id)
+        return {**self.automation_settings.save(entry), "now": self.current()}
+
+    @staticmethod
+    def applied_key(weather: Row) -> str:
+        return f'{weather["day"]}|{weather["condition"]}|{weather["daypart"]}|{weather["scheme"]["id"]}'
+
+    def follow(self, moment: datetime) -> None:
+        """Apply the matching scheme once each time the weather, day/night, or its scheme changes."""
+        settings = self.automation()
+        if not settings["enabled"]:
+            return
+        weather = self.current(moment)
+        if weather is None or weather["scheme"] is None:
+            return
+        key = self.applied_key(weather)
+        if key == settings["last_applied"]:
+            return
+        LOG.info("Weather is %s (%s); applying %r", weather["condition"], weather["daypart"], weather["scheme"]["name"])
+        asyncio.run(self.scenes.apply(settings["target_type"], settings["target_id"], weather["scheme"]["id"]))
+        self.automation_settings.mark_applied(key)
+
+
 class LumiaService:
     """Facade grouping every Luna Lumia use case for the transport adapters."""
 
@@ -719,6 +928,7 @@ class LumiaService:
         scenes: SceneService,
         transitions: TransitionService,
         schedules: ScheduleService,
+        weather: WeatherService,
     ) -> None:
         self.lights = lights
         self.collections = collections
@@ -727,6 +937,7 @@ class LumiaService:
         self.scenes = scenes
         self.transitions = transitions
         self.schedules = schedules
+        self.weather = weather
 
     async def refresh_lights(self) -> list[dict[str, Any]]:
         """Read every bulb's state; if a known bulb moved, find its new IP and read again.
@@ -747,7 +958,7 @@ class LumiaService:
             "lights": self.lights.list_with_images(),
             "rooms": self.collections.list_with_images("room"),
             "groups": self.collections.list_with_images("group"),
-            "scenes": self.scenes.list(),
+            "scenes": self.weather.decorate(self.scenes.list()),
             "transitions": self.transitions.list(),
             "playing": {str(light_id): scene_id for light_id, scene_id in self.scenes.playing().items()},
             "schedules": self.schedules.list(),

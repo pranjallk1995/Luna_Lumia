@@ -75,10 +75,12 @@ class SchemeLibrary(LumiaTab):
             ActionRunner.run(lambda: self.api.stop_scenes("all"))
         st.html(self.card_styles())
         per_row = self.config.card_columns
-        columns = st.columns(per_row)
-        for index, scheme in enumerate(self.dashboard.scenes):
-            with columns[index % per_row]:
-                self._render_card(scheme, target, label)
+        schemes = self.dashboard.scenes
+        # One row at a time, so the cards in a row line up and share a height.
+        for index in range(0, len(schemes), per_row):
+            for column, scheme in zip(st.columns(per_row), schemes[index : index + per_row]):
+                with column:
+                    self._render_card(scheme, target, label)
 
     def card_styles(self) -> str:
         """Give each card a color from the same rotation as the transition cards."""
@@ -96,33 +98,40 @@ class SchemeLibrary(LumiaTab):
         playing = self.dashboard.lights_playing(scheme_id)
         with st.container(key=f"scheme_card_{scheme_id}"):
             badges = '<span class="scheme-badge">Built-in</span>' if scheme["is_preset"] else ""
+            if scheme.get("weather_slots"):
+                slots = ", ".join(slot.replace("_", " ").replace("/", " by ") for slot in scheme["weather_slots"])
+                badges += f'<span class="scheme-badge" title="{html.escape(slots)}">Weather</span>'
             if playing:
                 badges += f'<span class="scheme-badge playing">Playing on {playing}</span>'
             kind = "Sequence" if scheme["kind"] == "sequence" else "Solid"
+            name = html.escape(scheme["name"])
+            details = f"{kind} · {html.escape(SchemeFormat.details(scheme))}"
+            # Fixed lines (one each for name, badges, details) keep every card the same size;
+            # anything too long is cut with an ellipsis and shown in full on hover.
             st.markdown(
                 f"{SchemeFormat.preview(scheme)}"
-                f'<div class="scheme-title">{html.escape(scheme["name"])}{badges}</div>'
-                f'<div class="scheme-details">{kind} · {html.escape(SchemeFormat.details(scheme))}</div>',
+                f'<div class="scheme-title" title="{name}">{name}</div>'
+                f'<div class="scheme-badges">{badges}</div>'
+                f'<div class="scheme-details" title="{details}">{details}</div>',
                 unsafe_allow_html=True,
             )
-            apply_column, stop_column, edit_column, delete_column = st.columns([3, 1, 1, 1])
-            if apply_column.button(
-                "Apply", icon=":material/play_arrow:", key=f"scene{scheme_id}",
-                use_container_width=True,
-            ):
-                ActionRunner.run(lambda: self.api.apply_scene(scheme_id, *target))
-            if playing and stop_column.button(
-                "", icon=":material/stop:", key=f"stop_scene_{scheme_id}"
-            ):
-                ActionRunner.run(lambda: self._stop(scheme_id))
-            if not scheme["is_preset"] and edit_column.button(
-                "", icon=":material/edit:", key=f"edit_scheme_{scheme_id}"
-            ):
-                SchemeEditor.open_scheme(self.api, self.config, self.dashboard, scheme)
-            if not scheme["is_preset"] and delete_column.button(
-                "", icon=":material/delete:", key=f"ds{scheme_id}"
-            ):
-                ActionRunner.run(lambda: self.api.delete("scenes", scheme_id))
+            # One row that never wraps, so the icon buttons stay side by side on phones.
+            with st.container(key=f"scheme_actions_{scheme_id}", horizontal=True, gap="small"):
+                if st.button(
+                    "Apply", icon=":material/play_arrow:", key=f"apply_scheme_{scheme_id}",
+                    width="stretch",
+                ):
+                    ActionRunner.run(lambda: self.api.apply_scene(scheme_id, *target))
+                if playing and st.button("", icon=":material/stop:", key=f"stop_scene_{scheme_id}"):
+                    ActionRunner.run(lambda: self._stop(scheme_id))
+                if not scheme["is_preset"] and st.button(
+                    "", icon=":material/edit:", key=f"edit_scheme_{scheme_id}"
+                ):
+                    SchemeEditor.open_scheme(self.api, self.config, self.dashboard, scheme)
+                if not scheme["is_preset"] and st.button(
+                    "", icon=":material/delete:", key=f"ds{scheme_id}"
+                ):
+                    ActionRunner.run(lambda: self.api.delete("scenes", scheme_id))
 
     def _stop(self, scheme_id: int) -> None:
         for light_id, playing in self.dashboard.playing.items():

@@ -106,6 +106,29 @@ ALTER TABLE scenes ADD COLUMN IF NOT EXISTS is_preset BOOLEAN NOT NULL DEFAULT F
 UPDATE scenes SET is_preset = TRUE
 WHERE NOT is_preset AND (name, color, brightness) IN
  (('Warm evening', '#FFB36B', 55), ('Focus', '#E8F1FF', 100), ('Night light', '#FF6B3D', 12));
+-- Weather for a day, as periods (start time + condition) sent by an LLM client.
+CREATE TABLE IF NOT EXISTS weather_days (
+ day DATE PRIMARY KEY,
+ location TEXT, summary TEXT, source TEXT,
+ periods JSONB NOT NULL DEFAULT '[]',
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+-- Which scheme plays for each weather condition by day and by night.
+CREATE TABLE IF NOT EXISTS weather_schemes (
+ condition TEXT NOT NULL,
+ daypart TEXT NOT NULL CHECK (daypart IN ('day', 'night')),
+ scene_id BIGINT REFERENCES scenes(id) ON DELETE SET NULL,
+ PRIMARY KEY (condition, daypart)
+);
+-- Optional automation that applies the matching scheme as the weather changes.
+CREATE TABLE IF NOT EXISTS weather_automation (
+ id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+ enabled BOOLEAN NOT NULL DEFAULT FALSE,
+ target_type TEXT NOT NULL DEFAULT 'on',
+ target_id BIGINT,
+ last_applied TEXT,
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 """
 
 

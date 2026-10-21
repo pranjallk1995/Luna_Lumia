@@ -1,6 +1,6 @@
 """Validated request and command models for Luna Lumia."""
 
-from datetime import time
+from datetime import date, time
 from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -280,4 +280,103 @@ class ScheduleCreate(BaseModel):
             self.offset_minutes = 0
         else:
             self.run_time = None
+        return self
+
+
+WeatherCondition = Literal[
+    "clear", "partly_cloudy", "cloudy", "fog", "rain", "thunderstorm", "snow"
+]
+Daypart = Literal["day", "night"]
+WEATHER_CONDITIONS: tuple[str, ...] = WeatherCondition.__args__
+DAYPARTS: tuple[str, ...] = Daypart.__args__
+
+
+class WeatherPeriod(BaseModel):
+    """Weather from ``start`` until the next period starts (the first also covers earlier)."""
+
+    # Common forecast words mapped onto the conditions Lumia has schemes for.
+    ALIASES: ClassVar[dict[str, str]] = {
+        "sunny": "clear", "fair": "clear", "mostly_clear": "clear", "mostly_sunny": "partly_cloudy",
+        "partly_sunny": "partly_cloudy", "scattered_clouds": "partly_cloudy",
+        "mostly_cloudy": "cloudy", "overcast": "cloudy", "clouds": "cloudy",
+        "mist": "fog", "haze": "fog", "smoke": "fog", "dust": "fog", "foggy": "fog",
+        "drizzle": "rain", "showers": "rain", "light_rain": "rain", "heavy_rain": "rain", "rainy": "rain",
+        "storm": "thunderstorm", "thunder": "thunderstorm", "thunderstorms": "thunderstorm",
+        "sleet": "snow", "hail": "snow", "snowy": "snow", "blizzard": "snow",
+    }
+
+    start: time
+    condition: WeatherCondition
+    temperature_c: float | None = Field(default=None, ge=-90, le=60)
+    precipitation_chance: int | None = Field(default=None, ge=0, le=100)
+    cloud_cover: int | None = Field(default=None, ge=0, le=100)
+    humidity: int | None = Field(default=None, ge=0, le=100)
+    wind_kph: float | None = Field(default=None, ge=0, le=500)
+    description: str | None = Field(default=None, max_length=200)
+
+    @field_validator("condition", mode="before")
+    @classmethod
+    def normalize_condition(cls, value):
+        return cls.condition_key(value)
+
+    @classmethod
+    def condition_key(cls, value):
+        if not isinstance(value, str):
+            return value
+        key = value.strip().lower().replace(" ", "_").replace("-", "_")
+        return cls.ALIASES.get(key, key)
+
+    @field_validator("start")
+    @classmethod
+    def whole_minutes(cls, value: time) -> time:
+        return value.replace(second=0, microsecond=0, tzinfo=None)
+
+
+class WeatherReport(BaseModel):
+    """One day's weather, as periods through the day."""
+
+    MAX_PERIODS: ClassVar[int] = 48
+
+    day: date
+    periods: list[WeatherPeriod] = Field(min_length=1)
+    location: str | None = Field(default=None, max_length=80)
+    summary: str | None = Field(default=None, max_length=500)
+    source: str | None = Field(default=None, max_length=200)
+
+    @model_validator(mode="after")
+    def ordered_periods(self):
+        if len(self.periods) > self.MAX_PERIODS:
+            raise ValueError(f"A day has at most {self.MAX_PERIODS} weather periods")
+        self.periods.sort(key=lambda period: period.start)
+        starts = [period.start for period in self.periods]
+        if len(set(starts)) != len(starts):
+            raise ValueError("Each weather period needs a different start time")
+        return self
+
+
+class WeatherSlot(BaseModel):
+    """A weather condition by day or by night, which has one scheme."""
+
+    condition: WeatherCondition
+    daypart: Daypart
+
+    @field_validator("condition", mode="before")
+    @classmethod
+    def normalize_condition(cls, value):
+        return WeatherPeriod.condition_key(value)
+
+
+class WeatherAutomationUpdate(BaseModel):
+    """Whether Lumia follows the weather, and on which lights."""
+
+    enabled: bool
+    target_type: Literal["on", "all", "light", "group"] = "on"
+    target_id: int | None = None
+
+    @model_validator(mode="after")
+    def valid_target(self):
+        if self.target_type in ("light", "group") and self.target_id is None:
+            raise ValueError("A light or group target is required")
+        if self.target_type in ("on", "all"):
+            self.target_id = None
         return self

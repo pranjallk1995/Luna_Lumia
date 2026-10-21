@@ -6,7 +6,9 @@ from pydantic import ValidationError
 
 from app.core.models import SceneCreate, SceneStep
 from app.services.playback import ColorMath, SceneEngine, Step
-from app.services.presets import SEQUENCES, SOLIDS, TRANSITIONS, PresetCatalog
+from app.services.presets import (
+    SEQUENCES, SOLIDS, TRANSITIONS, WEATHER_SEQUENCES, WEATHER_SOLIDS, PresetCatalog,
+)
 from app.services.application import SceneService, TransitionService
 
 
@@ -189,7 +191,7 @@ class SceneServiceTests(unittest.TestCase):
 
 
 class PresetTests(unittest.TestCase):
-    def test_twelve_valid_presets_referencing_real_transitions(self):
+    def test_valid_presets_referencing_real_transitions(self):
         saved, transitions = [], []
 
         class Scenes:
@@ -200,8 +202,10 @@ class PresetTests(unittest.TestCase):
             def list(self): return [{"id": i, "name": t.name} for i, t in enumerate(transitions, 1)]
 
         PresetCatalog(Scenes(), Transitions()).install()
-        self.assertEqual(len(saved), len(SOLIDS) + len(SEQUENCES))
-        self.assertEqual(len(saved), 12)
+        self.assertEqual(
+            len(saved), len(SOLIDS) + len(SEQUENCES) + len(WEATHER_SOLIDS) + len(WEATHER_SEQUENCES)
+        )
+        self.assertEqual(len(saved), 26)
         self.assertEqual(len(transitions), len(TRANSITIONS))
         sequences = [scene for scene in saved if scene.kind == "sequence"]
         self.assertTrue(all(step.transition_id for scene in sequences for step in scene.steps))
