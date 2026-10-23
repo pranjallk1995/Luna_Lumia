@@ -3,16 +3,16 @@
 ![Docker required](https://img.shields.io/badge/Docker-required-2496ED?logo=docker&logoColor=white)
 ![Docker Compose v2](https://img.shields.io/badge/Docker_Compose-v2-2496ED?logo=docker&logoColor=white)
 ![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
-![Luna Visia network required](https://img.shields.io/badge/Luna_Visia_network-required-6C5CE7?logo=docker&logoColor=white)
+![Luna Sentia network required](https://img.shields.io/badge/Luna_Sentia_network-required-6C5CE7?logo=docker&logoColor=white)
 ![PostgreSQL included](https://img.shields.io/badge/PostgreSQL-included-4169E1?logo=postgresql&logoColor=white)
 
 ## Control, Automate, and Manage your Smart Lights using LLMs
 
 > **Work in progress:** Luna Lumia is a local-first and desktop-first smart-light controller under active development.
 
-Luna Lumia combines Streamlit, FastMCP, PostgreSQL, and direct local WiZ control. It runs beside [Luna Visia](https://github.com/pranjallk1995/Luna_Visia) and [Luna Vita](https://github.com/pranjallk1995/Luna_Vita) on the same private Docker network while keeping its services, ports, database, and volumes separate.
+Luna Lumia combines Streamlit, FastMCP, PostgreSQL, and direct local WiZ control. It runs beside [Luna Visia](https://github.com/pranjallk1995/Luna_Visia) and [Luna Vita](https://github.com/pranjallk1995/Luna_Vita) on the shared private Docker network created by [Luna Sentia](https://github.com/pranjallk1995/Luna_Sentia) while keeping its services, ports, database, and volumes separate.
 
-> **Required Docker network:** `luna_visia_lunavisia_network` must exist before startup. Luna Visia normally creates it. Otherwise, create it manually under [Start](#start).
+> **Required Docker network:** `luna_sentia_network` must exist before startup. [Luna Sentia](https://github.com/pranjallk1995/Luna_Sentia) creates it; start Sentia first as described under [Start](#start).
 
 <p align="center">
   <img src="ui/assets/lunalumia_logo.png" alt="Luna Lumia logo" width="220">
@@ -86,7 +86,7 @@ Built-in solids: Focus, Daylight, Reading, Bedtime, Warm evening, Night light. B
 | Devices | Python + `pywizlight` | LAN discovery and direct WiZ control |
 | Playback and workers | Python services | Sequence interpolation and recurring schedules |
 | Database | PostgreSQL 17 | Devices, membership, images, schemes, and schedules |
-| Network | `luna_visia_lunavisia_network` | Private discovery shared with other Luna apps |
+| Network | `luna_sentia_network` (external) | Private discovery shared with other Luna apps, created by Luna Sentia |
 
 Unique aliases: `luna-lumia-db`, `luna-lumia-mcp`, and `luna-lumia-ui`.
 
@@ -101,11 +101,16 @@ Transport handlers call the `LumiaService` facade instead of SQL or device adapt
 
 ## Start
 
-Create the network once:
+Start [Luna Sentia](https://github.com/pranjallk1995/Luna_Sentia) first. It creates the shared external
+`luna_sentia_network` that every Luna app joins:
 
 ```sh
-docker network create luna_visia_lunavisia_network
+cd ../Luna_Sentia && docker compose up -d
 ```
+
+To start Sentia and every Luna app together, with or without Compose Watch, use
+`../luna.sh start [--watch]`; see the
+[Sentia README](https://github.com/pranjallk1995/Luna_Sentia#start-everything).
 
 Copy the example environment file and fill in the placeholders:
 
@@ -169,7 +174,9 @@ Reload tasks that predate a newly added server or tool.
 
 ## Database UI
 
-Lumia does not publish PostgreSQL or include Adminer. Inspect it through the container:
+Lumia does not publish PostgreSQL. Inspect it with [Adminer in Luna Sentia](https://github.com/pranjallk1995/Luna_Sentia#database-ui)
+at <http://127.0.0.1:19080> (System `PostgreSQL`, Server `luna-lumia-db`, Username and
+Database `lunalumia`, Password your `POSTGRES_PASSWORD`), or through the container:
 
 ```sh
 docker compose exec postgres psql -U lunalumia -d lunalumia

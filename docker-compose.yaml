@@ -10,7 +10,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
-      lunalumia_network:
+      sentia_network:
         aliases: [luna-lumia-db]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U lunalumia -d lunalumia"]
@@ -39,7 +39,7 @@ services:
         - action: rebuild
           path: ./mcp/Dockerfile
     networks:
-      lunalumia_network:
+      sentia_network:
         aliases: [luna-lumia-mcp]
     depends_on:
       postgres:
@@ -73,7 +73,7 @@ services:
         - action: rebuild
           path: ./ui/Dockerfile
     networks:
-      lunalumia_network:
+      sentia_network:
         aliases: [luna-lumia-ui]
     depends_on:
       mcp:
@@ -83,6 +83,6 @@ volumes:
   postgres_data:
 
 networks:
-  lunalumia_network:
+  sentia_network:
     external: true
-    name: luna_visia_lunavisia_network
+    name: luna_sentia_network
