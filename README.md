@@ -136,14 +136,21 @@ openssl rand -hex 32
 
 Separate multiple emails with commas. `MCP_PUBLIC_URL` is optional and defaults to `http://localhost:18002`; set it to your public HTTPS origin when the server is exposed (plain HTTP is accepted only for localhost).
 
-### Google OAuth settings
+### Sign-in
 
-1. Create a Google OAuth 2.0 **Web application** client.
-2. Add `http://localhost:18503/oauth2callback`.
-3. Copy `ui/.streamlit/secrets.example.toml` to `ui/.streamlit/secrets.toml`.
-4. Set `redirect_uri`, `cookie_secret`, `client_id`, and `client_secret`.
+Lumia signs people in through Luna Sentia's single sign-on: one Google sign-in at
+Sentia opens every Luna app, and **Sign out** in any app signs out of all of them.
+Lumia needs no Google client or `secrets.toml` of its own. Set in `.env`:
 
-Keep OAuth credentials only in the gitignored secrets file. Do not reuse secrets.
+- `LUNA_SSO_URL`: Sentia's public sign-on address (`SENTIA_AUTH_PUBLIC_URL` in
+  Sentia's `.env`), for example `https://auth.lunaapps.fyi`.
+- `LUNA_SSO_INTERNAL_URL`: `http://luna-sentia-auth:8000`, where Lumia checks
+  sessions over `luna_sentia_network`.
+- `LUNALUMIA_ALLOWED_EMAILS`: the accounts allowed into Lumia, checked
+  after Sentia confirms who is signed in.
+
+Sentia's auth service must be healthy before Lumia can sign anyone in; see
+[Single sign-on](https://github.com/pranjallk1995/Luna_Sentia#single-sign-on) for its setup.
 
 Start Lumia:
 
@@ -387,8 +394,8 @@ Streamlit does not duplicate backend logic.
 
 - `ui/app.py` - composition root for sign-in, shared header, navigation, manual
   status refresh, and tab dispatch.
-- `ui/auth.py` and `ui/config.py` - Google identity/allowlist checks and validated
-  UI configuration loaded from environment variables and Streamlit secrets.
+- `ui/sso.py` and `ui/config.py` - single sign-on through Luna Sentia with the
+  allowlist check, and validated UI configuration loaded from environment variables.
 - `ui/views/lights_tab.py` - network discovery, inventory counters, inline name
   editing, room labels, live power controls, brightness, colors, and deletion.
 - `ui/views/rooms_tab.py` - room creation and editing, exclusive membership,

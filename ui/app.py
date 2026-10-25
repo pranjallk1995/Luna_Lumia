@@ -7,7 +7,7 @@ import streamlit as st
 from PIL import Image
 
 from services.api import LumiaAPI
-from auth import OIDCAuthentication
+from sso import LunaSingleSignOn
 from config import UIConfig
 from domain.dashboard import Dashboard
 from styles import LunaStyle
@@ -75,13 +75,13 @@ class LunaLumiaApp:
                 "Sign out",
                 icon=":material/logout:",
                 key="header_sign_out",
-                on_click=st.logout,
+                on_click=LunaSingleSignOn.sign_out,
                 width="stretch",
             )
 
     def render(self) -> None:
         LunaStyle.apply()
-        OIDCAuthentication(self.config.allowed_emails).require_login()
+        LunaSingleSignOn(self.config.allowed_emails).require_login("Luna Lumia", "Private AI-managed smart lighting")
         dashboard = self.load_dashboard()
         self.render_header(dashboard)
         containers = st.tabs([label for label, _ in self.TABS])

@@ -2,13 +2,13 @@ import os
 import unittest
 from unittest.mock import patch
 
-from auth import OIDCAuthentication
+from sso import LunaSingleSignOn
 from config import UIConfig
 
 
-class OIDCAuthenticationTests(unittest.TestCase):
+class SingleSignOnTests(unittest.TestCase):
     def setUp(self):
-        self.auth = OIDCAuthentication(frozenset({"owner@example.com"}))
+        self.auth = LunaSingleSignOn(frozenset({"owner@example.com"}), public_url="https://auth.example.com")
 
     def test_verified_allowlisted_email_is_accepted_case_insensitively(self):
         self.assertTrue(
