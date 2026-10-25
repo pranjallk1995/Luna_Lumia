@@ -45,7 +45,7 @@ services:
         - action: sync
           path: ./ui
           target: /workspace/ui
-          ignore: [__pycache__/, "*.py[cod]", requirements.txt, Dockerfile, .streamlit/secrets.toml]
+          ignore: [__pycache__/, "*.py[cod]", requirements.txt, Dockerfile]
         - action: rebuild
           path: ./ui/requirements.txt
         - action: rebuild
