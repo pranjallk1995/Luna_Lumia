@@ -3,17 +3,17 @@
 ![Docker required](https://img.shields.io/badge/Docker-required-2496ED?logo=docker&logoColor=white)
 ![Docker Compose v2](https://img.shields.io/badge/Docker_Compose-v2-2496ED?logo=docker&logoColor=white)
 ![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
-![Luna Sentia network required](https://img.shields.io/badge/Luna_Sentia_network-required-6C5CE7?logo=docker&logoColor=white)
-![PostgreSQL included](https://img.shields.io/badge/PostgreSQL-included-4169E1?logo=postgresql&logoColor=white)
+![Luna Sentia required](https://img.shields.io/badge/Luna_Sentia-required-6C5CE7?logo=docker&logoColor=white)
+![PostgreSQL in Luna Sentia](https://img.shields.io/badge/PostgreSQL-in_Luna_Sentia-4169E1?logo=postgresql&logoColor=white)
 ![Status: usable](https://img.shields.io/badge/Status-usable-2EA043)
 
 ## Control, Automate, and Manage your Smart Lights using LLMs
 
 > **Work in progress:** Luna Lumia is a local-first and desktop-first smart-light controller under active development.
 
-Luna Lumia combines Streamlit, FastMCP, PostgreSQL, and direct local WiZ control. It runs beside [Luna Visia](https://github.com/pranjallk1995/Luna_Visia) and [Luna Vita](https://github.com/pranjallk1995/Luna_Vita) on the shared private Docker network created by [Luna Sentia](https://github.com/pranjallk1995/Luna_Sentia) while keeping its services, ports, database, and volumes separate.
+Luna Lumia combines Streamlit, FastMCP, PostgreSQL (in Luna Sentia), and direct local WiZ control. It runs beside [Luna Visia](https://github.com/pranjallk1995/Luna_Visia) and [Luna Vita](https://github.com/pranjallk1995/Luna_Vita) on the shared private Docker network created by [Luna Sentia](https://github.com/pranjallk1995/Luna_Sentia) while keeping its services, ports, and database separate.
 
-> **Required Docker network:** `luna_sentia_network` must exist before startup. [Luna Sentia](https://github.com/pranjallk1995/Luna_Sentia) creates it; start Sentia first as described under [Start](#start).
+> **Requires Luna Sentia, running and healthy:** Luna Lumia keeps its data in Luna Sentia's PostgreSQL (`luna-sentia-db`) and joins Sentia's `luna_sentia_network`; it has no database of its own. Start [Luna Sentia](https://github.com/pranjallk1995/Luna_Sentia) first and wait until its `postgres` and `ollama` services report healthy, as described under [Start](#start).
 
 <p align="center">
   <img src="docs/images/showcase.png" alt="Luna Lumia dashboard controlled from a chat assistant">
@@ -87,10 +87,10 @@ Built-in solids: Focus, Daylight, Reading, Bedtime, Warm evening, Night light. B
 | HTTP and MCP | FastMCP custom routes + tools | UI endpoints and conversational operations |
 | Devices | Python + `pywizlight` | LAN discovery and direct WiZ control |
 | Playback and workers | Python services | Sequence interpolation and recurring schedules |
-| Database | PostgreSQL 17 | Devices, membership, images, schemes, and schedules |
+| Database | PostgreSQL 17 in Luna Sentia (`luna-sentia-db`) | Devices, membership, images, schemes, and schedules |
 | Network | `luna_sentia_network` (external) | Private discovery shared with other Luna apps, created by Luna Sentia |
 
-Unique aliases: `luna-lumia-db`, `luna-lumia-mcp`, and `luna-lumia-ui`.
+Unique aliases: `luna-lumia-mcp` and `luna-lumia-ui`.
 
 ```text
 Streamlit UI or MCP client
@@ -99,16 +99,24 @@ Streamlit UI or MCP client
         -> WiZ bulbs on the local network
 ```
 
-Transport handlers call the `LumiaService` facade instead of SQL or device adapters directly. PostgreSQL is not published to the host.
+Transport handlers call the `LumiaService` facade instead of SQL or device adapters directly. Lumia's database lives in Luna Sentia's PostgreSQL, which is not published to the host.
 
 ## Start
 
-Start [Luna Sentia](https://github.com/pranjallk1995/Luna_Sentia) first. It creates the shared external
-`luna_sentia_network` that every Luna app joins:
+Start [Luna Sentia](https://github.com/pranjallk1995/Luna_Sentia) first and wait until it is healthy. Sentia runs
+the PostgreSQL server that holds Lumia's `lunalumia` database, serves the models,
+and creates the shared `luna_sentia_network` every Luna app joins. Lumia has no
+database of its own: started before Sentia is healthy, it cannot reach its
+data and keeps restarting until it can.
 
 ```sh
-cd ../Luna_Sentia && docker compose up -d
+cd ../Luna_Sentia
+docker compose up -d --wait postgres ollama adminer
+docker compose run --rm postgres-init   # creates the lunalumia role and database
+docker compose ps                       # postgres and ollama must show (healthy)
 ```
+
+See [Is Sentia healthy?](https://github.com/pranjallk1995/Luna_Sentia#is-sentia-healthy) if they do not.
 
 To start Sentia and every Luna app together, with or without Compose Watch, use
 `../luna.sh start [--watch]`; see the
@@ -156,7 +164,7 @@ Open:
 | Database | `lunalumia` |
 | Username | `lunalumia` |
 | Password | `lunalumia-dev` when unset |
-| Database host | `luna-lumia-db` |
+| Database host | `luna-sentia-db` |
 | Timezone | `Asia/Kolkata` |
 
 The API token and email allowlist have no defaults. Keep localhost port `18002` private, and do not expose MCP without an authenticated gateway or authorization server.
@@ -176,15 +184,15 @@ Reload tasks that predate a newly added server or tool.
 
 ## Database UI
 
-Lumia does not publish PostgreSQL. Inspect it with [Adminer in Luna Sentia](https://github.com/pranjallk1995/Luna_Sentia#database-ui)
-at <http://127.0.0.1:19080> (System `PostgreSQL`, Server `luna-lumia-db`, Username and
+Lumia's database is in Luna Sentia's PostgreSQL, which is not published to the host. Inspect it with [Adminer in Luna Sentia](https://github.com/pranjallk1995/Luna_Sentia#database-ui)
+at <http://127.0.0.1:19080> (System `PostgreSQL`, Server `luna-sentia-db`, Username and
 Database `lunalumia`, Password your `POSTGRES_PASSWORD`), or through the container:
 
 ```sh
-docker compose exec postgres psql -U lunalumia -d lunalumia
+docker compose -f ../Luna_Sentia/docker-compose.yaml exec postgres psql -U sentia -d lunalumia
 ```
 
-The `postgres_data` volume persists across recreation.
+The data lives in Sentia's `luna_sentia_postgres_data` volume, so it survives recreating Lumia's containers.
 
 ## MCP tools
 
