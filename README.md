@@ -88,8 +88,9 @@ Built-in solids: Focus, Daylight, Reading, Bedtime, Warm evening, Night light. B
 Every Luna app is a Streamlit UI plus a FastMCP service on Luna Sentia's
 `luna_sentia_network`: its data lives in Sentia's PostgreSQL, people sign in
 through Sentia's `auth`, and model calls go to Sentia's Ollama. Orange lines are
-the calls between apps; grey dashed lines are planned links into Fiora: Lexia's
-extracted tax details and Visia's transaction images and icons.
+Visia image URLs that other apps use: food images for Vita and room images for
+Lumia. Grey dashed lines are planned links into Fiora: tax details from Lexia,
+and transaction image and icon URLs from Visia.
 
 | Component | Technology | Purpose |
 | --- | --- | --- |
