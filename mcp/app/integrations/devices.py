@@ -10,8 +10,7 @@ from pywizlight import PilotBuilder, wizlight
 from pywizlight.discovery import discover_lights
 
 from app.core.models import LightState
-
-GLOBAL_BROADCAST = "255.255.255.255"
+from app.core.config import AppConfig
 
 
 @asynccontextmanager
@@ -115,10 +114,10 @@ class WizDiscovery:
         found = await asyncio.gather(*(limited_probe(host) for host in network.hosts()))
         return [result for result in found if result is not None]
 
-    async def scan(self, broadcast_space: str = GLOBAL_BROADCAST) -> list[dict]:
+    async def scan(self, broadcast_space: str = AppConfig.GLOBAL_BROADCAST) -> list[dict]:
         # Directed /24 scans work through Docker's bridge, unlike LAN broadcast
         # packets which commonly stop at the container boundary.
-        if broadcast_space != GLOBAL_BROADCAST:
+        if broadcast_space != AppConfig.GLOBAL_BROADCAST:
             broadcast = IPv4Address(broadcast_space)
             if not broadcast.is_private:
                 raise ValueError("Discovery is limited to a private IPv4 network")

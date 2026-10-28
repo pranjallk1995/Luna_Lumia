@@ -81,7 +81,7 @@ class LunaLumiaApp:
 
     def render(self) -> None:
         LunaStyle.apply()
-        LunaSingleSignOn(self.config.allowed_emails).require_login("Luna Lumia", "Private AI-managed smart lighting")
+        LunaSingleSignOn(self.config.allowed_emails, self.config.sso).require_login("Luna Lumia", "Private AI-managed smart lighting")
         dashboard = self.load_dashboard()
         self.render_header(dashboard)
         containers = st.tabs([label for label, _ in self.TABS])

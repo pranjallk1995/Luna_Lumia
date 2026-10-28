@@ -7,6 +7,8 @@ from psycopg import Cursor
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
+from app.core.config import AppConfig
+
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS lights (
@@ -136,7 +138,7 @@ class Database:
     """Own the connection pool; each cursor block runs in one transaction."""
 
     def __init__(self, url: str) -> None:
-        self.pool = ConnectionPool(url, min_size=1, max_size=8, open=False)
+        self.pool = ConnectionPool(url, min_size=1, max_size=AppConfig.DB_POOL_MAX_SIZE, open=False)
 
     def open(self) -> None:
         self.pool.open(wait=True)

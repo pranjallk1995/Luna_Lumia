@@ -14,6 +14,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.core.config import AppConfig
+
 Row = dict[str, Any]
 Sender = Callable[..., Awaitable[None]]
 
@@ -140,9 +142,6 @@ class SceneEngine:
     the MCP tools, or the scheduler thread.
     """
 
-    FRAME_SECONDS = 0.12  # ~8 updates per second per light
-    SEND_TIMEOUT = 0.35  # an unreachable bulb must not stall the other lights' frames
-
     def __init__(self, send: Sender) -> None:
         self.send = send
         self.loop = asyncio.new_event_loop()
@@ -160,7 +159,7 @@ class SceneEngine:
         self.loop.call_soon_threadsafe(self.loop.stop)
 
     def _call(self, coroutine: Awaitable[Any]) -> Any:
-        return asyncio.run_coroutine_threadsafe(coroutine, self.loop).result(timeout=5)
+        return asyncio.run_coroutine_threadsafe(coroutine, self.loop).result(timeout=AppConfig.PLAYBACK_CALL_TIMEOUT_SECONDS)
 
     def play(self, scene_id: int, steps: list[Step], loops: bool, lights: list[Row]) -> None:
         targets = {light["id"]: light["ip_address"] for light in lights}
@@ -196,7 +195,7 @@ class SceneEngine:
         sends = [self.send(ip, **state) for ip in list(playback.lights.values())]
         try:
             await asyncio.wait_for(
-                asyncio.gather(*sends, return_exceptions=True), self.SEND_TIMEOUT
+                asyncio.gather(*sends, return_exceptions=True), AppConfig.PLAYBACK_SEND_TIMEOUT_SECONDS
             )
         except asyncio.TimeoutError:
             pass
@@ -205,7 +204,7 @@ class SceneEngine:
         if previous is None or step.fade_s <= 0:
             await self._frame(playback, step.state)
             return
-        frames = max(1, round(step.fade_s / self.FRAME_SECONDS))
+        frames = max(1, round(step.fade_s / AppConfig.PLAYBACK_FRAME_SECONDS))
         started = time.monotonic()
         for frame in range(1, frames + 1):
             state = step.state if frame == frames else step.blend(
@@ -222,7 +221,7 @@ class SceneEngine:
                 step = playback.steps[index]
                 await self._fade(playback, previous, step)
                 # A zero-length step still yields so a looping sequence cannot spin.
-                await asyncio.sleep(max(step.hold_s, 0 if step.fade_s else self.FRAME_SECONDS))
+                await asyncio.sleep(max(step.hold_s, 0 if step.fade_s else AppConfig.PLAYBACK_FRAME_SECONDS))
                 previous, index = step, index + 1
                 if index == len(playback.steps):
                     if not playback.loops:

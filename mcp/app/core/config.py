@@ -2,6 +2,8 @@
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
+from typing import ClassVar
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
@@ -10,6 +12,16 @@ from zoneinfo import ZoneInfo
 class AppConfig:
     """Immutable backend settings loaded from environment variables."""
 
+    ASSET_DIR: ClassVar[Path] = Path(__file__).resolve().parent.parent / "assets"
+    # Discovery scans this address unless a subnet broadcast is given.
+    GLOBAL_BROADCAST: ClassVar[str] = "255.255.255.255"
+    DB_POOL_MAX_SIZE: ClassVar[int] = 8
+    # Scene playback: ~8 frame updates per second per light, and an unreachable bulb
+    # must not stall the other lights' frames.
+    PLAYBACK_FRAME_SECONDS: ClassVar[float] = 0.12
+    PLAYBACK_SEND_TIMEOUT_SECONDS: ClassVar[float] = 0.35
+    PLAYBACK_CALL_TIMEOUT_SECONDS: ClassVar[float] = 5.0
+
     database_url: str
     api_token: str
     timezone: ZoneInfo = ZoneInfo("Asia/Kolkata")
@@ -17,7 +29,6 @@ class AppConfig:
     port: int = 8000
     schedule_interval_seconds: float = 20.0
     device_timeout_seconds: float = 3.0
-    default_broadcast_space: str = "255.255.255.255"
     # Public origin of this MCP server, used for icon URLs ("" = embedded icons only).
     mcp_public_url: str = "http://localhost:18002"
     LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})

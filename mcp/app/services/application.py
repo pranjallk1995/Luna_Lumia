@@ -8,7 +8,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from app.integrations.devices import GLOBAL_BROADCAST, WizDiscovery, WizLightAdapter
+from app.integrations.devices import WizDiscovery, WizLightAdapter
 from app.core.errors import NotFoundError
 from app.core.models import (
     CollectionKind,
@@ -41,6 +41,7 @@ from app.data.repositories import (
 from app.integrations.room_images import ImageScheme, RoomImageCatalog, RoomKeyDetector
 from app.services.presets import WeatherPresets
 from app.services.sun import SunCalculator
+from app.core.config import AppConfig
 
 
 # Uvicorn's logger, so these lines appear in the container log.
@@ -354,10 +355,10 @@ class LightService:
         """The /24 broadcast address most saved lights live on (directed scans cross Docker)."""
         prefixes = [light["ip_address"].rsplit(".", 1)[0] for light in self.lights.list()]
         if not prefixes:
-            return GLOBAL_BROADCAST
+            return AppConfig.GLOBAL_BROADCAST
         return f"{max(set(prefixes), key=prefixes.count)}.255"
 
-    async def discover(self, broadcast_space: str = GLOBAL_BROADCAST) -> list[dict]:
+    async def discover(self, broadcast_space: str = AppConfig.GLOBAL_BROADCAST) -> list[dict]:
         """Scan for lights, follow saved lights to new IPs, and flag configured ones."""
         results = await self.discovery.scan(broadcast_space)
         for result in results:

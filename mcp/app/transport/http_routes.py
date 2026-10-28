@@ -10,7 +10,6 @@ from starlette.requests import Request
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from app.transport.auth import APIAuthenticator
-from app.integrations.devices import GLOBAL_BROADCAST
 from app.transport.branding import ServerBranding
 from app.core.errors import NotFoundError
 from app.core.models import (
@@ -28,6 +27,7 @@ from app.core.models import (
     TransitionCreate,
 )
 from app.services.application import LumiaService
+from app.core.config import AppConfig
 
 Handler = Callable[[Request], Awaitable[Any]]
 NO_CONTENT = 204
@@ -151,7 +151,7 @@ class LumiaHTTPRoutes:
 
     async def discover(self, request: Request) -> list[dict]:
         body = await request.json()
-        return await self.service.lights.discover(body.get("broadcast_space", GLOBAL_BROADCAST))
+        return await self.service.lights.discover(body.get("broadcast_space", AppConfig.GLOBAL_BROADCAST))
 
     async def update_room_image(self, request: Request) -> Any:
         entry = await self.payload(request, RoomImageUpdate)

@@ -4,7 +4,6 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from app.integrations.devices import GLOBAL_BROADCAST
 from app.core.models import (
     GroupCreate,
     GroupMembersUpdate,
@@ -21,6 +20,7 @@ from app.core.models import (
     WeatherSlot,
 )
 from app.services.application import LumiaService
+from app.core.config import AppConfig
 
 
 class LumiaMCPTools:
@@ -133,7 +133,7 @@ class LumiaMCPTools:
             return {"deleted": True, "group_id": group_id}
 
         @server.tool()
-        async def discover_lights_on_network(broadcast_space: str = GLOBAL_BROADCAST):
+        async def discover_lights_on_network(broadcast_space: str = AppConfig.GLOBAL_BROADCAST):
             """Scan the local network for WiZ-compatible smart lights."""
             return await lights.discover(broadcast_space)
 

@@ -3,12 +3,12 @@ import unittest
 from unittest.mock import patch
 
 from sso import LunaSingleSignOn
-from config import UIConfig
+from config import SSOConfig, UIConfig
 
 
 class SingleSignOnTests(unittest.TestCase):
     def setUp(self):
-        self.auth = LunaSingleSignOn(frozenset({"owner@example.com"}), public_url="https://auth.example.com")
+        self.auth = LunaSingleSignOn(frozenset({"owner@example.com"}), SSOConfig(public_url="https://auth.example.com"))
 
     def test_verified_allowlisted_email_is_accepted_case_insensitively(self):
         self.assertTrue(
@@ -32,7 +32,7 @@ class SingleSignOnTests(unittest.TestCase):
 
 class UIAuthenticationConfigTests(unittest.TestCase):
     BASE = {
-        "LUNALUMIA_API_URL": "http://backend:8000",
+        "LUNA_SSO_URL": "https://auth.example.com", "LUNALUMIA_API_URL": "http://backend:8000",
         "LUNALUMIA_API_TOKEN": "x" * 32,
         "LUNALUMIA_ALLOWED_EMAILS": " Owner@Example.com, second@example.com ",
     }
@@ -49,7 +49,7 @@ class UIAuthenticationConfigTests(unittest.TestCase):
     def test_api_token_and_allowlist_are_required(self):
         with patch.dict(
             os.environ,
-            {"LUNALUMIA_API_URL": "http://backend:8000", "LUNALUMIA_API_TOKEN": "short"},
+            {"LUNA_SSO_URL": "https://auth.example.com", "LUNALUMIA_API_URL": "http://backend:8000", "LUNALUMIA_API_TOKEN": "short"},
             clear=True,
         ):
             with self.assertRaisesRegex(RuntimeError, "at least 32"):
@@ -59,6 +59,17 @@ class UIAuthenticationConfigTests(unittest.TestCase):
         with patch.dict(os.environ, without_allowlist, clear=True):
             with self.assertRaisesRegex(RuntimeError, "LUNALUMIA_ALLOWED_EMAILS"):
                 UIConfig.from_env()
+
+
+class SSOConfigTests(unittest.TestCase):
+    def test_public_url_is_required_and_internal_url_has_a_default(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "LUNA_SSO_URL"):
+                SSOConfig.from_env()
+        with patch.dict(os.environ, {"LUNA_SSO_URL": "https://auth.example.com/"}, clear=True):
+            config = SSOConfig.from_env()
+        self.assertEqual(config.public_url, "https://auth.example.com")
+        self.assertEqual(config.internal_url, "http://luna-sentia-auth:8000")
 
 
 if __name__ == "__main__":
