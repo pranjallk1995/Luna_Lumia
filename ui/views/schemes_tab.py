@@ -101,6 +101,9 @@ class SchemeLibrary(LumiaTab):
             if scheme.get("weather_slots"):
                 slots = ", ".join(slot.replace("_", " ").replace("/", " by ") for slot in scheme["weather_slots"])
                 badges += f'<span class="scheme-badge" title="{html.escape(slots)}">Weather</span>'
+            if scheme.get("music_moods"):
+                moods = ", ".join(f"{mood} music" for mood in scheme["music_moods"])
+                badges += f'<span class="scheme-badge" title="{html.escape(moods)}">Music</span>'
             if playing:
                 badges += f'<span class="scheme-badge playing">Playing on {playing}</span>'
             kind = "Sequence" if scheme["kind"] == "sequence" else "Solid"

@@ -4,8 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.core.models import DAYPARTS, WEATHER_CONDITIONS, SceneCreate, SceneStep, TransitionCreate
-from app.data.repositories import SceneRepository, TransitionRepository, WeatherSchemeRepository
+from app.core.models import DAYPARTS, MUSIC_MOODS, WEATHER_CONDITIONS, SceneCreate, SceneStep, TransitionCreate
+from app.data.repositories import (
+    MusicSchemeRepository,
+    SceneRepository,
+    TransitionRepository,
+    WeatherSchemeRepository,
+)
 
 TRANSITIONS = (
     TransitionCreate(name="Instant", duration_ms=0, curve="linear"),
@@ -109,6 +114,65 @@ WEATHER_SEQUENCES: dict[str, tuple[bool, tuple]] = {
 }
 
 
+# Music schemes: one per mood of the track Luna Vibia plays. Quiet moods are dim with
+# long, smooth fades (sleep: soft light blues that drift over minutes); lively ones
+# are brighter and change faster, up to quick vivid colour changes for energetic music.
+MUSIC_SOLIDS = (
+    ("Music · Focus", 4000, 80),
+)
+MUSIC_SEQUENCES: dict[str, tuple[bool, tuple]] = {
+    "Music · Sleep": (True, (
+        ("#9DBEFF", 20, 10_000, "Long fade"),
+        ("#B8D4FF", 14, 10_000, "Long fade"),
+        ("#86AEEB", 18, 10_000, "Long fade"),
+    )),
+    "Music · Calm": (True, (
+        ("#7FD3D0", 45, 8_000, "Slow fade"),
+        ("#9AB8F0", 40, 8_000, "Slow fade"),
+        ("#B9A6E8", 42, 8_000, "Slow fade"),
+    )),
+    "Music · Cozy": (True, (
+        ("#FFB067", 55, 6_000, "Slow fade"),
+        ("#FF9A4D", 48, 6_000, "Slow fade"),
+        (2700, 58, 6_000, "Slow fade"),
+    )),
+    "Music · Romantic": (True, (
+        ("#FF6F91", 40, 5_000, "Slow fade"),
+        ("#FF8A65", 45, 5_000, "Slow fade"),
+        ("#E0558B", 36, 5_000, "Slow fade"),
+    )),
+    "Music · Melancholic": (True, (
+        ("#3D5AFE", 30, 8_000, "Slow fade"),
+        ("#5C6BC0", 26, 8_000, "Slow fade"),
+        ("#4A6FA5", 32, 8_000, "Slow fade"),
+    )),
+    "Music · Upbeat": (True, (
+        ("#FFC145", 85, 1_500, "Smooth"),
+        ("#FF7F50", 80, 1_500, "Smooth"),
+        ("#FFD166", 90, 1_500, "Smooth"),
+        ("#FF9F1C", 85, 1_500, "Smooth"),
+    )),
+    "Music · Energetic": (True, (
+        ("#FF0055", 100, 400, "Quick fade"),
+        ("#7A00FF", 100, 400, "Quick fade"),
+        ("#00C2FF", 100, 400, "Quick fade"),
+        ("#FFB800", 100, 400, "Quick fade"),
+    )),
+}
+
+
+class MusicPresets:
+    """Names of the built-in music schemes."""
+
+    @staticmethod
+    def name(mood: str) -> str:
+        return f"Music · {mood.capitalize()}"
+
+    @staticmethod
+    def moods() -> tuple[str, ...]:
+        return MUSIC_MOODS
+
+
 class WeatherPresets:
     """Names of the built-in weather schemes."""
 
@@ -129,8 +193,8 @@ class WeatherPresets:
 class PresetCatalog:
     """Install the built-in transitions, then the schemes that reference them.
 
-    With ``weather_slots``, each weather slot without a scheme is pointed at its
-    built-in weather scheme.
+    With ``weather_slots`` (``music_slots``), each weather slot (music mood) without
+    a scheme is pointed at its built-in scheme.
     """
 
     def __init__(
@@ -138,10 +202,12 @@ class PresetCatalog:
         scenes: SceneRepository,
         transitions: TransitionRepository,
         weather_slots: WeatherSchemeRepository | None = None,
+        music_slots: MusicSchemeRepository | None = None,
     ) -> None:
         self.scenes = scenes
         self.transitions = transitions
         self.weather_slots = weather_slots
+        self.music_slots = music_slots
 
     @staticmethod
     def light(value: str | int) -> dict[str, Any]:
@@ -151,11 +217,11 @@ class PresetCatalog:
         for transition in TRANSITIONS:
             self.transitions.upsert_preset(transition)
         transition_ids = {row["name"]: row["id"] for row in self.transitions.list()}
-        for name, value, brightness in SOLIDS + WEATHER_SOLIDS:
+        for name, value, brightness in SOLIDS + WEATHER_SOLIDS + MUSIC_SOLIDS:
             self.scenes.upsert_preset(
                 SceneCreate(name=name, brightness=brightness, **self.light(value))
             )
-        for name, (loops, steps) in {**SEQUENCES, **WEATHER_SEQUENCES}.items():
+        for name, (loops, steps) in {**SEQUENCES, **WEATHER_SEQUENCES, **MUSIC_SEQUENCES}.items():
             self.scenes.upsert_preset(
                 SceneCreate(
                     name=name,
@@ -174,6 +240,8 @@ class PresetCatalog:
             )
         if self.weather_slots:
             self.seed_weather_slots()
+        if self.music_slots:
+            self.seed_music_slots()
 
     def seed_weather_slots(self) -> None:
         preset_ids = {row["name"]: row["id"] for row in self.scenes.list() if row["is_preset"]}
@@ -181,3 +249,10 @@ class PresetCatalog:
             scene_id = preset_ids.get(WeatherPresets.name(condition, daypart))
             if scene_id is not None:
                 self.weather_slots.seed(condition, daypart, scene_id)
+
+    def seed_music_slots(self) -> None:
+        preset_ids = {row["name"]: row["id"] for row in self.scenes.list() if row["is_preset"]}
+        for mood in MusicPresets.moods():
+            scene_id = preset_ids.get(MusicPresets.name(mood))
+            if scene_id is not None:
+                self.music_slots.seed(mood, scene_id)

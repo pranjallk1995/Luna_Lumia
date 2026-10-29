@@ -6,6 +6,7 @@ from app.transport.branding import ServerBranding
 from app.core.config import AppConfig
 from app.data.database import Database
 from app.integrations.devices import WizDiscovery, WizLightAdapter
+from app.integrations.vibia import VibiaPlayback
 from app.transport.http_routes import LumiaHTTPRoutes
 from app.transport.mcp_tools import LumiaMCPTools
 from app.services.playback import SceneEngine
@@ -14,6 +15,8 @@ from app.data.repositories import (
     CollectionRepository,
     LightRepository,
     LocationRepository,
+    MusicAutomationRepository,
+    MusicSchemeRepository,
     RoomImageRepository,
     SceneRepository,
     ScheduleRepository,
@@ -34,7 +37,8 @@ from app.services.application import (
     TransitionService,
     WeatherService,
 )
-from app.services.workers import ScheduleWorker, WeatherWorker
+from app.services.music import MusicService
+from app.services.workers import MusicWorker, ScheduleWorker, WeatherWorker
 
 
 class LunaLumiaApplication:
@@ -49,6 +53,7 @@ class LunaLumiaApplication:
             SceneRepository(self.database),
             TransitionRepository(self.database),
             WeatherSchemeRepository(self.database),
+            MusicSchemeRepository(self.database),
         ).install()
         self.adapter = WizLightAdapter(timeout=config.device_timeout_seconds)
         self.engine = SceneEngine(self.adapter.apply)
@@ -70,8 +75,9 @@ class LunaLumiaApplication:
                 self.service.schedules, config.timezone, config.schedule_interval_seconds
             ),
             WeatherWorker(
-                self.service.weather, config.timezone, config.schedule_interval_seconds
+                self.service.weather, config.timezone, config.schedule_interval_seconds, self.service.music
             ),
+            MusicWorker(self.service.music, config.music_interval_seconds),
         ]
         for worker in self.workers:
             worker.start()
@@ -84,6 +90,13 @@ class LunaLumiaApplication:
         transitions = TransitionService(TransitionRepository(self.database))
         scenes = SceneService(SceneRepository(self.database), transitions, control, self.engine)
         location = LocationService(LocationRepository(self.database), self.config.timezone)
+        weather = WeatherService(
+            WeatherRepository(self.database),
+            WeatherSchemeRepository(self.database),
+            WeatherAutomationRepository(self.database),
+            scenes,
+            location,
+        )
         return LumiaService(
             lights=LightService(lights, WizDiscovery(), images),
             collections=CollectionService(collections, images),
@@ -92,12 +105,13 @@ class LunaLumiaApplication:
             scenes=scenes,
             transitions=transitions,
             schedules=ScheduleService(ScheduleRepository(self.database), control, scenes, location),
-            weather=WeatherService(
-                WeatherRepository(self.database),
-                WeatherSchemeRepository(self.database),
-                WeatherAutomationRepository(self.database),
+            weather=weather,
+            music=MusicService(
+                VibiaPlayback(self.config.vibia_api_url, self.config.vibia_api_token),
+                MusicSchemeRepository(self.database),
+                MusicAutomationRepository(self.database),
                 scenes,
-                location,
+                weather,
             ),
         )
 

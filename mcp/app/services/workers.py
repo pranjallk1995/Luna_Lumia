@@ -1,10 +1,11 @@
-"""Background threads that run due schedules and follow the weather."""
+"""Background threads that run due schedules and follow the weather and the music."""
 
 import threading
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from app.services.application import ScheduleService, WeatherService
+from app.services.music import MusicService
 
 
 class PeriodicWorker:
@@ -48,10 +49,27 @@ class ScheduleWorker(PeriodicWorker):
 class WeatherWorker(PeriodicWorker):
     name = "lumia-weather"
 
-    def __init__(self, weather: WeatherService, timezone: ZoneInfo, interval: float) -> None:
+    def __init__(
+        self, weather: WeatherService, timezone: ZoneInfo, interval: float, music: MusicService | None = None
+    ) -> None:
         super().__init__(interval)
         self.weather = weather
         self.timezone = timezone
+        self.music = music
 
     def tick(self) -> None:
+        # While music automation lights the room for a playing track, the weather waits.
+        if self.music is not None and self.music.holds_lights():
+            return
         self.weather.follow(datetime.now(self.timezone))
+
+
+class MusicWorker(PeriodicWorker):
+    name = "lumia-music"
+
+    def __init__(self, music: MusicService, interval: float) -> None:
+        super().__init__(interval)
+        self.music = music
+
+    def tick(self) -> None:
+        self.music.follow()

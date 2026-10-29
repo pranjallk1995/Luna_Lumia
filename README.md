@@ -64,6 +64,29 @@ Built-in solids: Focus, Daylight, Reading, Bedtime, Warm evening, Night light. B
 - Optional automation applies the matching scheme each time the weather or
   day/night changes. By default it only changes lights that are already on.
 
+### Music
+
+- The lights follow the music [Luna Vibia](https://github.com/pranjallk1995/Luna_Vibia)
+  plays on the host's speakers: each track's mood picks a scheme. Lumia reads the
+  playing track's tags and caption from Vibia over `luna_sentia_network`.
+- Eight moods, checked in this order (tags first, then the caption): sleep,
+  energetic, romantic, upbeat, melancholic, cozy, focus, and calm, which is also
+  the fallback. A night loop tagged "sleep" stays sleep even when a track is also
+  tagged "melancholic" or "focus".
+- 8 built-in `Music · …` schemes. Quiet moods are dim with long, smooth fades
+  (**Sleep**: soft light blues drifting over minutes; **Calm**: teal and lavender;
+  **Melancholic**: deep blues); **Cozy** and **Romantic** are warm amber and rose;
+  **Focus** is a steady 4000 K white; **Upbeat** and **Energetic** are brighter and
+  change faster. Any scheme can replace a built-in; the Library shows a **Music**
+  badge on schemes in use for the music.
+- Optional automation applies the mood's scheme each time the mood changes (a
+  playlist of sleep tracks keeps one scheme playing). By default it only changes
+  lights that are already on. While it lights the room for music, weather
+  automation waits; when the music stops the lights stay as they are and the
+  weather takes over again.
+- Vibia's `energy` and tempo are not used: energy measures loudness and reads high
+  even for quiet music, and the tempo of slow pieces is often doubled.
+
 ### Schedules and alarms
 
 - Create recurring on, off, or scheme actions.
@@ -92,7 +115,8 @@ Visia image URLs that other apps use: food images for Vita, room images for
 Lumia, and cover art for Vibia. Grey dashed lines are planned: links into Fiora
 (tax details from Lexia, transaction image and icon URLs from Visia). Luna Unia
 is the one home for all of them, on port 42069: it checks which Luna stacks are
-running and opens each one with the shared sign-in.
+running and opens each one with the shared sign-in. The purple line is the mood of
+the track Vibia plays, which Lumia's music schemes follow.
 
 | Component | Technology | Purpose |
 | --- | --- | --- |
@@ -146,6 +170,11 @@ cp .env.example .env
 ```sh
 openssl rand -hex 32
 ```
+
+For [music schemes](#music), set `LUNAVIBIA_API_TOKEN` to the same value as in
+`Luna_Vibia/.env`; `LUNAVIBIA_API_URL` defaults to Vibia's address on the shared
+network (`http://luna-vibia-mcp:8000`). Left blank, music is off and `get_music`
+says why.
 
 Separate multiple emails with commas. `MCP_PUBLIC_URL` is optional and defaults to `http://localhost:18002`; set it to your public HTTPS origin when the server is exposed (plain HTTP is accepted only for localhost).
 
@@ -290,6 +319,18 @@ condition a new look, create a scheme with `create_solid_scheme` or
 common forecast words such as sunny, overcast, drizzle, mist, and storm are
 mapped to them.
 
+### Music
+
+- `get_music` - what Luna Vibia plays, its mood, the words that decided it, and the scheme for it
+- `list_music_schemes`, `set_music_scheme`, `reset_music_schemes`
+- `apply_music_scheme`, `set_music_automation`
+
+A typical flow: play a playlist with Vibia's `play_tracks`, then call
+`set_music_automation` so the lights follow each track (or `apply_music_scheme`
+once). `apply_music_scheme` with `mood` (e.g. `sleep`) lights for a mood even
+when nothing plays. To give a mood a new look, create a scheme and assign it
+with `set_music_scheme`.
+
 ## Data model
 
 ### `lights`
@@ -335,6 +376,12 @@ day's periods in JSON. `weather_schemes` maps each condition and day/night slot
 to a scheme; a slot whose scheme is deleted falls back to its built-in.
 `weather_automation` is a singleton holding whether automation is on, its
 target, and the last weather it applied.
+
+### `music_schemes` and `music_automation`
+
+`music_schemes` maps each music mood to a scheme; a mood whose scheme is deleted
+falls back to its built-in. `music_automation` is a singleton like
+`weather_automation`; its last applied mood is cleared when the music stops.
 
 The idempotent schema in `mcp/app/data/database.py` applies additive upgrades at
 startup.
@@ -450,11 +497,15 @@ and conversational clients.
   looping, and cancellation.
 - `mcp/app/services/presets.py` - idempotent installation of built-in schemes and
   transitions.
+- `mcp/app/services/music.py` - reading a track's mood from Luna Vibia's tags and
+  caption, the mood-to-scheme slots, and the music automation.
 - `mcp/app/services/sun.py` and `workers.py` - sunrise/sunset calculation and the
-  recurring schedule-execution background loop.
+  background loops that run schedules and follow the weather and the music.
 - `mcp/app/data/database.py` and `repositories.py` - connection-pool ownership,
   additive schema initialization, transactions, and PostgreSQL queries.
 - `mcp/app/integrations/devices.py` - WiZ discovery, MAC lookup, live status, and
   device commands, isolated from database and transport code.
 - `mcp/app/integrations/room_images.py` - name-based image selection and visual
   scheme matching for room and light backgrounds.
+- `mcp/app/integrations/vibia.py` - Luna Vibia's playback status, read over the
+  shared network.

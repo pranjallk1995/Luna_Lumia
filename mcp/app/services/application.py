@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import date, datetime, time, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 from app.integrations.devices import WizDiscovery, WizLightAdapter
@@ -42,6 +42,9 @@ from app.integrations.room_images import ImageScheme, RoomImageCatalog, RoomKeyD
 from app.services.presets import WeatherPresets
 from app.services.sun import SunCalculator
 from app.core.config import AppConfig
+
+if TYPE_CHECKING:
+    from app.services.music import MusicService
 
 
 # Uvicorn's logger, so these lines appear in the container log.
@@ -912,6 +915,10 @@ class WeatherService:
             self.scenes.control.resolve_targets(entry.target_type, entry.target_id)
         return {**self.automation_settings.save(entry), "now": self.current()}
 
+    def reapply(self) -> None:
+        """Apply the weather's scheme again on the next tick (after music let go of the lights)."""
+        self.automation_settings.mark_applied(None)
+
     @staticmethod
     def applied_key(weather: Row) -> str:
         return f'{weather["day"]}|{weather["condition"]}|{weather["daypart"]}|{weather["scheme"]["id"]}'
@@ -945,6 +952,7 @@ class LumiaService:
         transitions: TransitionService,
         schedules: ScheduleService,
         weather: WeatherService,
+        music: "MusicService",
     ) -> None:
         self.lights = lights
         self.collections = collections
@@ -954,6 +962,11 @@ class LumiaService:
         self.transitions = transitions
         self.schedules = schedules
         self.weather = weather
+        self.music = music
+
+    def decorate(self, schemes: list[Row]) -> list[Row]:
+        """Mark each scheme with the weather slots and music moods it plays for."""
+        return self.music.decorate(self.weather.decorate(schemes))
 
     async def refresh_lights(self) -> list[dict[str, Any]]:
         """Read every bulb's state; if a known bulb moved, find its new IP and read again.
@@ -974,7 +987,7 @@ class LumiaService:
             "lights": self.lights.list_with_images(),
             "rooms": self.collections.list_with_images("room"),
             "groups": self.collections.list_with_images("group"),
-            "scenes": self.weather.decorate(self.scenes.list()),
+            "scenes": self.decorate(self.scenes.list()),
             "transitions": self.transitions.list(),
             "playing": {str(light_id): scene_id for light_id, scene_id in self.scenes.playing().items()},
             "schedules": self.schedules.list(),

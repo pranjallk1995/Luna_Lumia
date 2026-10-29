@@ -11,6 +11,8 @@ from app.core.models import (
     LightImageUpdate,
     LightState,
     LocationUpdate,
+    MusicAutomationUpdate,
+    MusicSlot,
     RoomImageUpdate,
     SceneCreate,
     ScheduleCreate,
@@ -35,6 +37,7 @@ class LumiaMCPTools:
         self._register_control_tools()
         self._register_schedule_tools()
         self._register_weather_tools()
+        self._register_music_tools()
 
     def _register_inventory_tools(self) -> None:
         server, lights, collections = self.server, self.service.lights, self.service.collections
@@ -183,10 +186,11 @@ class LumiaMCPTools:
         def list_schemes():
             """List color schemes (solid and sequence), transitions, and what is playing per light.
 
-            Each scheme's "weather_slots" lists the weather it plays for (e.g. "rain/night").
+            Each scheme's "weather_slots" lists the weather it plays for (e.g. "rain/night"),
+            and "music_moods" the moods of music it plays for (e.g. "sleep").
             """
             return {
-                "schemes": self.service.weather.decorate(scenes.list()),
+                "schemes": self.service.decorate(scenes.list()),
                 "transitions": transitions.list(),
                 "playing": scenes.playing(),
             }
@@ -524,4 +528,74 @@ class LumiaMCPTools:
             """
             return weather().set_automation(
                 WeatherAutomationUpdate(enabled=enabled, target_type=target_type, target_id=target_id)
+            )
+
+    def _register_music_tools(self) -> None:
+        server = self.server
+
+        def music():
+            # Resolved when a tool runs, not at registration.
+            return self.service.music
+
+        @server.tool()
+        def get_music():
+            """What Luna Vibia is playing now, its mood, the scheme for that mood, and the
+            music automation setting.
+
+            The mood comes from the track's tags, then its caption, checked in order:
+            sleep, energetic, romantic, upbeat, melancholic, cozy, focus, then calm (also
+            the fallback); "matched" lists the words that decided it.
+            """
+            return music().now()
+
+        @server.tool()
+        def list_music_schemes():
+            """List the scheme used for each music mood (sleep, calm, focus, cozy, romantic,
+            melancholic, upbeat, energetic) and the words that mark each mood.
+
+            Every mood starts with a built-in "Music · ..." scheme ("is_built_in"), e.g.
+            soft light blues with minute-long fades for sleep; set_music_scheme changes it.
+            """
+            return music().slot_list()
+
+        @server.tool()
+        def set_music_scheme(mood: str, scheme_id: int):
+            """Use a scheme for a music mood.
+
+            To design a new look, create it first with create_solid_scheme or
+            create_sequence_scheme (or change your own with update_*_scheme), then assign
+            its id here. mood is one of those in list_music_schemes.
+            """
+            return music().set_slot(MusicSlot(mood=mood).mood, scheme_id)
+
+        @server.tool()
+        def reset_music_schemes(mood: str | None = None):
+            """Put one music mood (or, without mood, every mood) back on its built-in scheme."""
+            return music().reset_slots(None if mood is None else MusicSlot(mood=mood).mood)
+
+        @server.tool()
+        async def apply_music_scheme(target_type: str = "all", target_id: int | None = None, mood: str | None = None):
+            """Apply the scheme for the mood of the track Luna Vibia is playing to "all" lights,
+            lights that are "on", one "light", or a "group" (rooms are groups).
+
+            Pass mood to light for one mood whether or not anything is playing (e.g. "sleep"
+            when the user asks for sleep lighting).
+            """
+            return await music().apply_current(
+                target_type, target_id, None if mood is None else MusicSlot(mood=mood).mood
+            )
+
+        @server.tool()
+        def set_music_automation(enabled: bool, target_type: str = "on", target_id: int | None = None):
+            """Follow the music: each time the track Luna Vibia plays changes mood (or that
+            mood's scheme changes), apply the mood's scheme. Use it when the user wants the
+            lights to match the music, e.g. alongside Vibia's play_tracks.
+
+            target_type "on" (default) only changes lights that are already on; "all",
+            "light", or "group" (with target_id) apply to those lights and turn them on.
+            While music plays and lights follow it, weather automation pauses; when the
+            music stops the lights stay as they are and the weather takes over again.
+            """
+            return music().set_automation(
+                MusicAutomationUpdate(enabled=enabled, target_type=target_type, target_id=target_id)
             )

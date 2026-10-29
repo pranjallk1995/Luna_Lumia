@@ -31,6 +31,11 @@ class AppConfig:
     device_timeout_seconds: float = 3.0
     # Public origin of this MCP server, used for icon URLs ("" = embedded icons only).
     mcp_public_url: str = "http://localhost:18002"
+    # Luna Vibia, whose playing track picks the music scheme ("" token = music off).
+    vibia_api_url: str = "http://luna-vibia-mcp:8000"
+    vibia_api_token: str = ""
+    # Checks for a new track this often, so the lights change soon after it starts.
+    music_interval_seconds: float = 5.0
     LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
     @classmethod
@@ -49,6 +54,8 @@ class AppConfig:
             if not (parsed_public_url.scheme == "https" or local) or not parsed_public_url.netloc:
                 raise RuntimeError("MCP_PUBLIC_URL must be an HTTPS URL, or HTTP on localhost.")
         return cls(
+            vibia_api_url=os.getenv("LUNAVIBIA_API_URL", cls.vibia_api_url).strip().rstrip("/"),
+            vibia_api_token=os.getenv("LUNAVIBIA_API_TOKEN", "").strip(),
             mcp_public_url=mcp_public_url,
             database_url=database_url,
             api_token=api_token,

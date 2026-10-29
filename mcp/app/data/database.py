@@ -131,6 +131,20 @@ CREATE TABLE IF NOT EXISTS weather_automation (
  last_applied TEXT,
  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- Which scheme plays for each mood of the music Luna Vibia plays.
+CREATE TABLE IF NOT EXISTS music_schemes (
+ mood TEXT PRIMARY KEY,
+ scene_id BIGINT REFERENCES scenes(id) ON DELETE SET NULL
+);
+-- Optional automation that applies the mood's scheme as Vibia's tracks change.
+CREATE TABLE IF NOT EXISTS music_automation (
+ id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+ enabled BOOLEAN NOT NULL DEFAULT FALSE,
+ target_type TEXT NOT NULL DEFAULT 'on',
+ target_id BIGINT,
+ last_applied TEXT,
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 """
 
 

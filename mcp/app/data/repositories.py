@@ -450,18 +450,19 @@ class WeatherSchemeRepository(Repository):
 class WeatherAutomationRepository(Repository):
     """The single weather-automation setting."""
 
+    TABLE = "weather_automation"
     DEFAULT: Row = {"enabled": False, "target_type": "on", "target_id": None, "last_applied": None}
 
     def get(self) -> Row:
         row = self.fetch_one(
-            "SELECT enabled,target_type,target_id,last_applied,updated_at FROM weather_automation WHERE id=1"
+            f"SELECT enabled,target_type,target_id,last_applied,updated_at FROM {self.TABLE} WHERE id=1"
         )
         return row or dict(self.DEFAULT)
 
     def save(self, entry: WeatherAutomationUpdate) -> Row | None:
         """Store the setting; clearing last_applied makes it apply on the next tick."""
         return self.fetch_one(
-            """INSERT INTO weather_automation(id,enabled,target_type,target_id,last_applied)
+            f"""INSERT INTO {self.TABLE}(id,enabled,target_type,target_id,last_applied)
             VALUES(1,%s,%s,%s,NULL)
             ON CONFLICT (id) DO UPDATE SET enabled=EXCLUDED.enabled, target_type=EXCLUDED.target_type,
                 target_id=EXCLUDED.target_id, last_applied=NULL, updated_at=NOW()
@@ -469,6 +470,40 @@ class WeatherAutomationRepository(Repository):
             (entry.enabled, entry.target_type, entry.target_id),
         )
 
-    def mark_applied(self, key: str) -> None:
+    def mark_applied(self, key: str | None) -> None:
         with self.database.cursor() as cursor:
-            cursor.execute("UPDATE weather_automation SET last_applied=%s WHERE id=1", (key,))
+            cursor.execute(f"UPDATE {self.TABLE} SET last_applied=%s WHERE id=1", (key,))
+
+
+class MusicAutomationRepository(WeatherAutomationRepository):
+    """The single music-automation setting."""
+
+    TABLE = "music_automation"
+
+
+class MusicSchemeRepository(Repository):
+    """The scheme chosen for each music mood."""
+
+    def list(self) -> list[Row]:
+        return self.fetch_all(
+            """SELECT ms.mood, ms.scene_id, s.name scheme_name, s.kind scheme_kind
+            FROM music_schemes ms LEFT JOIN scenes s ON s.id=ms.scene_id ORDER BY ms.mood"""
+        )
+
+    def set(self, mood: str, scene_id: int | None) -> None:
+        with self.database.cursor() as cursor:
+            cursor.execute(
+                """INSERT INTO music_schemes(mood,scene_id) VALUES(%s,%s)
+                ON CONFLICT (mood) DO UPDATE SET scene_id=EXCLUDED.scene_id""",
+                (mood, scene_id),
+            )
+
+    def seed(self, mood: str, scene_id: int) -> None:
+        """Point an empty mood (new, or whose scheme was deleted) at its built-in scheme."""
+        with self.database.cursor() as cursor:
+            cursor.execute(
+                """INSERT INTO music_schemes(mood,scene_id) VALUES(%s,%s)
+                ON CONFLICT (mood) DO UPDATE SET scene_id=EXCLUDED.scene_id
+                WHERE music_schemes.scene_id IS NULL""",
+                (mood, scene_id),
+            )

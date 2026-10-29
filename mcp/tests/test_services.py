@@ -197,7 +197,7 @@ class RefreshTests(unittest.TestCase):
             async def discover(self, space): Lights.scanned = space
 
         control = Control()
-        service = LumiaService(Lights(), None, None, control, None, None, None, None)
+        service = LumiaService(Lights(), None, None, control, None, None, None, None, None)
         result = asyncio.run(service.refresh_lights())
         self.assertEqual((control.polls, Lights.scanned, result[0]["ok"]), (2, "192.168.1.255", True))
 
@@ -210,4 +210,4 @@ class RefreshTests(unittest.TestCase):
         class Lights:
             async def discover(self, space): raise AssertionError("no scan expected")
 
-        asyncio.run(LumiaService(Lights(), None, None, Control(), None, None, None, None).refresh_lights())
+        asyncio.run(LumiaService(Lights(), None, None, Control(), None, None, None, None, None).refresh_lights())

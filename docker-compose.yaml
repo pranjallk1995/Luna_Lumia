@@ -8,6 +8,8 @@ services:
       DATABASE_URL: postgresql://lunalumia:${POSTGRES_PASSWORD:-lunalumia-dev}@luna-sentia-db:5432/lunalumia
       LUNALUMIA_API_TOKEN: ${LUNALUMIA_API_TOKEN:?Set LUNALUMIA_API_TOKEN to a random value of at least 32 characters}
       MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-http://localhost:18002}
+      LUNAVIBIA_API_URL: ${LUNAVIBIA_API_URL:-http://luna-vibia-mcp:8000}
+      LUNAVIBIA_API_TOKEN: ${LUNAVIBIA_API_TOKEN:-}
       TZ: Asia/Kolkata
     expose: ["8000"]
     ports: ["127.0.0.1:18002:8000"]

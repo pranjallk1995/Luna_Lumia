@@ -380,3 +380,24 @@ class WeatherAutomationUpdate(BaseModel):
         if self.target_type in ("on", "all"):
             self.target_id = None
         return self
+
+
+MusicMood = Literal[
+    "sleep", "calm", "focus", "cozy", "romantic", "melancholic", "upbeat", "energetic"
+]
+MUSIC_MOODS: tuple[str, ...] = MusicMood.__args__
+
+
+class MusicSlot(BaseModel):
+    """A music mood, which has one scheme."""
+
+    mood: MusicMood
+
+    @field_validator("mood", mode="before")
+    @classmethod
+    def normalize_mood(cls, value):
+        return value.strip().lower() if isinstance(value, str) else value
+
+
+class MusicAutomationUpdate(WeatherAutomationUpdate):
+    """Whether Lumia follows the music Luna Vibia plays, and on which lights."""
