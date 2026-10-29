@@ -107,3 +107,29 @@ class DeviceTests(unittest.TestCase):
         asyncio.run(LightControlService(repo,adapter).control("light",1,LightState(color="#000000")))
         self.assertEqual(adapter.calls[0][1]["on"],False)
         self.assertFalse(repo.saved[0][1]["on"]); self.assertIsNone(repo.saved[0][1]["color"])
+
+
+class SlowAdapter:
+    """Bulb 2 never answers; the others answer at once."""
+
+    def __init__(self, timeout): self.timeout=timeout
+    async def apply(self,ip_address,**state):
+        if ip_address.endswith(".2"):
+            await asyncio.wait_for(asyncio.sleep(10), self.timeout)
+
+
+class ManyLights(FakeRepository):
+    def targets(self,target_type,target_id): return [{"id":n,"ip_address":f"192.168.1.{n}","name":f"L{n}"} for n in range(1,9)]
+
+
+class ConcurrentControlTests(unittest.TestCase):
+    def test_lights_are_switched_together_and_a_silent_bulb_is_reported(self):
+        import time
+        repo=ManyLights()
+        started=time.monotonic()
+        result=asyncio.run(LightControlService(repo,SlowAdapter(0.3)).control("all",None,LightState(on=False)))
+        self.assertLess(time.monotonic()-started,0.6)  # one timeout, not one per bulb
+        failed=[r for r in result if not r["ok"]]
+        self.assertEqual([r["light"]["id"] for r in failed],[2])
+        self.assertEqual(failed[0]["error"],"The bulb did not answer in time.")
+        self.assertEqual(sum(r["ok"] for r in result),7)

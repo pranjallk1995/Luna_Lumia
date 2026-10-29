@@ -83,8 +83,8 @@ class LightControlService:
         # so record that too instead of waiting for the next status poll.
         changes_light = any(v is not None for v in (state.brightness, state.color, state.color_temp))
         powered_on = state.on if state.on is not None else (True if changes_light else None)
-        results = []
-        for light in targets:
+
+        async def send(light: Row) -> Exception | None:
             try:
                 await self.adapter.apply(
                     light["ip_address"],
@@ -93,6 +93,16 @@ class LightControlService:
                     color=state.color,
                     color_temp=state.color_temp,
                 )
+            except Exception as error:  # noqa: BLE001 - reported per light below
+                return error
+            return None
+
+        # Every bulb gets its command at once, so an unreachable bulb costs one
+        # timeout in total instead of one for each bulb queued behind it.
+        failures = await asyncio.gather(*(send(light) for light in targets))
+        results = []
+        for light, error in zip(targets, failures):
+            if error is None:
                 saved = self.lights.update_state(
                     light["id"],
                     on=powered_on,
@@ -102,9 +112,14 @@ class LightControlService:
                     reachable=True,
                 )
                 results.append({"light": saved, "ok": True})
-            except Exception as error:
+            else:
                 self.lights.update_state(light["id"], reachable=False)
-                results.append({"light": light, "ok": False, "error": str(error)})
+                message = str(error) or (
+                    "The bulb did not answer in time."
+                    if isinstance(error, (TimeoutError, asyncio.TimeoutError))
+                    else type(error).__name__
+                )
+                results.append({"light": light, "ok": False, "error": message})
         return results
 
     async def poll_statuses(self) -> list[dict[str, Any]]:
