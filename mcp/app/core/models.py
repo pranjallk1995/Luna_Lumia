@@ -401,3 +401,13 @@ class MusicSlot(BaseModel):
 
 class MusicAutomationUpdate(WeatherAutomationUpdate):
     """Whether Lumia follows the music Luna Vibia plays, and on which lights."""
+
+
+class MusicBeatsUpdate(BaseModel):
+    """Whether the lights pulse on the beats, and how; None keeps a setting as it is."""
+
+    enabled: bool
+    # How much later than Vibia's clock the sound is heard (Bluetooth speakers lag).
+    offset_ms: int | None = Field(default=None, ge=-1_000, le=3_000)
+    # Scales every mood's pulse depth: 0 is no pulses, 2 twice as strong.
+    strength: float | None = Field(default=None, ge=0, le=2)

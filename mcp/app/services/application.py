@@ -24,7 +24,7 @@ from app.core.models import (
     WeatherPeriod,
     WeatherReport,
 )
-from app.services.playback import ColorMath, SceneEngine, Step
+from app.services.playback import BeatClock, ColorMath, SceneEngine, Step
 from app.data.repositories import (
     CollectionRepository,
     LightRepository,
@@ -602,6 +602,20 @@ class SceneService:
 
     def playing(self) -> dict[int, int]:
         return self.engine.playing()
+
+    def play_beats(self, target_type: str, target_id: int | None, scene_id: int, clock: BeatClock) -> dict[str, Any]:
+        """Pulse the target lights on a track's beats in a scheme's colors (a solid is one color)."""
+        scene = self.get(scene_id)
+        lights = self.control.resolve_targets(target_type, target_id)
+        if scene["kind"] == "solid":
+            palette = [Step(scene["color"], scene["color_temp"], scene["brightness"], 0, 0, "linear")]
+        else:
+            palette = Step.from_scene(scene, self.transitions.by_id())
+        LOG.info("Pulsing scheme %r on the beats: lights %s", scene["name"], [light["id"] for light in lights])
+        self.engine.play_beats(scene["id"], palette, clock, lights)
+        for light in lights:
+            self.control.lights.update_state(light["id"], on=True)
+        return {"scene": scene["name"], "light_ids": [light["id"] for light in lights], "beats": True}
 
 
 class LocationService:

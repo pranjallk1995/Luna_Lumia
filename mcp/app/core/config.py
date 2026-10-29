@@ -34,8 +34,8 @@ class AppConfig:
     # Luna Vibia, whose playing track picks the music scheme ("" token = music off).
     vibia_api_url: str = "http://luna-vibia-mcp:8000"
     vibia_api_token: str = ""
-    # Checks for a new track this often, so the lights change soon after it starts.
-    music_interval_seconds: float = 5.0
+    # Checks for a new track this often, so the lights (and beat pulses) change soon after it starts.
+    music_interval_seconds: float = 2.0
     LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
     @classmethod

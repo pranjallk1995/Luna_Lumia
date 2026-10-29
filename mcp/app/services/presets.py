@@ -162,7 +162,14 @@ MUSIC_SEQUENCES: dict[str, tuple[bool, tuple]] = {
 
 
 class MusicPresets:
-    """Names of the built-in music schemes."""
+    """Names of the built-in music schemes, and how hard each mood pulses on the beats."""
+
+    # 0-1: how far a full-strength beat lifts the brightness. Sleep and focus keep
+    # their smooth schemes; the livelier the mood, the harder the lights hit.
+    BEAT_DEPTH = {
+        "sleep": 0.0, "focus": 0.0, "calm": 0.15, "melancholic": 0.2,
+        "romantic": 0.25, "cozy": 0.3, "upbeat": 0.55, "energetic": 0.85,
+    }
 
     @staticmethod
     def name(mood: str) -> str:

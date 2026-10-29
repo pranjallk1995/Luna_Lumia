@@ -1,12 +1,14 @@
 import asyncio
+import time
 import unittest
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 
-from app.core.models import MUSIC_MOODS, MusicAutomationUpdate, MusicSlot
+from app.core.models import MUSIC_MOODS, MusicAutomationUpdate, MusicBeatsUpdate, MusicSlot
 from app.integrations.vibia import VibiaPlayback, VibiaUnavailableError
 from app.services.music import MusicMoods, MusicService
+from app.services.playback import BeatClock, SceneEngine, Step
 from app.services.presets import MUSIC_SEQUENCES, MUSIC_SOLIDS, MusicPresets
 from app.services.workers import WeatherWorker
 from app.transport.mcp_tools import LumiaMCPTools
@@ -28,12 +30,29 @@ SUNSHINE = {"name": "Cafe_Sunshine_Soul.mp3", "tags": ["soul-pop", "happy", "caf
 
 
 class FakeVibia:
-    def __init__(self): self.playing = None
+    def __init__(self): self.playing, self.started_at, self.beat_requests = None, 1_000.0, []
 
     def status(self):
         if self.playing is None:
             return {"status": "idle"}
-        return {"status": "playing", "now_playing": self.playing["name"], "track": self.playing}
+        return {"status": "playing", "now_playing": self.playing["name"], "track": self.playing,
+                "started_at": self.started_at}
+
+    def beats(self, name):
+        self.beat_requests.append(name)
+        return {"name": name, "duration_seconds": 10.0, "beats": [0.5, 1.0, 1.5, 2.0], "strengths": [1, 0.2, 0.6, 1]}
+
+
+class FakeMusicAutomation(FakeAutomation):
+    def __init__(self):
+        super().__init__()
+        self.beat_row = {"enabled": False, "offset_ms": 300, "strength": 1.0}
+
+    def beats(self): return dict(self.beat_row)
+
+    def save_beats(self, enabled, offset_ms, strength):
+        self.beat_row = {"enabled": enabled, "offset_ms": offset_ms, "strength": strength}
+        return dict(self.beat_row)
 
 
 class FakeMusicSlots:
@@ -62,9 +81,14 @@ class FakeSceneRepository:
     def list(self): return self.rows
 
 
+class FakeControl:
+    def resolve_targets(self, target_type, target_id): return [{"id": 1}]
+
+
 class FakeScenes:
     def __init__(self):
         self.scenes = FakeSceneRepository()
+        self.control = FakeControl()
         self.applied = []
 
     def get(self, scene_id):
@@ -76,6 +100,9 @@ class FakeScenes:
         self.applied.append((target_type, target_id, scene_id))
         return {"scene": scene_id, "target_type": target_type}
 
+    def play_beats(self, target_type, target_id, scene_id, clock):
+        self.applied.append(("beats", target_type, scene_id, clock))
+
 
 class FakeWeather:
     def __init__(self): self.reapplied, self.followed = 0, 0
@@ -85,7 +112,7 @@ class FakeWeather:
 
 def music_service():
     scenes = FakeScenes()
-    return MusicService(FakeVibia(), FakeMusicSlots(scenes.scenes), FakeAutomation(), scenes, FakeWeather())
+    return MusicService(FakeVibia(), FakeMusicSlots(scenes.scenes), FakeMusicAutomation(), scenes, FakeWeather())
 
 
 class MusicMoodTests(unittest.TestCase):
@@ -209,6 +236,133 @@ class MusicServiceTests(unittest.TestCase):
             service.current()
 
 
+BLUE, AMBER = Step("#0000FF", None, 60, 0, 0, "linear"), Step("#FFB000", None, 60, 0, 0, "linear")
+
+
+def clock(depth=0.5, beats=(1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0), strengths=None):
+    return BeatClock(
+        beats=beats, strengths=strengths or tuple(1.0 for _ in beats), started_at=100.0,
+        offset_s=0.3, depth=depth, duration_s=10.0,
+    )
+
+
+class BeatClockTests(unittest.TestCase):
+    def test_position_follows_the_track_start_and_the_speaker_lag(self):
+        self.assertAlmostEqual(clock().position(now=112.3), 12.0)
+
+    def test_each_beat_lifts_the_brightness_and_lets_it_fall(self):
+        beat, pulses = clock(), clock().pulse_beats()
+        before, on, after = (beat.state([BLUE], t, pulses)["brightness"] for t in (0.9, 1.0, 1.3))
+        self.assertLess(before, on)
+        self.assertLess(after, on)
+        self.assertGreater(on, 60)
+        self.assertLess(before, 60)  # between beats it rests below the scheme's level
+
+    def test_strong_beats_hit_harder(self):
+        beat = clock(strengths=(1.0, 0.1, 1.0, 0.1, 1.0, 0.1, 1.0, 0.1, 1.0))
+        pulses = beat.pulse_beats()
+        self.assertGreater(beat.state([BLUE], 1.0, pulses)["brightness"], beat.state([BLUE], 1.5, pulses)["brightness"])
+
+    def test_no_depth_keeps_the_scheme_steady(self):
+        beat = clock(depth=0)
+        self.assertEqual({beat.state([BLUE], t, beat.pulse_beats())["brightness"] for t in (0.5, 1.0, 1.2)}, {60})
+
+    def test_double_time_beats_pulse_every_other_one(self):
+        fast = clock(beats=tuple(1.0 + i * 0.3 for i in range(10)))
+        self.assertEqual(fast.pulse_beats(), (0, 2, 4, 6, 8))
+        self.assertEqual(clock().pulse_beats(), tuple(range(9)))
+
+    def test_colors_move_on_every_bar(self):
+        beat = clock(depth=0.9)  # lively: a quick crossfade
+        pulses = beat.pulse_beats()
+        self.assertEqual(beat.state([BLUE, AMBER], 1.2, pulses)["color"], "#0000FF")
+        self.assertEqual(beat.state([BLUE, AMBER], 3.4, pulses)["color"], "#FFB000")
+
+    def test_waits_land_on_the_next_beat(self):
+        beat = clock()
+        self.assertAlmostEqual(beat.next_wait(0.95, beat.pulse_beats()), 0.05)
+        self.assertAlmostEqual(beat.next_wait(1.0, beat.pulse_beats()), 0.12)
+
+
+class BeatEngineTests(unittest.TestCase):
+    def test_a_stalled_bulb_does_not_hold_back_the_others(self):
+        sent = {"fast": 0, "slow": 0}
+
+        async def send(ip, **state):
+            sent[ip] += 1
+            if ip == "slow":
+                await asyncio.sleep(5)
+
+        engine = SceneEngine(send)
+        engine.start()
+        try:
+            beats = tuple(i * 0.2 for i in range(60))
+            beat = BeatClock(beats, tuple(1.0 for _ in beats), time.time(), 0, 0.8, 30)
+            engine.play_beats(7, [BLUE, AMBER], beat, [{"id": 1, "ip_address": "fast"}, {"id": 2, "ip_address": "slow"}])
+            self.assertTrue(engine.beats_playing())
+            time.sleep(1.2)
+            self.assertEqual(engine.playing(), {1: 7, 2: 7})
+            engine.stop([1, 2])
+            self.assertFalse(engine.beats_playing())
+        finally:
+            engine.close()
+        self.assertGreater(sent["fast"], 6)
+        # It skips frames while a send is pending, and is retried once each send times out.
+        self.assertLess(sent["slow"], sent["fast"] / 2)
+
+
+class MusicBeatTests(unittest.TestCase):
+    def setUp(self):
+        self.service = music_service()
+        self.service.set_automation(MusicAutomationUpdate(enabled=True, target_type="group", target_id=4))
+        self.service.set_beats(MusicBeatsUpdate(enabled=True, offset_ms=450))
+
+    def pulses(self):
+        return [entry for entry in self.service.scenes.applied if entry[0] == "beats"]
+
+    def test_lively_music_pulses_on_its_beats(self):
+        self.service.vibia.playing = SUNSHINE
+        self.service.follow()
+        self.service.follow()
+        (_, target_type, scene_id, beat), = self.pulses()
+        self.assertEqual((target_type, scene_id), ("group", self.service.slot("upbeat")["scheme"]["id"]))
+        self.assertEqual((beat.started_at, beat.offset_s, beat.depth), (1_000.0, 0.45, 0.55))
+        self.assertEqual(beat.beats, (0.5, 1.0, 1.5, 2.0))
+        self.assertTrue(self.service.holds_lights())
+
+    def test_sleep_music_never_pulses(self):
+        self.service.vibia.playing = MIDNIGHT_WHISPERS
+        self.service.follow()
+        self.assertEqual(self.pulses(), [])
+        self.assertEqual(self.service.scenes.applied[-1][2], self.service.slot("sleep")["scheme"]["id"])
+
+    def test_a_resumed_track_restarts_the_pulses_and_beat_maps_are_kept(self):
+        self.service.vibia.playing = SUNSHINE
+        self.service.follow()
+        self.service.vibia.started_at += 0.1  # jitter: same clock
+        self.service.follow()
+        self.service.vibia.started_at += 3  # moved to another speaker
+        self.service.follow()
+        self.assertEqual(len(self.pulses()), 2)
+        self.assertEqual(self.service.vibia.beat_requests, [SUNSHINE["name"]])
+
+    def test_pulses_end_with_the_scheme_when_music_stops_or_beats_turn_off(self):
+        upbeat = self.service.slot("upbeat")["scheme"]["id"]
+        self.service.vibia.playing = SUNSHINE
+        self.service.follow()
+        self.service.set_beats(MusicBeatsUpdate(enabled=False))
+        self.assertTrue(self.service.holds_lights())  # the weather does not jump in
+        self.service.follow()
+        self.assertEqual(self.service.scenes.applied[-1], ("group", 4, upbeat))
+        self.service.set_beats(MusicBeatsUpdate(enabled=True, strength=2))
+        self.service.follow()
+        self.assertEqual(self.pulses()[-1][3].depth, 1.0)  # 0.55 x 2, capped
+        self.service.vibia.playing = None
+        self.service.follow()
+        self.assertEqual(self.service.scenes.applied[-1], ("group", 4, upbeat))
+        self.assertFalse(self.service.holds_lights())
+
+
 class MusicToolTests(unittest.TestCase):
     def setUp(self):
         self.music = music_service()
@@ -222,7 +376,7 @@ class MusicToolTests(unittest.TestCase):
     def test_music_tools_are_registered(self):
         expected = {
             "get_music", "list_music_schemes", "set_music_scheme", "reset_music_schemes",
-            "apply_music_scheme", "set_music_automation",
+            "apply_music_scheme", "set_music_automation", "set_music_beats",
         }
         self.assertTrue(expected.issubset(self.server.tools))
 

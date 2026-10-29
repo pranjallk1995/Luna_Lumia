@@ -1,12 +1,15 @@
 """Animate sequence schemes on lights: fades between steps, holds, and loops.
 
 WiZ bulbs only accept static states, so a sequence is played by sending
-interpolated frames from a dedicated event-loop thread.
+interpolated frames from a dedicated event-loop thread. The same thread plays
+beat pulses: frames computed from where a track is, by the clock, so they
+follow the music without drifting.
 """
 
 from __future__ import annotations
 
 import asyncio
+import bisect
 import math
 import threading
 import time
@@ -126,6 +129,69 @@ class Step:
         return {"brightness": self.brightness, "color_temp": self.color_temp}
 
 
+@dataclass(frozen=True)
+class BeatClock:
+    """Where a playing track is, and the light state for that moment.
+
+    Each beat (or every other one, when they come faster than ``MIN_BEAT_S``,
+    which usually means the tempo was read double) lifts the brightness by up to
+    ``depth`` of the way to full, scaled by how strongly the beat hits, and lets it
+    fall away before the next. The palette (a scheme's steps) moves on every bar
+    of four beats, crossfading quickly for lively music and slowly for calm.
+    """
+
+    MIN_BEAT_S = 0.4
+    BAR = 4
+
+    beats: tuple[float, ...]
+    strengths: tuple[float, ...]
+    started_at: float  # Unix time of the track's second 0
+    offset_s: float  # how much later the sound is heard
+    depth: float  # 0-1: how far a full-strength beat lifts the brightness
+    duration_s: float
+
+    def position(self, now: float | None = None) -> float:
+        return (time.time() if now is None else now) - self.started_at - self.offset_s
+
+    def pulse_beats(self) -> tuple[int, ...]:
+        if len(self.beats) < 2:
+            return tuple(range(len(self.beats)))
+        intervals = sorted(b - a for a, b in zip(self.beats, self.beats[1:]))
+        step = 2 if intervals[len(intervals) // 2] < self.MIN_BEAT_S else 1
+        return tuple(range(0, len(self.beats), step))
+
+    def state(self, palette: list[Step], position: float, pulses: tuple[int, ...]) -> dict[str, Any]:
+        times = [self.beats[i] for i in pulses]
+        index = bisect.bisect_right(times, position) - 1
+        bar = max(index, 0) // self.BAR
+        color = palette[bar % len(palette)]
+        if index >= 0 and len(palette) > 1:
+            bar_start = times[bar * self.BAR]
+            fade_s = 0.15 if self.depth > 0.6 else 1.5
+            mix = min(1.0, (position - bar_start) / fade_s)
+            state = color.blend(palette[(bar - 1) % len(palette)], ColorMath.ease("ease-in-out", mix))
+        else:
+            state = dict(color.state)
+        base = state["brightness"]
+        low = base * (1 - 0.5 * self.depth)
+        lift = 0.0
+        if index >= 0 and position <= self.duration_s:
+            beat = pulses[index]
+            following = times[index + 1] if index + 1 < len(times) else times[index] + 0.5
+            decay_s = max(0.08, 0.35 * (following - times[index]))
+            strength = self.strengths[beat] if beat < len(self.strengths) else 0.5
+            lift = self.depth * (0.4 + 0.6 * strength) * math.exp(-(position - times[index]) / decay_s)
+        state["brightness"] = max(1, min(100, round(low + (100 - low) * lift)))
+        return state
+
+    def next_wait(self, position: float, pulses: tuple[int, ...]) -> float:
+        """Sleep a frame, or less to land exactly on the next pulse."""
+        times = [self.beats[i] for i in pulses]
+        index = bisect.bisect_right(times, position)
+        until_beat = times[index] - position if index < len(times) else math.inf
+        return max(0.005, min(AppConfig.PLAYBACK_FRAME_SECONDS, until_beat))
+
+
 @dataclass
 class Playback:
     scene_id: int
@@ -133,6 +199,7 @@ class Playback:
     loops: bool
     lights: dict[int, str]  # light id -> IP address
     task: asyncio.Task | None = field(default=None, repr=False)
+    clock: BeatClock | None = None
 
 
 class SceneEngine:
@@ -165,6 +232,15 @@ class SceneEngine:
         targets = {light["id"]: light["ip_address"] for light in lights}
         self._call(self._play(Playback(scene_id, steps, loops, targets)))
 
+    def play_beats(self, scene_id: int, palette: list[Step], clock: BeatClock, lights: list[Row]) -> None:
+        """Pulse ``lights`` on the beats of a playing track, in the palette's colors."""
+        targets = {light["id"]: light["ip_address"] for light in lights}
+        self._call(self._play(Playback(scene_id, palette, True, targets, clock=clock)))
+
+    def beats_playing(self) -> bool:
+        with self._lock:
+            return any(playback.clock is not None for playback in self.playbacks.values())
+
     def stop(self, light_ids: list[int]) -> None:
         if light_ids:
             self._call(self._stop(light_ids))
@@ -179,7 +255,8 @@ class SceneEngine:
         with self._lock:
             for light_id in playback.lights:
                 self.playbacks[light_id] = playback
-        playback.task = self.loop.create_task(self._run(playback))
+        runner = self._run_beats if playback.clock else self._run
+        playback.task = self.loop.create_task(runner(playback))
 
     async def _stop(self, light_ids: list[int]) -> None:
         with self._lock:
@@ -213,6 +290,39 @@ class SceneEngine:
             await self._frame(playback, state)
             # Anchor to the start time so slow sends do not stretch the fade.
             await asyncio.sleep(max(0.0, started + step.fade_s * frame / frames - time.monotonic()))
+
+    async def _run_beats(self, playback: Playback) -> None:
+        """Send each light the state for the track's position, each light on its own.
+
+        Bulbs answer in a few milliseconds but now and then stall for hundreds; a
+        light whose last frame has not been answered skips frames instead of
+        holding the others back or falling behind the music.
+        """
+        clock, palette = playback.clock, playback.steps
+        pulses = clock.pulse_beats()
+        sending: dict[str, asyncio.Task] = {}
+        sent: dict[str, dict[str, Any]] = {}
+        try:
+            while playback.lights:
+                position = clock.position()
+                state = clock.state(palette, position, pulses)
+                for ip in list(playback.lights.values()):
+                    busy = sending.get(ip)
+                    if (busy and not busy.done()) or sent.get(ip) == state:
+                        continue
+                    sent[ip] = state
+                    sending[ip] = self.loop.create_task(
+                        asyncio.wait_for(self.send(ip, **state), AppConfig.PLAYBACK_SEND_TIMEOUT_SECONDS)
+                    )
+                    sending[ip].add_done_callback(lambda task: task.cancelled() or task.exception())
+                await asyncio.sleep(clock.next_wait(position, pulses))
+        finally:
+            for task in sending.values():
+                task.cancel()
+            with self._lock:
+                for light_id in list(playback.lights):
+                    if self.playbacks.get(light_id) is playback:
+                        del self.playbacks[light_id]
 
     async def _run(self, playback: Playback) -> None:
         previous, index = None, 0

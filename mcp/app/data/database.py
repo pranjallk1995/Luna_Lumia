@@ -145,6 +145,10 @@ CREATE TABLE IF NOT EXISTS music_automation (
  last_applied TEXT,
  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- Beat pulses on top of the music schemes, timed to Vibia's playback clock.
+ALTER TABLE music_automation ADD COLUMN IF NOT EXISTS beats BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE music_automation ADD COLUMN IF NOT EXISTS beat_offset_ms INTEGER NOT NULL DEFAULT 300;
+ALTER TABLE music_automation ADD COLUMN IF NOT EXISTS beat_strength REAL NOT NULL DEFAULT 1;
 """
 
 

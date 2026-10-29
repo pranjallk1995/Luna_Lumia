@@ -5,14 +5,26 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 
-from app.core.models import MusicAutomationUpdate
+from app.core.models import MusicAutomationUpdate, MusicBeatsUpdate
 from app.data.repositories import MusicAutomationRepository, MusicSchemeRepository, Row
 from app.integrations.vibia import VibiaPlayback, VibiaUnavailableError
 from app.services.application import SceneService, WeatherService
+from app.services.playback import BeatClock
 from app.services.presets import MusicPresets
 
 LOG = logging.getLogger("uvicorn.error")
+
+
+def run_sync(coroutine):
+    """Run a coroutine to completion from sync code, called inside an event loop or not."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coroutine)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coroutine).result()
 
 
 class MusicMoods:
@@ -77,7 +89,13 @@ class MusicService:
     the automation is on and music plays, it applies the mood's scheme once each
     time the mood (or its scheme) changes, and weather automation waits; when the
     music stops, the lights are left as they are and the weather takes over again.
+
+    With beats on, moods that pulse (see ``MusicPresets.BEAT_DEPTH``) play their
+    scheme's colors as pulses on each track's beats instead, timed by Vibia's
+    playback clock; when the music stops the pulses end and the scheme plays on.
     """
+
+    BEAT_MAPS_KEPT = 32
 
     def __init__(
         self,
@@ -92,6 +110,9 @@ class MusicService:
         self.automation_settings = automation
         self.scenes = scenes
         self.weather = weather
+        self._beat_maps: dict[str, Row] = {}
+        # The beat pulses playing now: their key, track start, scheme, and target.
+        self._pulsing: Row | None = None
 
     # Moods and their schemes
 
@@ -157,8 +178,10 @@ class MusicService:
             "track": track["name"],
             "title": track.get("title"),
             "tags": track.get("tags"),
+            "started_at": status.get("started_at"),
             **mood,
             "scheme": self.slot(mood["mood"])["scheme"],
+            "beat_depth": MusicPresets.BEAT_DEPTH[mood["mood"]],
         }
 
     def now(self) -> Row:
@@ -167,7 +190,7 @@ class MusicService:
             music = self.current()
         except VibiaUnavailableError as error:
             music = {"playing": False, "error": str(error)}
-        return {"music": music, "automation": self.automation()}
+        return {"music": music, "automation": self.automation(), "beats": self.beat_settings()}
 
     async def apply_current(
         self, target_type: str = "all", target_id: int | None = None, mood: str | None = None
@@ -194,9 +217,26 @@ class MusicService:
     def set_automation(self, entry: MusicAutomationUpdate) -> Row:
         if entry.target_type in ("light", "group"):
             self.scenes.control.resolve_targets(entry.target_type, entry.target_id)
+        self._end_pulses()
         saved = self.automation_settings.save(entry)
         if not entry.enabled:
             self.weather.reapply()
+        return {**saved, **self.now()}
+
+    def beat_settings(self) -> Row:
+        return self.automation_settings.beats()
+
+    def set_beats(self, entry: MusicBeatsUpdate) -> Row:
+        """Turn beat pulses on or off, or change their timing or strength."""
+        current = self.beat_settings()
+        saved = self.automation_settings.save_beats(
+            entry.enabled,
+            current["offset_ms"] if entry.offset_ms is None else entry.offset_ms,
+            current["strength"] if entry.strength is None else entry.strength,
+        )
+        if self.automation()["last_applied"]:
+            # Re-apply on the next tick, without letting the weather in meanwhile.
+            self.automation_settings.mark_applied("beat settings changed")
         return {**saved, **self.now()}
 
     def holds_lights(self) -> bool:
@@ -216,14 +256,63 @@ class MusicService:
         if not music["playing"]:
             if settings["last_applied"]:
                 # The music stopped: leave the lights, and let the weather decide again.
+                self._end_pulses()
                 self.automation_settings.mark_applied(None)
                 self.weather.reapply()
             return
         if music["scheme"] is None:
             return
+        beats = self.beat_settings()
+        depth = min(1.0, music["beat_depth"] * beats["strength"])
+        if beats["enabled"] and depth > 0 and music.get("started_at"):
+            self._follow_beats(settings, music, beats, depth)
+            return
         key = f'{music["mood"]}|{music["scheme"]["id"]}'
         if key == settings["last_applied"]:
             return
+        self._pulsing = None
         LOG.info("Music %r is %s; applying %r", music["track"], music["mood"], music["scheme"]["name"])
         asyncio.run(self.scenes.apply(settings["target_type"], settings["target_id"], music["scheme"]["id"]))
         self.automation_settings.mark_applied(key)
+
+    def beat_map(self, name: str) -> Row:
+        """A track's beat map from Vibia, kept for the tracks played most recently."""
+        if name not in self._beat_maps:
+            if len(self._beat_maps) >= self.BEAT_MAPS_KEPT:
+                self._beat_maps.pop(next(iter(self._beat_maps)))
+            self._beat_maps[name] = self.vibia.beats(name)
+        return self._beat_maps[name]
+
+    def _follow_beats(self, settings: Row, music: Row, beats: Row, depth: float) -> None:
+        """Start pulses for a new track, scheme, or setting, or when the track restarted
+        or moved (a speaker switch resumes it with a new start time)."""
+        key = f'beats|{music["track"]}|{music["scheme"]["id"]}|{beats["offset_ms"]}|{depth:.2f}'
+        pulsing = self._pulsing
+        if (
+            pulsing and pulsing["key"] == key and key == settings["last_applied"]
+            and abs(pulsing["started_at"] - music["started_at"]) < 0.25
+        ):
+            return
+        try:
+            beat_map = self.beat_map(music["track"])
+        except VibiaUnavailableError:
+            return
+        clock = BeatClock(
+            beats=tuple(beat_map["beats"]),
+            strengths=tuple(beat_map["strengths"]),
+            started_at=music["started_at"],
+            offset_s=beats["offset_ms"] / 1000,
+            depth=depth,
+            duration_s=beat_map.get("duration_seconds") or (beat_map["beats"][-1] + 1 if beat_map["beats"] else 0),
+        )
+        target = (settings["target_type"], settings["target_id"])
+        LOG.info("Music %r is %s; pulsing %r on its beats", music["track"], music["mood"], music["scheme"]["name"])
+        self.scenes.play_beats(*target, music["scheme"]["id"], clock)
+        self._pulsing = {"key": key, "started_at": music["started_at"], "scheme_id": music["scheme"]["id"], "target": target}
+        self.automation_settings.mark_applied(key)
+
+    def _end_pulses(self) -> None:
+        """Replace any beat pulses with their scheme, so the lights do not stop mid-pulse."""
+        pulsing, self._pulsing = self._pulsing, None
+        if pulsing:
+            run_sync(self.scenes.apply(*pulsing["target"], pulsing["scheme_id"]))

@@ -86,6 +86,19 @@ Built-in solids: Focus, Daylight, Reading, Bedtime, Warm evening, Night light. B
   weather takes over again.
 - Vibia's `energy` and tempo are not used: energy measures loudness and reads high
   even for quiet music, and the tempo of slow pieces is often doubled.
+- **Beat pulses** (optional, with the automation): the lights move with the music in
+  real time. Vibia works out each track's beat times and strengths once (from the
+  whole track) and reports when the playing track started; Lumia plays the mood
+  scheme's colors as a pulse on every beat (brightness jumps, then falls away
+  before the next), timed by that clock rather than by listening, so it never
+  drifts. Colors move on every bar of four beats.
+- How hard the lights pulse depends on the mood: energetic and upbeat strongly,
+  cozy and romantic gently, calm and melancholic barely; **sleep and focus never
+  pulse** and keep their smooth schemes. A strength setting (0-2) scales them all.
+- An offset (default 300 ms) delays the pulses to match a Bluetooth speaker's lag;
+  if the lights flash before the beat, raise it. Bulbs usually answer in a few
+  milliseconds but sometimes stall for hundreds, so each bulb is sent its frames
+  on its own: a stalled bulb skips a pulse rather than delaying the others.
 
 ### Schedules and alarms
 
@@ -115,8 +128,8 @@ Visia image URLs that other apps use: food images for Vita, room images for
 Lumia, and cover art for Vibia. Grey dashed lines are planned: links into Fiora
 (tax details from Lexia, transaction image and icon URLs from Visia). Luna Unia
 is the one home for all of them, on port 42069: it checks which Luna stacks are
-running and opens each one with the shared sign-in. The purple line is the mood of
-the track Vibia plays, which Lumia's music schemes follow.
+running and opens each one with the shared sign-in. The purple line is the mood and
+beats of the track Vibia plays, which Lumia's lights follow.
 
 | Component | Technology | Purpose |
 | --- | --- | --- |
@@ -324,10 +337,11 @@ mapped to them.
 - `get_music` - what Luna Vibia plays, its mood, the words that decided it, and the scheme for it
 - `list_music_schemes`, `set_music_scheme`, `reset_music_schemes`
 - `apply_music_scheme`, `set_music_automation`
+- `set_music_beats` - pulse on the beats (`enabled`), with `offset_ms` for the speaker's lag and `strength`
 
 A typical flow: play a playlist with Vibia's `play_tracks`, then call
 `set_music_automation` so the lights follow each track (or `apply_music_scheme`
-once). `apply_music_scheme` with `mood` (e.g. `sleep`) lights for a mood even
+once), and `set_music_beats` for pulses on the beats. `apply_music_scheme` with `mood` (e.g. `sleep`) lights for a mood even
 when nothing plays. To give a mood a new look, create a scheme and assign it
 with `set_music_scheme`.
 
@@ -381,7 +395,8 @@ target, and the last weather it applied.
 
 `music_schemes` maps each music mood to a scheme; a mood whose scheme is deleted
 falls back to its built-in. `music_automation` is a singleton like
-`weather_automation`; its last applied mood is cleared when the music stops.
+`weather_automation`; its last applied mood is cleared when the music stops. Its
+`beats`, `beat_offset_ms`, and `beat_strength` columns hold the beat-pulse settings.
 
 The idempotent schema in `mcp/app/data/database.py` applies additive upgrades at
 startup.
@@ -494,7 +509,7 @@ and conversational clients.
 - `mcp/app/services/application.py` - `LumiaService` facade for inventory,
   control, rooms/groups, images, schemes, transitions, and schedules.
 - `mcp/app/services/playback.py` - active sequence tasks, timing, interpolation,
-  looping, and cancellation.
+  looping, and cancellation, plus beat pulses timed by a track's clock.
 - `mcp/app/services/presets.py` - idempotent installation of built-in schemes and
   transitions.
 - `mcp/app/services/music.py` - reading a track's mood from Luna Vibia's tags and

@@ -476,9 +476,25 @@ class WeatherAutomationRepository(Repository):
 
 
 class MusicAutomationRepository(WeatherAutomationRepository):
-    """The single music-automation setting."""
+    """The single music-automation setting, with its beat-pulse settings."""
 
     TABLE = "music_automation"
+    BEATS: Row = {"enabled": False, "offset_ms": 300, "strength": 1.0}
+
+    def beats(self) -> Row:
+        row = self.fetch_one(
+            "SELECT beats enabled, beat_offset_ms offset_ms, beat_strength strength FROM music_automation WHERE id=1"
+        )
+        return row or dict(self.BEATS)
+
+    def save_beats(self, enabled: bool, offset_ms: int, strength: float) -> Row:
+        return self.fetch_one(
+            """INSERT INTO music_automation(id,beats,beat_offset_ms,beat_strength) VALUES(1,%s,%s,%s)
+            ON CONFLICT (id) DO UPDATE SET beats=EXCLUDED.beats, beat_offset_ms=EXCLUDED.beat_offset_ms,
+                beat_strength=EXCLUDED.beat_strength, updated_at=NOW()
+            RETURNING beats enabled, beat_offset_ms offset_ms, beat_strength strength""",
+            (enabled, offset_ms, strength),
+        )
 
 
 class MusicSchemeRepository(Repository):

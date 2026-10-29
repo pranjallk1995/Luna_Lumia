@@ -12,6 +12,7 @@ from app.core.models import (
     LightState,
     LocationUpdate,
     MusicAutomationUpdate,
+    MusicBeatsUpdate,
     MusicSlot,
     RoomImageUpdate,
     SceneCreate,
@@ -544,7 +545,8 @@ class LumiaMCPTools:
 
             The mood comes from the track's tags, then its caption, checked in order:
             sleep, energetic, romantic, upbeat, melancholic, cozy, focus, then calm (also
-            the fallback); "matched" lists the words that decided it.
+            the fallback); "matched" lists the words that decided it, and "beat_depth"
+            how hard that mood pulses when beats are on (see set_music_beats).
             """
             return music().now()
 
@@ -599,3 +601,19 @@ class LumiaMCPTools:
             return music().set_automation(
                 MusicAutomationUpdate(enabled=enabled, target_type=target_type, target_id=target_id)
             )
+
+        @server.tool()
+        def set_music_beats(enabled: bool, offset_ms: int | None = None, strength: float | None = None):
+            """Pulse the lights on the beats of the music, in real time, while set_music_automation
+            follows the music. Use it when the user wants the lights to move with the music.
+
+            Each beat lifts the brightness and lets it fall before the next, in the colors
+            of the mood's scheme, which move on every bar. How hard depends on the mood:
+            energetic and upbeat music pulses strongly, cozy and romantic gently, calm and
+            melancholic barely; sleep and focus never pulse and keep their smooth schemes.
+            strength (0-2, default 1) scales every mood's pulse. offset_ms (-1000 to 3000,
+            default 300) is how late the sound is heard after Vibia plays it, as Bluetooth
+            speakers lag: if the lights flash before the beat, raise it; after, lower it.
+            Settings not given stay as they are.
+            """
+            return music().set_beats(MusicBeatsUpdate(enabled=enabled, offset_ms=offset_ms, strength=strength))
