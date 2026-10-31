@@ -1,7 +1,7 @@
-"""Schedules tab: recurring schedules and alarms at a time, sunrise, or sunset."""
+"""Schedules tab: recurring or one-time schedules and alarms at a time, sunrise, or sunset."""
 
 import html
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 
 import streamlit as st
 
@@ -11,6 +11,7 @@ from views.schemes_tab import FormFeedback, TransitionManager
 
 WHEN_OPTIONS = {"time": "At a time", "sunrise": "Sunrise", "sunset": "Sunset"}
 WHEN_ICONS = {"time": ":material/schedule:", "sunrise": ":material/wb_twilight:", "sunset": ":material/routine:"}
+REPEAT_OPTIONS = {"weekly": ":material/repeat: Repeat", "once": ":material/event: Once"}
 
 
 class ScheduleTime:
@@ -40,18 +41,33 @@ class ScheduleTime:
         return schedule.get("today_time") or "--:--"
 
     @classmethod
-    def sun_label(cls, schedule: Item, has_location: bool) -> str | None:
-        """How a sunrise/sunset schedule is anchored; None for a fixed time."""
+    def anchor(cls, schedule: Item, has_location: bool) -> str:
+        """How the schedule is anchored: a fixed time, or sunrise/sunset plus its offset."""
         mode = schedule.get("time_mode", "time")
         if mode == "time":
-            return None
+            return WHEN_OPTIONS[mode]
         label = f'{WHEN_OPTIONS[mode]}{cls.offset(schedule.get("offset_minutes", 0))}'
         if not has_location:
             return f"{label} · set a location"
-        return label if schedule.get("today_time") else f"{label} · no {mode} today"
+        day = "that day" if schedule.get("run_date") else "today"
+        return label if schedule.get("today_time") else f"{label} · no {mode} {day}"
 
     @staticmethod
-    def days(weekdays: list[int], names: tuple[str, ...]) -> str:
+    def finished(schedule: Item) -> bool:
+        """A one-time schedule that has already run."""
+        run_date, last_run = schedule.get("run_date"), schedule.get("last_run_date")
+        return bool(run_date and last_run and last_run >= run_date)
+
+    @classmethod
+    def days(cls, schedule: Item, names: tuple[str, ...]) -> str:
+        """Its repeat days, or the date of a one-time schedule."""
+        if schedule.get("run_date"):
+            day = date.fromisoformat(schedule["run_date"])
+            return f"{names[day.weekday()]}, {day.day} {day:%b %Y}"
+        return cls.weekdays(schedule["weekdays"], names)
+
+    @staticmethod
+    def weekdays(weekdays: list[int], names: tuple[str, ...]) -> str:
         if len(weekdays) == 7:
             return "Every day"
         if weekdays == [0, 1, 2, 3, 4]:
@@ -127,7 +143,7 @@ class ScheduleForm(LumiaTab):
         """Seed the edit widgets from ``schedule``."""
         targets = {value: label for label, value in self.dashboard.target_options().items()}
         target = targets.get((schedule["target_type"], schedule.get("target_id")), "All lights")
-        run_time = schedule.get("run_time")
+        run_time, run_date = schedule.get("run_time"), schedule.get("run_date")
         st.session_state.update({
             self.k("name"): schedule["name"],
             self.k("kind"): schedule["kind"],
@@ -136,7 +152,9 @@ class ScheduleForm(LumiaTab):
             self.k("offset"): schedule.get("offset_minutes", 0),
             self.k("target"): target,
             self.k("action"): schedule["action"],
-            self.k("days"): list(schedule["weekdays"]),
+            self.k("repeat"): "once" if run_date else "weekly",
+            self.k("days"): list(range(7)) if run_date else list(schedule["weekdays"]),
+            self.k("date"): date.fromisoformat(run_date) if run_date else date.today(),
         })
         if schedule.get("scene_id") in {scheme["id"] for scheme in self.dashboard.scenes}:
             st.session_state[self.k("scene")] = schedule["scene_id"]
@@ -149,7 +167,9 @@ class ScheduleForm(LumiaTab):
         state.setdefault(self.k("when"), "time")
         state.setdefault(self.k("time"), time(7, 0))
         state.setdefault(self.k("offset"), 0)
+        state.setdefault(self.k("repeat"), "weekly")
         state.setdefault(self.k("days"), list(range(7)))
+        state.setdefault(self.k("date"), date.today())
         name_column, kind_column = st.columns([2, 1])
         name_column.text_input("Name :red[*]", placeholder="Wake up", key=self.k("name"), max_chars=100)
         kind_column.selectbox("Type", ["schedule", "alarm"], format_func=str.title, key=self.k("kind"))
@@ -170,12 +190,33 @@ class ScheduleForm(LumiaTab):
         if action == "scene":
             names = {scheme["id"]: scheme["name"] for scheme in self.dashboard.scenes}
             st.selectbox("Color scheme", list(names), format_func=names.__getitem__, key=self.k("scene"))
-        st.multiselect("Repeat on", list(range(7)), format_func=self.day_name, key=self.k("days"))
+        self._render_repeat()
         st.button(
             "Save changes" if self.editing else "Save schedule", icon=":material/save:",
             use_container_width=True, key=self.k("save"), on_click=self.save, args=(targets,),
         )
         FormFeedback.show(self.k("error"))
+
+    def _render_repeat(self) -> None:
+        # Days and date are conditional widgets too, kept in plain keys like the time.
+        state = st.session_state
+        repeat_column, days_column = st.columns([1, 2], vertical_alignment="bottom")
+        repeat = repeat_column.segmented_control(
+            "Repeat", list(REPEAT_OPTIONS), format_func=REPEAT_OPTIONS.__getitem__,
+            key=self.k("repeat"), width="stretch",
+        ) or "weekly"
+        if repeat == "weekly":
+            state[self.k("days")] = days_column.multiselect(
+                "Repeat on", list(range(7)), default=state[self.k("days")],
+                format_func=self.day_name, key=self.k("days_widget"),
+            )
+            return
+        chosen = state[self.k("date")]
+        state[self.k("date")] = days_column.date_input(
+            "Date", value=chosen, min_value=min(chosen, date.today()),
+            format="DD/MM/YYYY", key=self.k("date_widget"),
+        )
+        st.caption("Runs once on this day, then switches itself off.")
 
     def _render_time(self, when: str, column) -> None:
         # The time input and offset slider are only drawn in their own mode, and
@@ -209,6 +250,11 @@ class ScheduleForm(LumiaTab):
         when = state.get(self.k("when")) or "time"
         target_type, target_id = targets[state[self.k("target")]]
         action = state[self.k("action")]
+        once = (state.get(self.k("repeat")) or "weekly") == "once"
+        enabled = True
+        if self.editing:
+            # Saving a one-time schedule that has run arms it again for its (new) date.
+            enabled = self.editing.get("enabled", True) or (once and ScheduleTime.finished(self.editing))
         payload = {
             "name": state[self.k("name")],
             "kind": state[self.k("kind")],
@@ -220,7 +266,8 @@ class ScheduleForm(LumiaTab):
             "run_time": state[self.k("time")].isoformat() if when == "time" else None,
             "offset_minutes": state[self.k("offset")] if when != "time" else 0,
             "weekdays": state[self.k("days")],
-            "enabled": self.editing.get("enabled", True) if self.editing else True,
+            "run_date": state[self.k("date")].isoformat() if once else None,
+            "enabled": enabled,
         }
         if self.editing:
             FormFeedback.run(
@@ -294,21 +341,27 @@ class SchedulesTab(LumiaTab):
         with st.container(key=f"schedule_card_{schedule_id}"):
             kind = schedule["kind"]
             badges = f'<span class="scheme-badge">{kind.title()}</span>'
-            if not schedule.get("enabled", True):
+            if ScheduleTime.finished(schedule):
+                badges += '<span class="scheme-badge">Done</span>'
+            elif not schedule.get("enabled", True):
                 badges += '<span class="scheme-badge">Paused</span>'
-            sun = ScheduleTime.sun_label(schedule, bool(self.dashboard.location))
+            anchor = ScheduleTime.anchor(schedule, bool(self.dashboard.location))
+            name = html.escape(schedule["name"])
             chips = (
-                ScheduleTime.days(schedule["weekdays"], self.config.WEEKDAY_NAMES),
+                ScheduleTime.days(schedule, self.config.WEEKDAY_NAMES),
                 self.target_label(schedule),
                 self.action_label(schedule),
             )
             st.markdown(
                 f'<div class="schedule-name"><span class="material-symbols-rounded">{self.KIND_ICONS.get(kind, "schedule")}</span>'
-                f'<span class="schedule-title">{html.escape(schedule["name"])}</span>{badges}</div>'
+                f'<span class="schedule-title" title="{name}">{name}</span>{badges}</div>'
                 f'<div class="schedule-clock">{ScheduleTime.clock(schedule)}</div>'
-                + (f'<div class="schedule-sun">{html.escape(sun)}</div>' if sun else "")
-                + '<div class="schedule-chips">'
-                + "".join(f'<span class="schedule-chip">{html.escape(chip)}</span>' for chip in chips)
+                f'<div class="schedule-sun">{html.escape(anchor)}</div>'
+                '<div class="schedule-chips">'
+                + "".join(
+                    f'<span class="schedule-chip" title="{html.escape(chip)}">{html.escape(chip)}</span>'
+                    for chip in chips
+                )
                 + "</div>",
                 unsafe_allow_html=True,
             )

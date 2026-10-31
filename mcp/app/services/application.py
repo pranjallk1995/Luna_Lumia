@@ -651,7 +651,7 @@ class LocationService:
 
 
 class ScheduleService:
-    """Manage recurring schedules and alarms, and run the ones that are due."""
+    """Manage recurring and one-time schedules and alarms, and run the ones that are due."""
 
     def __init__(
         self,
@@ -684,11 +684,11 @@ class ScheduleService:
         return shifted.time().replace(second=0, microsecond=0)
 
     def list(self) -> list[Row]:
-        """Schedules with their time today (HH:MM), soonest first."""
+        """Schedules with their time today, or on their date if one-time (HH:MM), soonest first."""
         today = datetime.now(self.location.zone).date()
         rows = self.schedules.list()
         for row in rows:
-            at = self.time_on(row, today)
+            at = self.time_on(row, row.get("run_date") or today)
             row["today_time"] = at.strftime("%H:%M") if at else None
         return sorted(rows, key=lambda row: (row["today_time"] is None, row["today_time"] or "", row["name"]))
 
@@ -701,11 +701,21 @@ class ScheduleService:
     def first_run_date(self, entry: ScheduleCreate) -> date | None:
         """The ``last_run_date`` a new or edited schedule starts with.
 
-        A time that has already passed today waits for the next scheduled day.
+        A time that has already passed today waits for the next scheduled day. A
+        one-time schedule must still be ahead, unless it is switched off (as it is
+        once it has run).
         """
         if entry.time_mode != "time" and not self.location.get():
             raise ValueError("Set your location in the Schedules tab to use sunrise or sunset times")
         now = datetime.now(self.location.zone)
+        if entry.run_date is not None:
+            at = self.time_on(entry.model_dump(), entry.run_date)
+            passed = entry.run_date < now.date() or (
+                entry.run_date == now.date() and (at is None or at <= now.time())
+            )
+            if passed and entry.enabled:
+                raise ValueError("That date and time has already passed; choose a later one")
+            return None
         at = self.time_on(entry.model_dump(), now.date())
         already_passed = at is not None and at <= now.time() and now.weekday() in entry.weekdays
         return now.date() if already_passed else None

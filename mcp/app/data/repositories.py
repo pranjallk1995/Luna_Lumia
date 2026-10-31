@@ -352,12 +352,12 @@ class ScheduleRepository(Repository):
     def add(self, entry: ScheduleCreate, last_run_date: date | None = None) -> Row | None:
         return self.fetch_one(
             """INSERT INTO schedules(name,kind,target_type,target_id,action,scene_id,time_mode,
-                run_time,offset_minutes,weekdays,enabled,last_run_date)
-            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+                run_time,offset_minutes,weekdays,run_date,enabled,last_run_date)
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
             (
                 entry.name.strip(), entry.kind, entry.target_type, entry.target_id,
                 entry.action, entry.scene_id, entry.time_mode, entry.run_time,
-                entry.offset_minutes, entry.weekdays, entry.enabled, last_run_date,
+                entry.offset_minutes, entry.weekdays, entry.run_date, entry.enabled, last_run_date,
             ),
         )
 
@@ -367,13 +367,14 @@ class ScheduleRepository(Repository):
     def update(self, schedule_id: int, entry: ScheduleCreate, last_run_date: date | None = None) -> Row | None:
         return self.fetch_one(
             """UPDATE schedules SET name=%s, kind=%s, target_type=%s, target_id=%s, action=%s,
-                scene_id=%s, time_mode=%s, run_time=%s, offset_minutes=%s, weekdays=%s, enabled=%s,
-                last_run_date=%s
+                scene_id=%s, time_mode=%s, run_time=%s, offset_minutes=%s, weekdays=%s, run_date=%s,
+                enabled=%s, last_run_date=%s
             WHERE id=%s RETURNING *""",
             (
                 entry.name.strip(), entry.kind, entry.target_type, entry.target_id,
                 entry.action, entry.scene_id, entry.time_mode, entry.run_time,
-                entry.offset_minutes, entry.weekdays, entry.enabled, last_run_date, schedule_id,
+                entry.offset_minutes, entry.weekdays, entry.run_date, entry.enabled, last_run_date,
+                schedule_id,
             ),
         )
 
@@ -383,17 +384,24 @@ class ScheduleRepository(Repository):
         )
 
     def pending(self, today: date, weekday: int) -> list[Row]:
-        """Enabled schedules for this weekday that have not run today (due time checked by the service)."""
+        """Enabled schedules for today (this weekday, or dated today) that have not run today.
+
+        The due time is checked by the service.
+        """
         return self.fetch_all(
-            "SELECT * FROM schedules WHERE enabled AND %s=ANY(weekdays) "
+            "SELECT * FROM schedules WHERE enabled "
+            "AND (run_date = %s OR (run_date IS NULL AND %s=ANY(weekdays))) "
             "AND last_run_date IS DISTINCT FROM %s",
-            (weekday, today),
+            (today, weekday, today),
         )
 
     def mark_ran(self, schedule_id: int, day: date) -> None:
+        """Record the run; a one-time schedule switches itself off, like a one-time alarm."""
         with self.database.cursor() as cursor:
             cursor.execute(
-                "UPDATE schedules SET last_run_date=%s WHERE id=%s", (day, schedule_id)
+                "UPDATE schedules SET last_run_date=%s, enabled = enabled AND run_date IS NULL "
+                "WHERE id=%s",
+                (day, schedule_id),
             )
 
 

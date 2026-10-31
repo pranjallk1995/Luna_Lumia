@@ -16,7 +16,8 @@ class FakeLocations:
 
 class FakeSchedules:
     def __init__(self, rows=()): self.rows, self.added, self.ran = list(rows), [], []
-    def pending(self, today, weekday): return [r for r in self.rows if weekday in r["weekdays"]]
+    def pending(self, today, weekday):
+        return [r for r in self.rows if r.get("run_date") == today or (not r.get("run_date") and weekday in r["weekdays"])]
     def add(self, entry, last_run_date=None): self.added.append((entry, last_run_date)); return {"id": 1}
     def update(self, schedule_id, entry, last_run_date=None):
         return {"id": schedule_id, "last_run_date": last_run_date} if schedule_id == 7 else None
@@ -79,6 +80,31 @@ class SunScheduleTests(unittest.TestCase):
             ScheduleCreate(name="Wake", action="on", time_mode="time")
         entry = ScheduleCreate(name="Dusk", action="on", time_mode="sunset", run_time="07:00", offset_minutes=-15)
         self.assertEqual((entry.run_time, entry.offset_minutes), (None, -15))
+
+    def test_one_time_schedule_runs_only_on_its_date(self):
+        ran = []
+        scheduler = service(rows=[row(run_date=date(2026, 10, 20), weekdays=[1])])
+
+        async def execute(schedule): ran.append(schedule["id"])
+        scheduler.execute = execute
+        scheduler.run_due(datetime(2026, 10, 27, 8, 0, tzinfo=IST))  # a later Tuesday
+        self.assertEqual(ran, [])
+        scheduler.run_due(datetime(2026, 10, 20, 8, 0, tzinfo=IST))
+        self.assertEqual(ran, [7])
+
+    def test_one_time_date_sets_its_weekday(self):
+        entry = ScheduleCreate(name="Party", action="on", run_time="19:00", run_date="2026-11-07", weekdays=[0, 1])
+        self.assertEqual((entry.run_date, entry.weekdays), (date(2026, 11, 7), [5]))
+
+    def test_one_time_schedule_must_be_ahead_unless_switched_off(self):
+        past = ScheduleCreate(name="Party", action="on", run_time="19:00", run_date="2020-01-01")
+        with self.assertRaisesRegex(ValueError, "already passed"):
+            service().add(past)
+        service().add(past.model_copy(update={"enabled": False}))
+        future = ScheduleCreate(name="Party", action="on", run_time="19:00", run_date="2099-01-01")
+        scheduler = service()
+        scheduler.add(future)
+        self.assertEqual(scheduler.schedules.added[0][1], None)
 
     def test_location_today_reports_sun_times(self):
         today = LocationService(FakeLocations(BENGALURU), IST).today()

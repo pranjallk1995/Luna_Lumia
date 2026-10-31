@@ -243,7 +243,10 @@ class LocationUpdate(BaseModel):
 
 
 class ScheduleCreate(BaseModel):
-    """A recurring schedule: at ``run_time``, or at sunrise/sunset plus ``offset_minutes``."""
+    """A schedule: at ``run_time``, or at sunrise/sunset plus ``offset_minutes``.
+
+    It repeats on ``weekdays``, or runs once on ``run_date`` when one is given.
+    """
 
     name: str = Field(min_length=1, max_length=100)
     kind: Literal["schedule", "alarm"] = "schedule"
@@ -255,6 +258,7 @@ class ScheduleCreate(BaseModel):
     run_time: time | None = None
     offset_minutes: int = Field(default=0, ge=-180, le=180)
     weekdays: list[int] = Field(default_factory=lambda: list(range(7)))
+    run_date: date | None = None
     enabled: bool = True
 
     @field_validator("weekdays")
@@ -280,6 +284,8 @@ class ScheduleCreate(BaseModel):
             self.offset_minutes = 0
         else:
             self.run_time = None
+        if self.run_date is not None:
+            self.weekdays = [self.run_date.weekday()]
         return self
 
 

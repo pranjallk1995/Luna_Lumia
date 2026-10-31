@@ -102,7 +102,8 @@ Built-in solids: Focus, Daylight, Reading, Bedtime, Warm evening, Night light. B
 
 ### Schedules and alarms
 
-- Create recurring on, off, or scheme actions.
+- Create recurring or one-time on, off, or scheme actions; a one-time schedule
+  runs on its date and then switches itself off.
 - Target all lights, one light, or a room/group.
 - Select weekdays and pause schedules without deleting them.
 - Run at fixed times or relative to sunrise or sunset using a saved location.
@@ -312,7 +313,8 @@ deleting the saved definition.
 - `get_location`, `set_location`
 - `list_schedules`, `create_schedule`, `update_schedule`, `delete_schedule`
 
-Weekdays use `0=Monday` through `6=Sunday`. Solar schedules require a saved
+Weekdays use `0=Monday` through `6=Sunday`; pass `run_date` (`YYYY-MM-DD`)
+instead to run once on that day. Solar schedules require a saved
 location. Schedules can target a light or collection and perform power or scheme
 actions at a fixed time, sunrise, or sunset, including an optional solar offset.
 The background worker prevents the same schedule from running twice on one date.
@@ -379,7 +381,7 @@ Preset flags distinguish built-in definitions from user-created ones.
 ### `schedules` and `location`
 
 `schedules` stores recurring schedules and alarms: target type and ID, action,
-optional scheme, selected weekdays, enabled state, last-run date, and either a
+optional scheme, selected weekdays or a one-time `run_date`, enabled state, last-run date, and either a
 fixed time or sunrise/sunset mode with an offset. `location` is a singleton row
 containing the name and coordinates required for solar calculations.
 

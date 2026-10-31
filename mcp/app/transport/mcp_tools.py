@@ -339,7 +339,10 @@ class LumiaMCPTools:
 
         @server.tool()
         def list_schedules():
-            """List schedules and alarms, each with its time today ("today_time", HH:MM)."""
+            """List schedules and alarms, each with its time today ("today_time", HH:MM).
+
+            One-time schedules have a "run_date" and show the time on that date instead.
+            """
             return schedules().list()
 
         @server.tool()
@@ -354,20 +357,23 @@ class LumiaMCPTools:
             scene_id: int | None = None,
             weekdays: list[int] | None = None,
             kind: str = "schedule",
+            run_date: str | None = None,
         ):
-            """Create a recurring schedule or alarm.
+            """Create a recurring or one-time schedule or alarm.
 
             action: "on", "off", or "scene" (with scene_id). time_mode: "time" (run_time
             "HH:MM"), "sunrise", or "sunset" (offset_minutes -180..180, e.g. -30 = 30 min
             before; needs set_location first). target_type: "all", "light", or "group"
             (rooms are groups) with target_id. weekdays: 0=Mon..6=Sun (default every day).
+            run_date: "YYYY-MM-DD" to run once on that day instead of repeating (weekdays
+            is then ignored); it must not have passed, and it switches off after running.
             """
             return schedules().add(
                 ScheduleCreate(
                     name=name, action=action, time_mode=time_mode, run_time=run_time,
                     offset_minutes=offset_minutes, target_type=target_type, target_id=target_id,
                     scene_id=scene_id, weekdays=weekdays if weekdays is not None else list(range(7)),
-                    kind=kind,
+                    kind=kind, run_date=run_date,
                 )
             )
 
@@ -385,21 +391,27 @@ class LumiaMCPTools:
             weekdays: list[int] | None = None,
             kind: str | None = None,
             enabled: bool | None = None,
+            run_date: str | None = None,
         ):
             """Edit a schedule or alarm (see list_schedules for ids); only the fields given change.
 
             Fields are as in create_schedule. enabled=False pauses it without deleting it.
             Switching time_mode to "time" needs a run_time; switching a target to "light" or
             "group" needs its target_id; switching action to "scene" needs a scene_id.
+            run_date makes it one-time on that day (pass enabled=True to re-arm a one-time
+            schedule that has run); weekdays without run_date makes it recurring again.
             """
             changes = {
                 "name": name, "action": action, "time_mode": time_mode, "run_time": run_time,
                 "offset_minutes": offset_minutes, "target_type": target_type, "target_id": target_id,
                 "scene_id": scene_id, "weekdays": weekdays, "kind": kind, "enabled": enabled,
+                "run_date": run_date,
             }
             current = schedules().get(schedule_id)
-            fields = {field: current[field] for field in ScheduleCreate.model_fields}
+            fields = {field: current.get(field) for field in ScheduleCreate.model_fields}
             fields.update({field: value for field, value in changes.items() if value is not None})
+            if weekdays is not None and run_date is None:
+                fields["run_date"] = None
             return schedules().update(schedule_id, ScheduleCreate(**fields))
 
         @server.tool()

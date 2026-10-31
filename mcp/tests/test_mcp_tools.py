@@ -166,6 +166,15 @@ class ScheduleMCPToolTests(unittest.TestCase):
         self.assertEqual((entry.run_time, entry.offset_minutes), (None, -20))
         self.assertEqual((entry.target_id, entry.scene_id), (None, None))
 
+    def test_update_schedule_to_a_date_and_back_to_weekdays(self):
+        self.server.tools["update_schedule"](5, run_date="2099-03-02")
+        _, entry = self.service.schedules.updated[0]
+        self.assertEqual((str(entry.run_date), entry.weekdays), ("2099-03-02", [0]))
+        self.service.schedules.row["run_date"] = entry.run_date
+        self.server.tools["update_schedule"](5, weekdays=[5, 6])
+        _, entry = self.service.schedules.updated[1]
+        self.assertEqual((entry.run_date, entry.weekdays), (None, [5, 6]))
+
     def test_delete_schedule_returns_confirmation(self):
         self.assertEqual(self.server.tools["delete_schedule"](5), {"deleted": True, "schedule_id": 5})
         self.assertEqual(self.service.schedules.deleted, [5])

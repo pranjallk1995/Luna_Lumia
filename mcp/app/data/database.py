@@ -81,6 +81,8 @@ ALTER TABLE schedules ADD COLUMN IF NOT EXISTS time_mode TEXT NOT NULL DEFAULT '
     CHECK (time_mode IN ('time', 'sunrise', 'sunset'));
 ALTER TABLE schedules ADD COLUMN IF NOT EXISTS offset_minutes SMALLINT NOT NULL DEFAULT 0
     CHECK (offset_minutes BETWEEN -180 AND 180);
+-- A schedule with a run_date runs once on that day instead of repeating on its weekdays.
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS run_date DATE;
 CREATE TABLE IF NOT EXISTS location (
  id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
  name TEXT NOT NULL,
