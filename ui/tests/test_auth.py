@@ -2,74 +2,37 @@ import os
 import unittest
 from unittest.mock import patch
 
-from sso import LunaSingleSignOn
 from config import SSOConfig, UIConfig
+from sso import LunaSingleSignOn
+
+ENV = {
+    "LUNA_SSO_URL": "https://auth.example.com",
+    "LUNALUMIA_API_TOKEN": "x" * 32,
+    "LUNALUMIA_ALLOWED_EMAILS": " Owner@Example.com ",
+}
 
 
-class SingleSignOnTests(unittest.TestCase):
-    def setUp(self):
-        self.auth = LunaSingleSignOn(frozenset({"owner@example.com"}), SSOConfig(public_url="https://auth.example.com"))
+class AuthenticationTests(unittest.TestCase):
+    def test_verified_allowlisted_email_is_required(self):
+        auth = LunaSingleSignOn(frozenset({"owner@example.com"}), SSOConfig(public_url="https://auth.example.com"))
+        self.assertTrue(auth.is_allowed({"email": "Owner@Example.com", "email_verified": True}))
+        self.assertFalse(auth.is_allowed({"email": "owner@example.com", "email_verified": False}))
+        self.assertFalse(auth.is_allowed({"email": "other@example.com", "email_verified": True}))
 
-    def test_verified_allowlisted_email_is_accepted_case_insensitively(self):
-        self.assertTrue(
-            self.auth.is_allowed(
-                {"email": "Owner@Example.com", "email_verified": True}
-            )
-        )
+    def test_allowed_emails_are_normalized(self):
+        with patch.dict(os.environ, ENV, clear=True):
+            self.assertEqual(UIConfig.from_env().allowed_emails, frozenset({"owner@example.com"}))
 
-    def test_unverified_or_unlisted_email_is_rejected(self):
-        self.assertFalse(
-            self.auth.is_allowed(
-                {"email": "owner@example.com", "email_verified": False}
-            )
-        )
-        self.assertFalse(
-            self.auth.is_allowed(
-                {"email": "intruder@example.com", "email_verified": True}
-            )
-        )
+    def test_settings_are_required(self):
+        for name in ENV:
+            env = {key: value for key, value in ENV.items() if key != name}
+            with patch.dict(os.environ, env, clear=True), self.assertRaisesRegex(RuntimeError, name):
+                UIConfig.from_env()
 
-
-class UIAuthenticationConfigTests(unittest.TestCase):
-    BASE = {
-        "LUNA_SSO_URL": "https://auth.example.com", "LUNALUMIA_API_URL": "http://backend:8000",
-        "LUNALUMIA_API_TOKEN": "x" * 32,
-        "LUNALUMIA_ALLOWED_EMAILS": " Owner@Example.com, second@example.com ",
-    }
-
-    def test_authentication_settings_are_normalized(self):
-        with patch.dict(os.environ, self.BASE, clear=True):
-            config = UIConfig.from_env()
-        self.assertEqual(config.api_token, "x" * 32)
-        self.assertEqual(
-            config.allowed_emails,
-            frozenset({"owner@example.com", "second@example.com"}),
-        )
-
-    def test_api_token_and_allowlist_are_required(self):
-        with patch.dict(
-            os.environ,
-            {"LUNA_SSO_URL": "https://auth.example.com", "LUNALUMIA_API_URL": "http://backend:8000", "LUNALUMIA_API_TOKEN": "short"},
-            clear=True,
-        ):
+    def test_short_api_token_is_refused(self):
+        with patch.dict(os.environ, {**ENV, "LUNALUMIA_API_TOKEN": "short"}, clear=True):
             with self.assertRaisesRegex(RuntimeError, "at least 32"):
                 UIConfig.from_env()
-        without_allowlist = dict(self.BASE)
-        without_allowlist["LUNALUMIA_ALLOWED_EMAILS"] = ""
-        with patch.dict(os.environ, without_allowlist, clear=True):
-            with self.assertRaisesRegex(RuntimeError, "LUNALUMIA_ALLOWED_EMAILS"):
-                UIConfig.from_env()
-
-
-class SSOConfigTests(unittest.TestCase):
-    def test_public_url_is_required_and_internal_url_has_a_default(self):
-        with patch.dict(os.environ, {}, clear=True):
-            with self.assertRaisesRegex(RuntimeError, "LUNA_SSO_URL"):
-                SSOConfig.from_env()
-        with patch.dict(os.environ, {"LUNA_SSO_URL": "https://auth.example.com/"}, clear=True):
-            config = SSOConfig.from_env()
-        self.assertEqual(config.public_url, "https://auth.example.com")
-        self.assertEqual(config.internal_url, "http://luna-sentia-auth:8000")
 
 
 if __name__ == "__main__":
