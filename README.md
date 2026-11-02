@@ -11,7 +11,7 @@
 
 > **Work in progress:** Luna Lumia is a local-first and desktop-first smart-light controller under active development.
 
-Luna Lumia combines Streamlit, FastMCP, PostgreSQL (in Luna Sentia), and direct local WiZ control. It runs beside [Luna Visia](https://github.com/pranjallk1995/Luna_Visia) and [Luna Vita](https://github.com/pranjallk1995/Luna_Vita) on the shared private Docker network created by [Luna Sentia](https://github.com/pranjallk1995/Luna_Sentia) while keeping its services, ports, and database separate.
+Luna Lumia combines React, FastMCP, PostgreSQL (in Luna Sentia), and direct local WiZ control. It runs beside [Luna Visia](https://github.com/pranjallk1995/Luna_Visia) and [Luna Vita](https://github.com/pranjallk1995/Luna_Vita) on the shared private Docker network created by [Luna Sentia](https://github.com/pranjallk1995/Luna_Sentia) while keeping its services, ports, and database separate.
 
 > **Requires Luna Sentia, running and healthy:** Luna Lumia keeps its data in Luna Sentia's PostgreSQL (`luna-sentia-db`) and joins Sentia's `luna_sentia_network`; it has no database of its own. Start [Luna Sentia](https://github.com/pranjallk1995/Luna_Sentia) first and wait until its `postgres` and `ollama` services report healthy, as described under [Start](#start).
 
@@ -122,7 +122,7 @@ Built-in solids: Focus, Daylight, Reading, Bedtime, Warm evening, Night light. B
 
 ![Luna ecosystem architecture](docs/images/luna-ecosystem.svg)
 
-Every Luna app is a Streamlit UI plus a FastMCP service on Luna Sentia's
+Every Luna app is a React UI plus a FastMCP service on Luna Sentia's
 `luna_sentia_network`: its data lives in Sentia's PostgreSQL, people sign in
 through Sentia's `auth`, and model calls go to Sentia's Ollama. Orange lines are
 Visia image URLs that other apps use: food images for Vita, room images for
@@ -134,7 +134,7 @@ beats of the track Vibia plays, which Lumia's lights follow.
 
 | Component | Technology | Purpose |
 | --- | --- | --- |
-| UI | Streamlit | Lights, rooms, groups, schemes, schedules, and responsive controls |
+| UI | React + TypeScript (Vite), served by a Starlette gateway | Lights, rooms, groups, schemes, schedules, and responsive controls |
 | HTTP and MCP | FastMCP custom routes + tools | UI endpoints and conversational operations |
 | Devices | Python + `pywizlight` | LAN discovery and direct WiZ control |
 | Playback and workers | Python services | Sequence interpolation and recurring schedules |
@@ -144,7 +144,7 @@ beats of the track Vibia plays, which Lumia's lights follow.
 Unique aliases: `luna-lumia-mcp` and `luna-lumia-ui`.
 
 ```text
-Streamlit UI or MCP client
+React UI (through its gateway) or MCP client
         -> Luna Lumia MCP/API
         -> application services + PostgreSQL
         -> WiZ bulbs on the local network
@@ -259,7 +259,7 @@ The data lives in Sentia's `luna_sentia_postgres_data` volume, so it survives re
 
 ## MCP tools
 
-The MCP surface exposes the same application services used by the Streamlit UI.
+The MCP surface exposes the same application services used by the React UI.
 Tools validate names, identifiers, colors, brightness, schedules, and membership
 rules before changing PostgreSQL or contacting a light. Device-control tools
 return the resulting state where possible, while management tools return the
@@ -433,19 +433,15 @@ The backend follows the same layered layout across all three Luna apps:
 |-- ui/
     |-- Dockerfile
     |-- requirements.txt
-    |-- .streamlit/
     |-- assets/
-    |-- app.py
-    |-- auth.py
     |-- config.py
-    |-- styles.py
-    |-- services/
-    |-- domain/
-    |-- views/
+    |-- gateway.py
+    |-- sso.py
     |-- tests/
+    |-- web/
 ```
 
-`views/` uses `services/` and `domain/`; `domain/` imports neither Streamlit nor the API client.
+The browser app in `web/` talks only to `gateway.py`, which forwards an allowlist of backend routes.
 
 ## Development workflow
 
@@ -453,7 +449,7 @@ The backend follows the same layered layout across all three Luna apps:
 docker compose up --build --watch
 ```
 
-UI changes synchronize into `/workspace/ui`. MCP changes synchronize into `/workspace/mcp/app` and restart MCP. Dependency or Dockerfile changes rebuild the affected service. Named volumes are never watched. Compose Watch must remain running.
+Gateway changes synchronize into `/workspace/ui` and restart it; changes under `ui/web/src` rebuild the UI image (for hot reload, run `npm run dev` in `ui/web`). MCP changes synchronize into `/workspace/mcp/app` and restart MCP. Dependency or Dockerfile changes rebuild the affected service. Named volumes are never watched. Compose Watch must remain running.
 
 Run tests:
 
@@ -464,31 +460,30 @@ docker compose exec ui python -m unittest discover -s tests
 
 ### UI modules
 
-The UI is intentionally thin: views render Streamlit components, the API client
-performs authenticated requests, and the domain layer converts API payloads into
-display-ready state. Device control and persistence remain in MCP, so rerunning
-Streamlit does not duplicate backend logic.
+The UI is a React and TypeScript app built with Vite. Device control and persistence
+remain in MCP, so the browser app holds no backend logic.
 
-- `ui/app.py` - composition root for sign-in, shared header, navigation, manual
-  status refresh, and tab dispatch.
+- `ui/gateway.py` - serves the built app, reports the session and settings at
+  `/auth/session`, checks the shared session and allowlist on every data request, and
+  forwards an allowlist of backend routes with the private API token.
 - `ui/sso.py` and `ui/config.py` - single sign-on through Luna Sentia with the
-  allowlist check, and validated UI configuration loaded from environment variables.
-- `ui/views/lights_tab.py` - network discovery, inventory counters, inline name
-  editing, room labels, live power controls, brightness, colors, and deletion.
-- `ui/views/rooms_tab.py` - room creation and editing, exclusive membership,
+  allowlist check, and validated gateway settings, including the ones the browser
+  app reads from `/auth/session`.
+- `ui/web/src/App.tsx` - sign-in pages, shared header, navigation, and manual status refresh.
+- `ui/web/src/api.ts` - the backend routes and hooks; light changes apply on screen
+  first and roll back if the backend or a bulb refuses them.
+- `ui/web/src/dashboard.ts` - pure lookups and wording: targets, membership rules,
+  scheme details, and schedule times, covered by `npm test`.
+- `ui/web/src/components/LightsTab.tsx` - network discovery, inventory counters, inline
+  name editing, room labels, live power controls, brightness, colors, and deletion.
+- `ui/web/src/components/RoomsTab.tsx` - room creation and editing, exclusive membership,
   room-level power, member status bubbles, and background images.
-- `ui/views/schemes_tab.py` - solid and sequence scheme editors, reusable
+- `ui/web/src/components/SchemesTab.tsx` - solid and sequence scheme editors, reusable
   transitions, previews, and apply/stop actions.
-- `ui/views/schedules_tab.py` - saved location, fixed and solar schedules,
+- `ui/web/src/components/SchedulesTab.tsx` - saved location, fixed and solar schedules,
   alarms, weekday selection, enablement, and deletion.
-- `ui/views/shared.py` - reusable rendering helpers and mutation wrappers shared
-  by multiple tabs.
-- `ui/services/api.py` - typed authenticated HTTP client and backend error
-  translation; it is the UI's only route to Lumia data and device actions.
-- `ui/domain/dashboard.py` - Streamlit-free normalization, sorting, counters,
-  status labels, and other dashboard presentation rules.
-- `ui/styles.py` - Luna design tokens, component selectors, responsive layout,
-  mobile icon-only navigation, and card/image styling.
+- `ui/web/src/styles.css` - Luna design tokens, responsive layout, mobile icon-only
+  navigation, and card and image styling.
 
 ### MCP modules
 
@@ -503,7 +498,7 @@ and conversational clients.
 - `mcp/app/core/config.py`, `models.py`, and `errors.py` - validated settings,
   shared domain/request models, and transport-independent application errors.
 - `mcp/app/transport/http_routes.py` - authenticated REST endpoints used by the
-  Streamlit client, including health and public branding routes.
+  browser app's gateway, including health and public branding routes.
 - `mcp/app/transport/mcp_tools.py` - conversational tool schemas and handlers
   that translate tool arguments into calls on the application facade.
 - `mcp/app/transport/auth.py` and `branding.py` - bearer-token enforcement plus
