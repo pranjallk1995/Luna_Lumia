@@ -1,12 +1,19 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
-type Toast = { id: number; message: string };
+/** A follow-up the toast offers, such as Undo after a delete. */
+export type ToastAction = { label: string; run: () => void };
 
-const ToastContext = createContext<(message: string) => void>(() => {});
+type Toast = { id: number; message: string; action?: ToastAction };
+
+type Show = (message: string, action?: ToastAction) => void;
+
+const ToastContext = createContext<Show>(() => {});
 
 export const useToast = () => useContext(ToastContext);
 
 const VISIBLE_MS = 4000;
+/** A toast with an action stays longer, so there is time to reach it. */
+const ACTION_MS = 7000;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -22,11 +29,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     element.showPopover();
   }, [toasts.length]);
 
-  const show = useCallback((message: string) => {
-    const id = nextId.current++;
-    setToasts((current) => [...current, { id, message }]);
-    setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), VISIBLE_MS);
-  }, []);
+  const dismiss = useCallback((id: number) => setToasts((current) => current.filter((toast) => toast.id !== id)), []);
+
+  const show = useCallback<Show>(
+    (message, action) => {
+      const id = nextId.current++;
+      setToasts((current) => [...current, { id, message, action }]);
+      setTimeout(() => dismiss(id), action ? ACTION_MS : VISIBLE_MS);
+    },
+    [dismiss],
+  );
 
   return (
     <ToastContext.Provider value={show}>
@@ -34,7 +46,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       <div className="lv-toasts" ref={stack} popover="manual" role="status" aria-live="polite">
         {toasts.map((toast) => (
           <div className="lv-toast" key={toast.id}>
-            {toast.message}
+            <span>{toast.message}</span>
+            {toast.action && (
+              <button
+                className="ll-link-button"
+                type="button"
+                onClick={() => {
+                  dismiss(toast.id);
+                  toast.action!.run();
+                }}
+              >
+                {toast.action.label}
+              </button>
+            )}
           </div>
         ))}
       </div>

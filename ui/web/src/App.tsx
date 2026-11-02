@@ -24,7 +24,9 @@ function HeaderActions({ dashboard, logoutUrl }: { dashboard?: Dashboard; logout
   const act = useAct();
   const control = useControl();
   const [checking, setChecking] = useState(false);
-  const allOn = Boolean(dashboard?.lights.length) && dashboard!.lights.every((light) => light.is_on);
+  // An offline light cannot be switched, so it does not hold "Turn all on" back.
+  const live = dashboard?.lights.filter((light) => light.reachable !== false) ?? [];
+  const allOn = live.length > 0 && live.every((light) => light.is_on);
 
   const check = async () => {
     setChecking(true);

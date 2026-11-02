@@ -1,6 +1,6 @@
 /** Inputs shared by the tabs. Sliders and color pickers report only a finished choice. */
 
-import { Check, Palette, Thermometer, type LucideIcon } from "lucide-react";
+import { Check, Palette, Pencil, Thermometer, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import type { Light, Scheme, Settings } from "../api";
@@ -76,12 +76,13 @@ export function ColorInput({ value, disabled, onCommit, label = "Color" }: { val
   );
 }
 
-export function Toggle({ label, checked, disabled, onChange }: { label: string; checked: boolean; disabled?: boolean; onChange: (on: boolean) => void }) {
+/** A switch; ``hideLabel`` keeps the label for screen readers only, for cards where the name says it. */
+export function Toggle({ label, checked, disabled, hideLabel, onChange }: { label: string; checked: boolean; disabled?: boolean; hideLabel?: boolean; onChange: (on: boolean) => void }) {
   return (
     <label className="ll-toggle">
       <input type="checkbox" role="switch" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} />
       <span aria-hidden="true" />
-      {label}
+      <b className={hideLabel ? "ll-sr" : undefined}>{label}</b>
     </label>
   );
 }
@@ -184,9 +185,14 @@ export function NameEditor({ name, entity, maxChars, onRename }: NameEditorProps
 
   if (draft === null) {
     return (
-      <button className="ll-name" type="button" title={`Rename ${name}`} onClick={() => setDraft(name)}>
-        {name}
-      </button>
+      <span className="ll-name-row">
+        <span className="ll-name" title={name}>
+          {name}
+        </span>
+        <button className="lv-icon-button ll-rename" type="button" aria-label={`Rename ${name}`} title="Rename" onClick={() => setDraft(name)}>
+          <Pencil size={14} />
+        </button>
+      </span>
     );
   }
 
@@ -218,4 +224,22 @@ export function NameEditor({ name, entity, maxChars, onRename }: NameEditorProps
       {error && <p className="lv-alert lv-alert-error">{error}</p>}
     </form>
   );
+}
+
+/** A section title with a count and its actions on the right. */
+export function SectionHead({ title, count, id, children }: { title: string; count?: number; id: string; children?: ReactNode }) {
+  return (
+    <div className="ll-section-head">
+      <h2 id={id}>
+        {title}
+        {count !== undefined && <span className="ll-count">{count}</span>}
+      </h2>
+      {children && <div className="ll-head-actions">{children}</div>}
+    </div>
+  );
+}
+
+/** A light's current color as a bulb: lit, dim when off, struck through when offline. */
+export function Bulb({ color, state, small }: { color: string; state: "on" | "off" | "offline"; small?: boolean }) {
+  return <span className={`ll-bulb ll-bulb-${state}${small ? " ll-bulb-small" : ""}`} style={{ "--bulb": color } as React.CSSProperties} aria-hidden="true" />;
 }

@@ -56,6 +56,18 @@ class SunScheduleTests(unittest.TestCase):
         scheduler.run_due(datetime(2026, 10, 19, 18, 10, tzinfo=IST))
         self.assertEqual(ran, [7])
 
+    def test_run_due_follows_each_days_own_sun_time(self):
+        ran = []
+        scheduler = service(rows=[row(time_mode="sunset")])
+
+        async def execute(schedule): ran.append(schedule["id"])
+        scheduler.execute = execute
+        # 18:10 is after sunset on 19 October (about 17:58) but before it on 31 January (about 18:20).
+        scheduler.run_due(datetime(2027, 1, 31, 18, 10, tzinfo=IST))
+        self.assertEqual(ran, [])
+        scheduler.run_due(datetime(2026, 10, 19, 18, 10, tzinfo=IST))
+        self.assertEqual(ran, [7])
+
     def test_sun_schedule_needs_a_saved_location(self):
         entry = ScheduleCreate(name="Dusk", action="on", time_mode="sunset")
         with self.assertRaisesRegex(ValueError, "Set your location"):

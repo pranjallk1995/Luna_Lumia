@@ -29,6 +29,7 @@ export type Light = {
   color: string;
   color_temp?: number | null;
   reachable: boolean | null;
+  last_seen?: string | null;
   effective_image_url?: string | null;
 };
 
@@ -104,7 +105,8 @@ export type Target = { type: string; id: number | null };
 const KEY = ["dashboard"];
 
 export function useDashboard() {
-  return useQuery({ queryKey: KEY, queryFn: () => request<Dashboard>("/api/dashboard") });
+  // A page left open still moves on to the next day's sunrise and sunset.
+  return useQuery({ queryKey: KEY, queryFn: () => request<Dashboard>("/api/dashboard"), refetchInterval: 60_000 });
 }
 
 export const lumia = {

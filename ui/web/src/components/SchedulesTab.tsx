@@ -1,21 +1,25 @@
-import { AlarmClock, Clock, MapPin, Pencil, Save, Sunrise, Sunset, Repeat, CalendarDays, Trash2, type LucideIcon } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { AlarmClock, Clock, MapPin, Pencil, Plus, Save, Sun, Sunrise, Sunset, Repeat, CalendarDays, Trash2, type LucideIcon } from "lucide-react";
+import { useEffect, useState, type FormEvent } from "react";
 
 import { lumia, useAct, type Dashboard, type Schedule, type Settings } from "../api";
 import {
   WHEN,
-  accent,
   isFinished,
+  minutesOf,
+  nextRun,
   scheduleAnchor,
   scheduleClock,
   scheduleDays,
+  schedulePayload,
   shifted,
   targetKey,
   targetOptions,
   todayIso,
 } from "../dashboard";
 import { messageOf } from "../lib";
+import { SectionHead, Toggle } from "./controls";
 import { Dialog } from "./Dialog";
+import { useToast } from "./Toasts";
 
 type TabProps = { dashboard: Dashboard; settings: Settings };
 type When = keyof typeof WHEN;
@@ -25,7 +29,7 @@ const ACTIONS: Record<string, string> = { on: "On", off: "Off", scene: "Color sc
 const MIN_OFFSET = -120;
 const MAX_OFFSET = 120;
 
-function Location({ dashboard }: { dashboard: Dashboard }) {
+function LocationDialog({ dashboard, onClose }: { dashboard: Dashboard; onClose: () => void }) {
   const act = useAct();
   const place = dashboard.location;
   const [error, setError] = useState("");
@@ -36,56 +40,128 @@ function Location({ dashboard }: { dashboard: Dashboard }) {
     const name = String(fields.get("name")).trim();
     if (!name) return setError("Give the location a name.");
     setError("");
-    await act(() => lumia.saveLocation({ name, latitude: Number(fields.get("latitude")), longitude: Number(fields.get("longitude")) }));
+    if (await act(() => lumia.saveLocation({ name, latitude: Number(fields.get("latitude")), longitude: Number(fields.get("longitude")) }))) onClose();
   };
 
   return (
-    <>
-      {place && (
-        <div className="ll-sun">
-          <MapPin size={16} />
-          <strong>{place.name}</strong>
-          <span>
-            <Sunrise size={15} />
-            Sunrise {place.sunrise || "—"}
-          </span>
-          <span>
-            <Sunset size={15} />
-            Sunset {place.sunset || "—"}
-          </span>
-        </div>
-      )}
-      <details className="lv-panel ll-details" open={!place}>
-        <summary>
-          <MapPin size={17} />
-          {place ? "Change location" : "Set your location for sunrise & sunset"}
-        </summary>
+    <Dialog title={place ? "Change location" : "Set your location"} onClose={onClose}>
+      <form className="lv-form" onSubmit={submit}>
         <p className="lv-caption">
-          Sunrise and sunset are calculated on this device from latitude and longitude. Tip: right-click a place in Google Maps to copy its coordinates.
+          Sunrise and sunset are worked out from latitude and longitude. Tip: right-click a place in Google Maps to copy its coordinates.
         </p>
-        <form className="lv-form ll-location" onSubmit={submit}>
-          <div className="lv-form-row">
-            <label className="lv-field">
-              Place
-              <input className="lv-input" name="name" placeholder="Home" maxLength={80} defaultValue={place?.name ?? ""} />
-            </label>
-            <label className="lv-field">
-              Latitude
-              <input className="lv-input" name="latitude" type="number" min="-90" max="90" step="0.0001" defaultValue={place?.latitude ?? 0} />
-            </label>
-            <label className="lv-field">
-              Longitude
-              <input className="lv-input" name="longitude" type="number" min="-180" max="180" step="0.0001" defaultValue={place?.longitude ?? 0} />
-            </label>
-          </div>
-          {error && <p className="lv-alert lv-alert-error">{error}</p>}
-          <button className="lv-button" type="submit">
-            <Save size={17} />
-            Save location
+        <label className="lv-field">
+          Place
+          <input className="lv-input" name="name" placeholder="Home" maxLength={80} defaultValue={place?.name ?? ""} autoFocus />
+        </label>
+        <div className="lv-form-row">
+          <label className="lv-field">
+            Latitude
+            <input className="lv-input" name="latitude" type="number" min="-90" max="90" step="0.0001" defaultValue={place?.latitude ?? 0} />
+          </label>
+          <label className="lv-field">
+            Longitude
+            <input className="lv-input" name="longitude" type="number" min="-180" max="180" step="0.0001" defaultValue={place?.longitude ?? 0} />
+          </label>
+        </div>
+        {error && <p className="lv-alert lv-alert-error">{error}</p>}
+        <button className="lv-button lv-button-primary" type="submit">
+          <Save size={17} />
+          Save location
+        </button>
+      </form>
+    </Dialog>
+  );
+}
+
+/** The minute, refreshed each minute, so "now" and "next" stay true while the page is open. */
+function useNow() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return now;
+}
+
+const percentOfDay = (minutes: number) => `${(minutes / 1440) * 100}%`;
+const clock = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+
+/** Today as a strip: daylight, every schedule's time, and now. */
+function Today({ dashboard, onLocation }: { dashboard: Dashboard; onLocation: () => void }) {
+  const now = useNow();
+  const place = dashboard.location;
+  const sunrise = minutesOf(place?.sunrise);
+  const sunset = minutesOf(place?.sunset);
+  const current = now.getHours() * 60 + now.getMinutes();
+  const next = dashboard.schedules
+    .map((schedule) => ({ schedule, run: nextRun(schedule, now) }))
+    .filter((item) => item.run)
+    .sort((a, b) => a.run!.inMinutes - b.run!.inMinutes)[0];
+
+  return (
+    <section className="ll-panel ll-today" aria-labelledby="today-title">
+      <div className="ll-today-head">
+        <h2 id="today-title">
+          <Sun size={16} />
+          Today
+        </h2>
+        <span className="lv-caption">
+          {next ? (
+            <>
+              Next up: <b>{next.schedule.name}</b> in {Math.floor(next.run!.inMinutes / 60)} h {next.run!.inMinutes % 60} min
+            </>
+          ) : (
+            "Nothing scheduled"
+          )}
+        </span>
+      </div>
+      <div className="ll-day" role="img" aria-label={`Today's schedules${place ? `, with sunrise at ${place.sunrise} and sunset at ${place.sunset}` : ""}`}>
+        {sunrise !== null && sunset !== null && <span className="ll-daylight" style={{ left: percentOfDay(sunrise), width: percentOfDay(sunset - sunrise) }} />}
+        {dashboard.schedules.map((schedule) => {
+          const at = minutesOf(scheduleClock(schedule));
+          if (at === null) return null;
+          const Icon = schedule.kind === "alarm" ? AlarmClock : WHEN_ICONS[(schedule.time_mode ?? "time") as When];
+          const paused = schedule.enabled === false || isFinished(schedule);
+          return (
+            <span className={paused ? "ll-day-mark ll-day-mark-paused" : "ll-day-mark"} style={{ left: percentOfDay(at) }} title={`${schedule.name} · ${scheduleClock(schedule)}`} key={schedule.id}>
+              <Icon size={13} />
+            </span>
+          );
+        })}
+        <span className="ll-day-now" style={{ left: percentOfDay(current) }} title={`Now, ${clock(current)}`} />
+      </div>
+      <div className="ll-day-axis" aria-hidden="true">
+        {[0, 6, 12, 18, 24].map((hour) => (
+          <span key={hour} style={{ left: percentOfDay(hour * 60) }}>
+            {clock(hour * 60)}
+          </span>
+        ))}
+      </div>
+      <div className="ll-sun">
+        <span>
+          <MapPin size={15} />
+          <b>{place?.name ?? "No location"}</b>
+          <button className="ll-link-button" type="button" onClick={onLocation}>
+            {place ? "Change" : "Set location"}
           </button>
-        </form>
-      </details>
-    </>
+        </span>
+        {place && (
+          <>
+            <span>
+              <Sunrise size={15} />
+              Sunrise <b>{place.sunrise || "—"}</b>
+            </span>
+            <span>
+              <Sunset size={15} />
+              Sunset <b>{place.sunset || "—"}</b>
+            </span>
+          </>
+        )}
+        <span>
+          Now <b>{clock(current)}</b>
+        </span>
+      </div>
+    </section>
   );
 }
 
@@ -148,8 +224,7 @@ function ScheduleForm({ dashboard, settings, editing, onSaved }: TabProps & { ed
   };
 
   return (
-    <form className={editing ? "lv-form" : "lv-form lv-panel"} onSubmit={submit}>
-      {!editing && <h2>New schedule or alarm</h2>}
+    <form className="lv-form" onSubmit={submit}>
       <div className="ll-form-2-1">
         <label className="lv-field">
           Name
@@ -195,7 +270,7 @@ function ScheduleForm({ dashboard, settings, editing, onSaved }: TabProps & { ed
           Runs {offset ? `${Math.abs(offset)} min ${offset < 0 ? "before" : "after"} ${when}` : `at ${when}`} — {preview} today, adjusting daily with the sun.
         </p>
       )}
-      {when !== "time" && !dashboard.location && <p className="lv-alert">Set your location above to schedule at sunrise or sunset.</p>}
+      {when !== "time" && !dashboard.location && <p className="lv-alert">Set your location on the Today panel to schedule at sunrise or sunset.</p>}
       <div className="lv-form-row">
         <label className="lv-field">
           Target
@@ -279,41 +354,53 @@ function ScheduleForm({ dashboard, settings, editing, onSaved }: TabProps & { ed
   );
 }
 
-function ScheduleCard({ schedule, index, dashboard, settings, onEdit }: TabProps & { schedule: Schedule; index: number; onEdit: () => void }) {
+function ScheduleRow({ schedule, dashboard, settings, onEdit }: TabProps & { schedule: Schedule; onEdit: () => void }) {
   const act = useAct();
+  const toast = useToast();
+  const now = useNow();
   const options = targetOptions(dashboard);
   const Icon = schedule.kind === "alarm" ? AlarmClock : Clock;
   const target = options.find((option) => option.key === targetKey(schedule.target_type, schedule.target_id))?.label ?? "Deleted target";
   const action =
-    schedule.action === "scene"
-      ? (dashboard.scenes.find(({ id }) => id === schedule.scene_id)?.name ?? "Deleted scheme")
-      : `Turn ${schedule.action}`;
-  const chips = [scheduleDays(schedule, settings.weekday_names), target, action];
+    schedule.action === "scene" ? `plays ${dashboard.scenes.find(({ id }) => id === schedule.scene_id)?.name ?? "a deleted scheme"}` : `turns ${schedule.action}`;
+  const finished = isFinished(schedule);
+  const active = schedule.enabled !== false && !finished;
+  const run = nextRun(schedule, now);
+
+  const setActive = (on: boolean) =>
+    act(() => lumia.update("schedules", schedule.id, schedulePayload(schedule, { enabled: on })), `Could not ${on ? "resume" : "pause"} ${schedule.name}.`).then(
+      (done) => done && toast(`${schedule.name} ${on ? "resumed" : "paused"}`),
+    );
+
+  const remove = async () => {
+    const removed = await act(() => lumia.delete("schedules", schedule.id), `Could not delete ${schedule.name}.`);
+    if (removed) toast(`${schedule.name} deleted`, { label: "Undo", run: () => act(() => lumia.create("schedules", schedulePayload(schedule)), `Could not restore ${schedule.name}.`) });
+  };
 
   return (
-    <article className="ll-schedule ll-accent" style={accent(index)}>
-      <div className="ll-schedule-name">
-        <Icon size={16} />
-        <span className="ll-truncate" title={schedule.name}>
-          {schedule.name}
-        </span>
-        <span className="ll-badge">{schedule.kind === "alarm" ? "Alarm" : "Schedule"}</span>
-        {isFinished(schedule) ? <span className="ll-badge">Done</span> : schedule.enabled === false && <span className="ll-badge">Paused</span>}
+    <article className={active ? "ll-panel ll-schedule" : "ll-panel ll-schedule ll-schedule-paused"}>
+      <div className="ll-clock">
+        {scheduleClock(schedule)}
+        <small>{scheduleAnchor(schedule, Boolean(dashboard.location))}</small>
       </div>
-      <div className="ll-clock">{scheduleClock(schedule)}</div>
-      <div className="ll-details-line">{scheduleAnchor(schedule, Boolean(dashboard.location))}</div>
-      <div className="ll-schedule-chips">
-        {chips.map((chip, chipIndex) => (
-          <span className="ll-schedule-chip" title={chip} key={chipIndex}>
-            {chip}
-          </span>
-        ))}
+      <div className="ll-schedule-main">
+        <strong>
+          <Icon size={15} />
+          <span title={schedule.name}>{schedule.name}</span>
+          {schedule.kind === "alarm" && <span className="ll-tag">Alarm</span>}
+          {finished ? <span className="ll-tag">Done</span> : schedule.enabled === false && <span className="ll-tag">Paused</span>}
+        </strong>
+        <p>
+          {scheduleDays(schedule, settings.weekday_names)} · {target} · {action}
+        </p>
+        <p>{finished ? "Ran on its date. Edit it to set a new one." : run ? `Next: ${run.label}` : active ? "No upcoming run" : "Paused"}</p>
       </div>
-      <div className="ll-actions">
-        <button className="lv-button ll-small" type="button" aria-label={`Edit ${schedule.name}`} onClick={onEdit}>
+      <div className="ll-schedule-side">
+        <Toggle label={`${schedule.name} active`} hideLabel checked={active} disabled={finished} onChange={setActive} />
+        <button className="lv-icon-button" type="button" aria-label={`Edit ${schedule.name}`} title="Edit" onClick={onEdit}>
           <Pencil size={15} />
         </button>
-        <button className="lv-button ll-small" type="button" aria-label={`Delete ${schedule.name}`} onClick={() => act(() => lumia.delete("schedules", schedule.id))}>
+        <button className="lv-icon-button" type="button" aria-label={`Delete ${schedule.name}`} title="Delete" onClick={remove}>
           <Trash2 size={15} />
         </button>
       </div>
@@ -322,23 +409,35 @@ function ScheduleCard({ schedule, index, dashboard, settings, onEdit }: TabProps
 }
 
 export function SchedulesTab({ dashboard, settings }: TabProps) {
-  const [editing, setEditing] = useState<Schedule | null>(null);
+  const [editing, setEditing] = useState<Schedule | "new" | null>(null);
+  const [locating, setLocating] = useState(false);
+  const sorted = [...dashboard.schedules].sort((a, b) => (minutesOf(scheduleClock(a)) ?? 1440) - (minutesOf(scheduleClock(b)) ?? 1440));
   return (
     <>
-      <Location dashboard={dashboard} />
-      {dashboard.schedules.length > 0 && (
-        <div className="ll-grid ll-schedules">
-          {dashboard.schedules.map((schedule, index) => (
-            <ScheduleCard schedule={schedule} index={index} dashboard={dashboard} settings={settings} onEdit={() => setEditing(schedule)} key={schedule.id} />
-          ))}
-        </div>
-      )}
-      <ScheduleForm dashboard={dashboard} settings={settings} />
+      <Today dashboard={dashboard} onLocation={() => setLocating(true)} />
+      <section className="ll-block" aria-labelledby="schedules-title">
+        <SectionHead title="Schedules and alarms" count={dashboard.schedules.length} id="schedules-title">
+          <button className="lv-button lv-button-primary" type="button" onClick={() => setEditing("new")}>
+            <Plus size={17} />
+            New schedule
+          </button>
+        </SectionHead>
+        {sorted.length ? (
+          <div className="ll-schedules">
+            {sorted.map((schedule) => (
+              <ScheduleRow schedule={schedule} dashboard={dashboard} settings={settings} onEdit={() => setEditing(schedule)} key={schedule.id} />
+            ))}
+          </div>
+        ) : (
+          <p className="lv-alert">No schedules yet. A schedule turns lights on or off, or plays a scheme, at a time or with the sun.</p>
+        )}
+      </section>
       {editing && (
-        <Dialog title={`Edit ${editing.kind === "alarm" ? "alarm" : "schedule"}`} size="large" onClose={() => setEditing(null)}>
-          <ScheduleForm dashboard={dashboard} settings={settings} editing={editing} onSaved={() => setEditing(null)} />
+        <Dialog title={editing === "new" ? "New schedule or alarm" : `Edit ${editing.kind === "alarm" ? "alarm" : "schedule"}`} size="large" onClose={() => setEditing(null)}>
+          <ScheduleForm dashboard={dashboard} settings={settings} editing={editing === "new" ? undefined : editing} onSaved={() => setEditing(null)} />
         </Dialog>
       )}
+      {locating && <LocationDialog dashboard={dashboard} onClose={() => setLocating(false)} />}
     </>
   );
 }
