@@ -20,7 +20,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from config import SSOConfig, UIConfig
-from sso import LunaSingleSignOn
+from sso import CURRENT_USER, LunaSingleSignOn, send_user
 
 ID = r"\d+"
 # The backend routes the browser app may reach, as (method, path pattern).
@@ -71,8 +71,9 @@ class UIGateway:
         sso_transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self.config = config
-        self.sso = LunaSingleSignOn(config.allowed_emails, config.sso, sso_transport)
+        self.sso = LunaSingleSignOn(config.allowed_emails, config.sso, sso_transport, app="lumia")
         self.backend = httpx.AsyncClient(
+            event_hooks={"request": [send_user]},
             base_url=config.api_url,
             headers={"Authorization": f"Bearer {config.api_token}"},
             timeout=UIConfig.API_TIMEOUT_SECONDS,
@@ -102,7 +103,11 @@ class UIGateway:
                 return JSONResponse({"error": "Sign in to continue."}, status_code=401)
             if not self.sso.is_allowed(user):
                 return JSONResponse({"error": "This account is not authorized."}, status_code=403)
-            return await handler(request)
+            token = CURRENT_USER.set(user.get("user_id"))
+            try:
+                return await handler(request)
+            finally:
+                CURRENT_USER.reset(token)
 
         return endpoint
 

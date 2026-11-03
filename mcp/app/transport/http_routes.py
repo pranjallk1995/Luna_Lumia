@@ -71,6 +71,8 @@ class LumiaHTTPRoutes:
 
     @classmethod
     def error(cls, error: Exception) -> Response:
+        if isinstance(error, PermissionError):
+            return cls.response({"error": str(error)}, 403)
         if isinstance(error, ValidationError):
             return cls.response({"error": "Invalid request", "details": error.errors()}, 422)
         if isinstance(error, (NotFoundError, FileNotFoundError)):

@@ -17,6 +17,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.core import tenancy
 from app.core.config import AppConfig
 from app.integrations.router import light_address
 
@@ -351,3 +352,31 @@ class SceneEngine:
                 for light_id in list(playback.lights):
                     if self.playbacks.get(light_id) is playback:
                         del self.playbacks[light_id]
+
+
+class OwnerScenes:
+    """The scene engine as each person sees it: it drives the owner's lights and no one else has any."""
+
+    def __init__(self, engine: SceneEngine) -> None:
+        self.engine = engine
+
+    def play(self, scene_id: int, steps: list[Step], loops: bool, lights: list[Row]) -> None:
+        if tenancy.is_owner():
+            self.engine.play(scene_id, steps, loops, lights)
+
+    def play_beats(self, scene_id: int, palette: list[Step], clock: BeatClock, lights: list[Row]) -> None:
+        if tenancy.is_owner():
+            self.engine.play_beats(scene_id, palette, clock, lights)
+
+    def beats_playing(self) -> bool:
+        return tenancy.is_owner() and self.engine.beats_playing()
+
+    def stop(self, light_ids: list[int]) -> None:
+        if tenancy.is_owner():
+            self.engine.stop(light_ids)
+
+    def playing(self) -> dict[int, int]:
+        return self.engine.playing() if tenancy.is_owner() else {}
+
+    def live(self) -> dict[int, dict[str, Any]]:
+        return self.engine.live() if tenancy.is_owner() else {}

@@ -8,6 +8,8 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from app.core import tenancy
+
 Row = dict[str, Any]
 
 
@@ -44,7 +46,10 @@ class VibiaPlayback:
                 "Luna Vibia is not connected: set LUNAVIBIA_API_TOKEN in Lumia's .env "
                 "(the same value as in Luna_Vibia/.env) and restart Lumia."
             )
-        request = urllib.request.Request(f"{self.url}{path}", headers={"Authorization": f"Bearer {self.token}"})
+        request = urllib.request.Request(
+            f"{self.url}{path}",
+            headers={"Authorization": f"Bearer {self.token}", tenancy.USER_HEADER: tenancy.current()},
+        )
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 return json.load(response)
