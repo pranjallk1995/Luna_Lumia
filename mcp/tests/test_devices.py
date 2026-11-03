@@ -54,6 +54,13 @@ class DeviceTests(unittest.TestCase):
         repo=Repo()
         asyncio.run(LightControlService(repo,Adapter()).poll_statuses())
         self.assertEqual(repo.saved[0][1]["color"],"#00FF00")
+    def test_poll_does_not_save_a_playing_schemes_frame(self):
+        class Engine:
+            def playing(self): return {1:5}
+        repo,adapter=FakeRepository(),FakeAdapter()
+        result=asyncio.run(LightControlService(repo,adapter,Engine()).poll_statuses())
+        self.assertTrue(result[0]["ok"])
+        self.assertEqual(repo.saved[0][1],{"reachable":True})
     def test_saving_a_color_clears_the_temperature(self):
         from app.data.repositories import LightRepository
         calls=[]

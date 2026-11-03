@@ -3,7 +3,7 @@ import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { lumia, useAct, useControl, type Dashboard, type Discovered, type Light, type PcDevice, type PcDiscovery, type PcSource, type Settings } from "../api";
-import { isValidName, lightColor, lightState, mostCommon, roomOf, temperatureSchemes } from "../dashboard";
+import { isValidName, lightState, mostCommon, roomOf, shownColor, temperatureSchemes } from "../dashboard";
 import { messageOf } from "../lib";
 import { Bulb, ColorChips, ColorInput, ModeToggle, NameEditor, SectionHead, Slider, TemperatureChips, Toggle, type Mode } from "./controls";
 import { Dialog } from "./Dialog";
@@ -216,7 +216,7 @@ function HouseSummary({ dashboard, settings }: TabProps) {
         </span>
         <span className="ll-dots" aria-hidden="true">
           {lights.map((light) => (
-            <Bulb color={lightColor(light)} state={lightState(light)} small key={light.id} />
+            <Bulb color={shownColor(dashboard, light)} state={lightState(light)} small key={light.id} />
           ))}
         </span>
       </div>
@@ -296,11 +296,13 @@ function LightCard({ light, dashboard, settings }: TabProps & { light: Light }) 
   const send = (change: Parameters<typeof control>[1]) => control(target, change, (other) => other.id === light.id, fallback);
   const schemes = temperatureSchemes(dashboard.scenes, settings.temperature_presets);
   const seen = lastSeen(light);
+  const frame = dashboard.live[light.id];
+  const playing = dashboard.scenes.find((scheme) => scheme.id === dashboard.playing[light.id]);
 
   return (
     <article className={offline ? "ll-panel ll-light ll-light-offline" : "ll-panel ll-light"}>
       <div className="ll-light-top">
-        <Bulb color={lightColor(light)} state={state} />
+        <Bulb color={shownColor(dashboard, light)} state={state} />
         <div className="ll-light-name">
           <span className="ll-room-tag">
             <DoorOpen size={12} />
@@ -309,6 +311,10 @@ function LightCard({ light, dashboard, settings }: TabProps & { light: Light }) 
           <NameEditor name={light.name} entity="Light" maxChars={settings.name_max_chars} onRename={(name) => act(() => lumia.renameLight(light.id, name))} />
           {offline ? (
             <span className="ll-bad">Offline{seen ? ` · last seen ${seen}` : ""}</span>
+          ) : frame ? (
+            <span>
+              Playing {playing?.name ?? "a scheme"} · {frame.brightness}%
+            </span>
           ) : (
             <span>{light.is_on ? `On · ${light.brightness}% · ${light.color_temp ? `${light.color_temp} K` : light.color}` : "Off"}</span>
           )}

@@ -148,7 +148,9 @@ class LightControlService:
                         "moved": True,
                         "error": f"A different bulb ({reported}) now answers at {light['ip_address']}",
                     }
-                if WizLightAdapter.same_on_bulb(light.get("color"), state.get("color")):
+                if self.engine and light["id"] in self.engine.playing():
+                    state = {}  # a passing frame of a playing scheme, not the light's own state
+                elif WizLightAdapter.same_on_bulb(light.get("color"), state.get("color")):
                     state["color"] = light["color"]
                 saved = self.lights.update_state(light["id"], **state, reachable=True)
                 return {"light": saved, "ok": True}
@@ -679,11 +681,19 @@ class SceneService:
         lights = self.control.resolve_targets(target_type, target_id)
         playing = self.engine.playing()
         stopped = [light["id"] for light in lights if light["id"] in playing]
+        frames = self.engine.live()
         self.engine.stop(stopped)
+        # A stopped light stays on its last frame, so that is its state now.
+        for light_id in stopped:
+            if light_id in frames:
+                self.control.lights.update_state(light_id, **frames[light_id])
         return {"stopped_light_ids": stopped}
 
     def playing(self) -> dict[int, int]:
         return self.engine.playing()
+
+    def live(self) -> dict[int, dict[str, Any]]:
+        return self.engine.live()
 
     def play_beats(self, target_type: str, target_id: int | None, scene_id: int, clock: BeatClock) -> dict[str, Any]:
         """Pulse the target lights on a track's beats in a scheme's colors (a solid is one color)."""
@@ -1096,6 +1106,7 @@ class LumiaService:
             "scenes": self.decorate(self.scenes.list()),
             "transitions": self.transitions.list(),
             "playing": {str(light_id): scene_id for light_id, scene_id in self.scenes.playing().items()},
+            "live": {str(light_id): frame for light_id, frame in self.scenes.live().items()},
             "schedules": self.schedules.list(),
             "room_images": self.images.list_room_images(),
         }

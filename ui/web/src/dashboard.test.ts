@@ -7,6 +7,7 @@ import {
   filterSchemes,
   kelvinColor,
   lightColor,
+  shownColor,
   lightState,
   minutesOf,
   nextRun,
@@ -114,6 +115,10 @@ describe("redesign helpers", () => {
     expect(kelvinColor(2700)).toBe("#FFA757");
     expect(lightColor({ color: "#CF5BD8", color_temp: 2700 })).toBe("#FFA757");
     expect(lightColor({ color: "#CF5BD8", color_temp: null })).toBe("#CF5BD8");
+    const light = { id: 1, color: "#EE6860", color_temp: null };
+    expect(shownColor({ live: {} }, light)).toBe("#EE6860");
+    expect(shownColor({ live: { 1: { brightness: 40, color: "#FF9329" } } }, light)).toBe("#FF9329");
+    expect(shownColor({ live: { 1: { brightness: 40, color_temp: 2700 } } }, light)).toBe("#FFA757");
     expect(lightState({ is_on: true, reachable: false })).toBe("offline");
     expect(lightState({ is_on: true, reachable: null })).toBe("on");
     expect(lightState({ is_on: false, reachable: true })).toBe("off");

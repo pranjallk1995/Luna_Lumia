@@ -2,7 +2,7 @@ import { Circle, ListChecks, Play, Plus, Square, Sun, Timer, Trash2 } from "luci
 import { useState, type FormEvent } from "react";
 
 import { lumia, useAct, useControl, type Collection, type Dashboard, type Settings } from "../api";
-import { imageStyle, isValidName, lightColor, lightState, roomOf } from "../dashboard";
+import { imageStyle, isValidName, lightState, roomOf, shownColor } from "../dashboard";
 import { messageOf } from "../lib";
 import { Bulb, LightChoice, NameEditor, SectionHead, Slider, Toggle } from "./controls";
 import { Dialog } from "./Dialog";
@@ -106,7 +106,7 @@ function CollectionCard({ collection, dashboard, settings }: TabProps & { collec
   const target = { type: "group", id };
   const inside = (light: { id: number }) => collection.light_ids.includes(light.id);
   const brightness = lit.length ? Math.round(lit.reduce((sum, light) => sum + light.brightness, 0) / lit.length) : 100;
-  const colors = lit.map(lightColor);
+  const colors = lit.map((light) => shownColor(dashboard, light));
   // A photo when the room has one; otherwise the colors of its lit lights.
   const band = collection.effective_image_url
     ? imageStyle(collection.effective_image_url)
@@ -141,9 +141,9 @@ function CollectionCard({ collection, dashboard, settings }: TabProps & { collec
               const state = lightState(light);
               return (
                 <li key={light.id}>
-                  <Bulb color={lightColor(light)} state={state} small />
+                  <Bulb color={shownColor(dashboard, light)} state={state} small />
                   <span>{light.name}</span>
-                  <span>{state === "on" ? `${light.brightness}%` : state}</span>
+                  <span>{state === "on" ? `${dashboard.live[light.id]?.brightness ?? light.brightness}%` : state}</span>
                 </li>
               );
             })}

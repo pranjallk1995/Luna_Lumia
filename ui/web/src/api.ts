@@ -35,6 +35,9 @@ export type Light = {
   effective_image_url?: string | null;
 };
 
+/** What a playing scheme is showing on a light right now. */
+export type Frame = { brightness: number; color?: string; color_temp?: number };
+
 export type Collection = {
   id: number;
   name: string;
@@ -98,6 +101,7 @@ export type Dashboard = {
   transitions: Transition[];
   location?: Place | null;
   playing: Record<string, number>;
+  live: Record<string, Frame>;
 };
 
 export type Discovered = { ip_address: string; mac_address?: string | null; suggested_name: string };
@@ -110,8 +114,12 @@ export type Target = { type: string; id: number | null };
 const KEY = ["dashboard"];
 
 export function useDashboard() {
-  // A page left open still moves on to the next day's sunrise and sunset.
-  return useQuery({ queryKey: KEY, queryFn: () => request<Dashboard>("/api/dashboard"), refetchInterval: 60_000 });
+  // Lights also change from schedules and assistants, and a playing scheme changes them constantly.
+  return useQuery({
+    queryKey: KEY,
+    queryFn: () => request<Dashboard>("/api/dashboard"),
+    refetchInterval: (query) => (Object.keys(query.state.data?.live ?? {}).length ? 1_000 : 3_000),
+  });
 }
 
 export const lumia = {

@@ -201,6 +201,7 @@ class Playback:
     lights: dict[int, str]  # light id -> address (IP, or a PC device URL)
     task: asyncio.Task | None = field(default=None, repr=False)
     clock: BeatClock | None = None
+    frame: dict[str, Any] | None = None  # the state last sent, for showing what the lights show
 
 
 class SceneEngine:
@@ -251,6 +252,11 @@ class SceneEngine:
         with self._lock:
             return {light_id: playback.scene_id for light_id, playback in self.playbacks.items()}
 
+    def live(self) -> dict[int, dict[str, Any]]:
+        """Light id -> the brightness and color or temperature a playing scheme last sent it."""
+        with self._lock:
+            return {light_id: playback.frame for light_id, playback in self.playbacks.items() if playback.frame}
+
     async def _play(self, playback: Playback) -> None:
         await self._stop(list(playback.lights))
         with self._lock:
@@ -270,7 +276,8 @@ class SceneEngine:
                     playback.task.cancel()
 
     async def _frame(self, playback: Playback, state: dict[str, Any]) -> None:
-        sends = [self.send(ip, **state) for ip in list(playback.lights.values())]
+        playback.frame = state
+        sends =[self.send(ip, **state) for ip in list(playback.lights.values())]
         try:
             await asyncio.wait_for(
                 asyncio.gather(*sends, return_exceptions=True), AppConfig.PLAYBACK_SEND_TIMEOUT_SECONDS
@@ -307,6 +314,7 @@ class SceneEngine:
             while playback.lights:
                 position = clock.position()
                 state = clock.state(palette, position, pulses)
+                playback.frame = state
                 for ip in list(playback.lights.values()):
                     busy = sending.get(ip)
                     if (busy and not busy.done()) or sent.get(ip) == state:

@@ -14,13 +14,16 @@ export function kelvinColor(kelvin: number): string {
   return `#${[red, green, blue].map((value) => Math.round(Math.min(255, Math.max(0, value))).toString(16).padStart(2, "0")).join("")}`.toUpperCase();
 }
 
-/**
- * The color a light shows. The dashboard reports both a color and a temperature for every
- * light without saying which is active, so a temperature wins when there is one.
- */
+/** The color a light shows. Its temperature is empty while it shows a color, and its last color is kept while it shows a temperature. */
 export const lightColor = (light: Pick<Light, "color" | "color_temp">) => (light.color_temp ? kelvinColor(light.color_temp) : light.color || "#FFFFFF");
 
-export const stepColor = (step: Pick<Step, "color" | "color_temp">) => step.color || kelvinColor(step.color_temp || 4000);
+/** The color on a light this moment: a playing scheme's current frame, else its saved state. */
+export const shownColor = ({ live }: Pick<Dashboard, "live">, light: Pick<Light, "id" | "color" | "color_temp">) => {
+  const frame = live[light.id];
+  return lightColor(frame ? { color: frame.color ?? light.color, color_temp: frame.color_temp ?? null } : light);
+};
+
+export const stepColor =(step: Pick<Step, "color" | "color_temp">) => step.color || kelvinColor(step.color_temp || 4000);
 
 /** On, off, or offline: the one state that decides how a light is drawn and whether it can be changed. */
 export const lightState = (light: Pick<Light, "is_on" | "reachable">) => (light.reachable === false ? "offline" : light.is_on ? "on" : "off");
