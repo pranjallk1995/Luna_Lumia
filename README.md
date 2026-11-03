@@ -17,7 +17,7 @@ Luna Lumia combines React, FastMCP, PostgreSQL (in Luna Sentia), and direct loca
 
 <p align="center">
   <img src="docs/images/showcase.png" alt="Luna Lumia dashboard controlled from a chat assistant">
-  <img src="docs/images/showcase-schemes.png" alt="Luna Lumia scheme library with built-in lighting schemes">
+  <img src="docs/images/showcase-rooms.png" alt="Luna Lumia rooms with their lights playing the Candle light scheme">
 </p>
 
 Lumia discovers compatible bulbs, stores their IP and normalized MAC addresses, and controls power, brightness, RGB color, and white temperature. Rooms, groups, schemes, transitions, schedules, and alarms persist in PostgreSQL and are available to MCP clients. The initial `Living room light` is seeded at `192.168.1.8`.
