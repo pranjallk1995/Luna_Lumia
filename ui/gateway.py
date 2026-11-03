@@ -71,7 +71,7 @@ class UIGateway:
         sso_transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self.config = config
-        self.sso = LunaSingleSignOn(config.allowed_emails, config.sso, sso_transport)
+        self.sso = LunaSingleSignOn(config.allowed_emails, config.sso, sso_transport, app="lumia")
         self.backend = httpx.AsyncClient(
             event_hooks={"request": [send_user]},
             base_url=config.api_url,
