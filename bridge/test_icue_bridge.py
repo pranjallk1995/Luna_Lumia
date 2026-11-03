@@ -12,7 +12,7 @@ from enum import Enum
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from icue_bridge import BridgeConfig, ICueLights, ICueUnavailable, make_handler, parse_rgb
+from icue_bridge import BridgeConfig, BridgeServer, ICueLights, ICueUnavailable, make_handler, parse_rgb
 
 TOKEN = "t" * 32
 
@@ -82,6 +82,7 @@ class LightsTests(unittest.TestCase):
     def setUp(self):
         self.sdk = FakeSdk()
         self.lights = ICueLights(self.sdk, FAKE_TYPES)
+        self.lights.takeover_attempts, self.lights.takeover_delay_seconds = 3, 0
         self.lights.sync(True)
 
     def test_connecting_takes_exclusive_control_of_every_device(self):
@@ -134,6 +135,18 @@ class LightsTests(unittest.TestCase):
         self.lights.set_color("K70", (1, 2, 3))
         self.assertEqual(self.sdk.painted["id-k"][0], Color(100, 1, 2, 3, 255))
 
+    def test_devices_listed_late_after_reconnecting_still_get_the_last_color(self):
+        self.lights.set_color("K70", (1, 2, 3))
+        self.lights.sync(False)
+        self.sdk.painted.clear()
+        self.sdk.controlled.clear()
+        listed = self.sdk.get_devices
+        answers = [([], Error.CE_Success)]  # iCUE lists nothing at first, as after a screen saver
+        self.sdk.get_devices = lambda wanted: answers.pop() if answers else listed(wanted)
+        self.lights.sync(True)
+        self.assertEqual(self.sdk.painted["id-k"][0], Color(100, 1, 2, 3, 255))
+        self.assertIn(("id-k", 1), self.sdk.controlled)
+
     def test_disconnected_is_unavailable(self):
         self.lights.sync(False)
         with self.assertRaises(ICueUnavailable):
@@ -173,6 +186,15 @@ class ConfigTests(unittest.TestCase):
         for text in ('{"device_types": ["toaster"]}', '{"device_types": []}', '{"port": 0}', '{"prot": 1}'):
             with self.assertRaises(ValueError, msg=text):
                 self.load(text)
+
+
+class ServerTests(unittest.TestCase):
+    def test_a_second_bridge_cannot_share_the_port(self):
+        handler = make_handler(ICueLights(FakeSdk(), FAKE_TYPES), TOKEN)
+        first = BridgeServer(("127.0.0.1", 0), handler)
+        self.addCleanup(first.server_close)
+        with self.assertRaises(OSError):
+            BridgeServer(first.server_address, handler)
 
 
 class ParseRgbTests(unittest.TestCase):

@@ -29,9 +29,22 @@ function Test-Admin {
 }
 
 function Stop-Bridge {
-    Get-Process pythonw, python -ErrorAction SilentlyContinue |
+    # A bridge started from an admin window hides its path from a normal one, so also go by its port.
+    $byPath = Get-Process pythonw, python -ErrorAction SilentlyContinue |
         Where-Object { $_.Path -and $_.Path.StartsWith($InstallDir, [StringComparison]::OrdinalIgnoreCase) } |
-        Stop-Process -Force
+        ForEach-Object { $_.Id }
+    $settingsFile = Join-Path $InstallDir "icue_bridge.json"
+    $bridgePort = if (Test-Path $settingsFile) { (Get-Content $settingsFile -Raw | ConvertFrom-Json).port } else { $Port }
+    $byPort = Get-NetTCPConnection -State Listen -LocalPort $bridgePort -ErrorAction SilentlyContinue |
+        Where-Object { (Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue).ProcessName -match "^pythonw?$" } |
+        ForEach-Object { $_.OwningProcess }
+    foreach ($id in @($byPath) + @($byPort) | Where-Object { $_ } | Select-Object -Unique) {
+        try {
+            Stop-Process -Id $id -Force -ErrorAction Stop
+        } catch {
+            throw "Could not stop the bridge running as process $id. It was started from an admin window, so run this from one too."
+        }
+    }
 }
 
 function Get-Verified($Url, $Sha256, $Path) {

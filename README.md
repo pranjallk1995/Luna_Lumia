@@ -478,14 +478,20 @@ The read-back can look right while the LEDs do not, so check the hardware itself
 - **Corsair devices:** let iCUE drive them, and turn off their detectors in OpenRGB
   (*Settings → Supported Devices*), then restart OpenRGB. On one K70 RGB PRO, OpenRGB left
   half the keys dark even with iCUE closed, while iCUE lit every key.
-- **ASUS boards:** let OpenRGB drive them. If the board drops back to Armoury Crate's
-  lighting, stop that service from an admin PowerShell. Armoury Crate lighting will not work
-  until you start the service again.
+- **ASUS boards:** let OpenRGB drive them, and turn off Armoury Crate. Otherwise the board can
+  show Armoury Crate's effect while OpenRGB still reports Lumia's color. Setting only
+  `LightingService` to Manual was not enough, because it came back. From an admin PowerShell:
 
   ```powershell
-  Stop-Service LightingService
-  Set-Service LightingService -StartupType Manual
+  Set-Service ArmouryCrateService -StartupType Disabled
+  Set-Service LightingService -StartupType Disabled
+  Disable-ScheduledTask -TaskPath '\ASUS\' -TaskName 'ArmourySocketServer'
+  Stop-Service ArmouryCrateService, LightingService -Force
   ```
+
+  Armoury Crate and Aura Sync lighting stop working until you undo this: set both services
+  back (`ArmouryCrateService` to `Automatic`, `LightingService` to `Manual`) and run
+  `Enable-ScheduledTask` on that task.
 
   iCUE also lists ASUS boards, so leave `motherboard` out of the bridge's device types.
 - **Addressable headers:** OpenRGB reports them with 0 LEDs until you size them
@@ -541,8 +547,12 @@ LUNALUMIA_ICUE_TOKENS=192.168.1.15=token-of-that-pc,192.168.1.20=token-of-that-p
 
 A token only opens its own PC. `LUNALUMIA_ICUE_TOKEN` is a fallback for any PC not listed.
 While the bridge runs it holds exclusive control of its devices, so iCUE's own effects stay
-hidden. They come back when the bridge stops. iCUE must be running for the bridge to work,
-and the bridge reconnects by itself when iCUE restarts.
+hidden. They come back when the bridge stops. iCUE must be running for the bridge to work.
+When iCUE drops the session, as seen around a screen saver, or restarts, the bridge
+reconnects by itself and restores the last color. iCUE's own lighting can show until then.
+
+Run only one bridge per PC. A second one exits and logs that the port is taken. To restart
+it, stop the running one first; if it was started from an admin window, stop it from one too.
 
 ### Add the devices to Lumia
 
@@ -561,6 +571,10 @@ checks the default ports only; `discover_pc_lights` takes `openrgb_port` and `ic
 | `iCUE is not connected` | iCUE is closed. Start it and the bridge reconnects |
 | `No iCUE bridge token` or `Unauthorized` | That PC's token is missing or wrong in `.env`. Compare it with `icue_token.txt` |
 | Some keys dark, or flashes then reverts | Two programs drive the device. See above |
+| Keyboard or mouse dark, or flashing, with several `pythonw` processes | More than one bridge is running. Stop them all and start one |
+| Keyboard and mouse flash around a screen saver | iCUE dropped the bridge's session. They should settle by themselves within about 30 seconds |
+| Board shows its own effect while OpenRGB reports Lumia's color | Armoury Crate is still running. See above |
+| A device flickers | Check the scheme first: Candle light and Fireplace flicker on purpose. Stop the scheme to compare |
 | Device has no LEDs | Size its zones in OpenRGB |
 | Lights went off by themselves | OpenRGB was rescanned or restarted. Apply a scheme again |
 

@@ -22,6 +22,7 @@ import hmac
 import json
 import logging
 import threading
+import time
 from dataclasses import dataclass
 from functools import reduce
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -94,6 +95,8 @@ class ICueLights:
         self.devices: dict[str, list] = {}  # model -> [device id, LED ids]
         self.controlled: set[str] = set()  # iCUE refuses a second request for the same device
         self.colors: dict[str, tuple[int, int, int]] = {}
+        # iCUE can list no devices for a moment after a session opens.
+        self.takeover_attempts, self.takeover_delay_seconds = 30, 1.0
 
     def start(self) -> None:
         error = self.sdk.connect(self.on_state_changed)
@@ -110,14 +113,25 @@ class ICueLights:
         with self.lock:
             self.connected = connected
             self.devices, self.controlled = {}, set()
-            if connected:
+        if connected:
+            self._take_over()
+
+    def _take_over(self) -> None:
+        """Retake control after a session opens and show what Lumia last set, even with no scheme playing."""
+        for _ in range(self.takeover_attempts):
+            with self.lock:
+                if not self.connected:
+                    return
                 try:
                     self._load_devices()
-                    for name, rgb in self.colors.items():  # iCUE restarted: show what Lumia last set
+                    for name, rgb in self.colors.items():
                         if name in self.devices:
                             self._paint(name, rgb)
-                except ICueUnavailable as error:  # the next command from Lumia tries again
+                    if self.devices:
+                        return
+                except ICueUnavailable as error:  # a later attempt or Lumia's next command tries again
                     log.warning("Could not take over iCUE's devices: %s", error)
+            time.sleep(self.takeover_delay_seconds)
 
     def _check(self, error) -> None:
         if error != self.types.CorsairError.CE_Success:
@@ -167,6 +181,11 @@ class ICueLights:
                 raise LookupError(f"iCUE has no device named {name!r}")
             self._paint(name, rgb)
             self.colors[name] = rgb
+
+
+class BridgeServer(ThreadingHTTPServer):
+    # On Windows, address reuse lets a second bridge share the port, and two bridges fight over the lights.
+    allow_reuse_address = False
 
 
 def parse_rgb(body: bytes) -> tuple[int, int, int]:
@@ -252,8 +271,13 @@ def main() -> None:
     if len(token) < 32:
         raise SystemExit("icue_token.txt must hold a token of at least 32 characters")
     lights = ICueLights(cuesdk.CueSdk(), cuesdk, config.device_types)
+    # Bind first: a bridge that is already running must not see a second iCUE session open.
+    try:
+        server = BridgeServer((config.bind, config.port), make_handler(lights, token))
+    except OSError as error:
+        log.error("Port %s is taken, is another bridge running? %s", config.port, error)
+        raise SystemExit(1) from error
     lights.start()
-    server = ThreadingHTTPServer((config.bind, config.port), make_handler(lights, token))
     log.info("Listening on %s:%s for %s", config.bind, config.port, ", ".join(config.device_types))
     server.serve_forever()
 
