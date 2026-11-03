@@ -5,6 +5,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from app.core.models import (
+    LightCreate,
     GroupCreate,
     GroupMembersUpdate,
     GroupUpdate,
@@ -140,6 +141,26 @@ class LumiaMCPTools:
         async def discover_lights_on_network(broadcast_space: str = AppConfig.GLOBAL_BROADCAST):
             """Scan the local network for WiZ-compatible smart lights."""
             return await lights.discover(broadcast_space)
+
+        @server.tool()
+        async def discover_pc_rgb_devices(host: str, port: int = 6742):
+            """List the RGB devices (keyboard, mouse, motherboard, ...) of a PC running OpenRGB.
+
+            ``host`` is the PC's LAN IP. OpenRGB must be running there with its SDK
+            server on (started with --server, listening on 0.0.0.0). Each device can
+            then be added as a Lumia light with add_pc_rgb_device. A device with
+            led_count 0 shows nothing until its zones are sized in OpenRGB.
+            """
+            return await lights.discover_openrgb(host, port)
+
+        @server.tool()
+        def add_pc_rgb_device(host: str, device: str, name: str):
+            """Add one OpenRGB device as a Lumia light, so it takes colors, schemes and schedules.
+
+            ``device`` is the exact name from discover_pc_rgb_devices; ``name`` is the
+            Lumia light name (letters, numbers and spaces, up to 30 characters).
+            """
+            return lights.add(LightCreate(name=name, ip_address=host, protocol="openrgb", device=device))
 
     def _register_image_tools(self) -> None:
         server, images = self.server, self.service.images

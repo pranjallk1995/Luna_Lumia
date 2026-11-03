@@ -71,8 +71,16 @@ class CollectionNamed(BaseModel):
 
 class LightCreate(LightNamed):
     ip_address: str = Field(pattern=r"^(?:\d{1,3}\.){3}\d{1,3}$")
-    protocol: Literal["wiz"] = "wiz"
+    protocol: Literal["wiz", "openrgb"] = "wiz"
     mac_address: str | None = Field(default=None, max_length=17)
+    # OpenRGB only: the device's name as OpenRGB lists it (e.g. "Corsair K70 RGB PRO V2").
+    device: str | None = Field(default=None, min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def device_matches_protocol(self):
+        if (self.protocol == "openrgb") != (self.device is not None):
+            raise ValueError("OpenRGB lights need a device name; WiZ lights take none")
+        return self
 
     @field_validator("ip_address")
     @classmethod

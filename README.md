@@ -32,6 +32,9 @@ Lumia discovers compatible bulbs, stores their IP and normalized MAC addresses, 
 - Control one light, a room/group, or all lights.
 - Set power, brightness, RGB color, or white temperature from 2200-6500 K.
 - Apply UI changes immediately. Lumia does not continuously poll bulbs in the background.
+- Drive PC RGB devices (keyboards, mice, motherboards) through [OpenRGB](https://openrgb.org):
+  each device becomes a light that shows one color, so schemes, schedules, weather and
+  music work on it too.
 
 ### Rooms, groups, and images
 
@@ -278,6 +281,18 @@ control power,
 brightness, RGB color, or color temperature for one light, every light, or a
 saved group.
 
+- `discover_pc_rgb_devices`, `add_pc_rgb_device`
+
+PC RGB devices are reached through OpenRGB's SDK server. On the PC, run OpenRGB with
+`--server` and set *Settings → Server → Default Host* to `0.0.0.0` (port 6742), then
+allow OpenRGB through the PC's firewall on private networks. `discover_pc_rgb_devices`
+takes the PC's LAN IP and lists its devices; `add_pc_rgb_device` saves one as a light.
+A device with `led_count` 0 (such as a motherboard whose addressable headers are unsized)
+reports an error until its zones are sized in OpenRGB.
+Lumia sets the whole device to one color in OpenRGB's Direct mode, scaling it for
+brightness; white temperatures are shown as their RGB equivalent. Vendor apps
+(iCUE, Armoury Crate) fight OpenRGB for the same devices, so close them.
+
 ### Rooms, groups, and images
 
 - `list_rooms`, `get_room`, `create_room`, `rename_room`, `delete_room`
@@ -352,7 +367,8 @@ with `set_music_scheme`.
 ### `lights`
 
 One row per discovered or manually added light. It stores the editable name,
-unique IP address, optional unique MAC address, protocol, last known power,
+IP address, optional unique MAC address, protocol (`wiz` or `openrgb`), OpenRGB
+device name (PC devices share their PC's IP, so IP plus device is unique), last known power,
 brightness, RGB color, color temperature, reachability, last-seen time, creation
 time, and optional background-image URL. Status refreshes update the cached
 device state; the database remains the inventory source of truth.

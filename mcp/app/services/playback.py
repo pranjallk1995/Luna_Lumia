@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.core.config import AppConfig
+from app.integrations.openrgb import light_address
 
 Row = dict[str, Any]
 Sender = Callable[..., Awaitable[None]]
@@ -197,7 +198,7 @@ class Playback:
     scene_id: int
     steps: list[Step]
     loops: bool
-    lights: dict[int, str]  # light id -> IP address
+    lights: dict[int, str]  # light id -> address (IP, or openrgb:// URL)
     task: asyncio.Task | None = field(default=None, repr=False)
     clock: BeatClock | None = None
 
@@ -229,12 +230,12 @@ class SceneEngine:
         return asyncio.run_coroutine_threadsafe(coroutine, self.loop).result(timeout=AppConfig.PLAYBACK_CALL_TIMEOUT_SECONDS)
 
     def play(self, scene_id: int, steps: list[Step], loops: bool, lights: list[Row]) -> None:
-        targets = {light["id"]: light["ip_address"] for light in lights}
+        targets = {light["id"]: light_address(light) for light in lights}
         self._call(self._play(Playback(scene_id, steps, loops, targets)))
 
     def play_beats(self, scene_id: int, palette: list[Step], clock: BeatClock, lights: list[Row]) -> None:
         """Pulse ``lights`` on the beats of a playing track, in the palette's colors."""
-        targets = {light["id"]: light["ip_address"] for light in lights}
+        targets = {light["id"]: light_address(light) for light in lights}
         self._call(self._play(Playback(scene_id, palette, True, targets, clock=clock)))
 
     def beats_playing(self) -> bool:

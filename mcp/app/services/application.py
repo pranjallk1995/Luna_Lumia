@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from ipaddress import IPv4Address
 from datetime import date, datetime, time, timedelta
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 from app.integrations.devices import WizDiscovery, WizLightAdapter
+from app.integrations.openrgb import DEFAULT_PORT, OpenRGBAdapter, light_address
 from app.core.errors import NotFoundError
 from app.core.models import (
     CollectionKind,
@@ -90,7 +92,7 @@ class LightControlService:
         async def send(light: Row) -> Exception | None:
             try:
                 await self.adapter.apply(
-                    light["ip_address"],
+                    light_address(light),
                     on=state.on,
                     brightness=state.brightness,
                     color=state.color,
@@ -134,7 +136,7 @@ class LightControlService:
         """
         async def poll(light: Row) -> dict[str, Any]:
             try:
-                state = await self.adapter.status(light["ip_address"])
+                state = await self.adapter.status(light_address(light))
                 reported = Validators.mac_address(state.pop("mac_address", None) or None)
                 if light.get("mac_address") and reported and reported != light["mac_address"]:
                     return {
@@ -296,10 +298,12 @@ class LightService:
         lights: LightRepository,
         discovery: WizDiscovery,
         images: BackgroundImageService,
+        openrgb: OpenRGBAdapter | None = None,
     ) -> None:
         self.lights = lights
         self.discovery = discovery
         self.images = images
+        self.openrgb = openrgb or OpenRGBAdapter()
 
     def list(self) -> list[Row]:
         return self.lights.list()
@@ -375,6 +379,33 @@ class LightService:
         if not prefixes:
             return AppConfig.GLOBAL_BROADCAST
         return f"{max(set(prefixes), key=prefixes.count)}.255"
+
+    @staticmethod
+    def openrgb_name(device: str) -> str:
+        """A valid Lumia light name from an OpenRGB device name (letters, digits, spaces; 30 max)."""
+        cleaned = " ".join("".join(c if c.isalnum() else " " for c in device).split())
+        return (cleaned[:30].strip() or "PC RGB")
+
+    async def discover_openrgb(self, host: str, port: int = DEFAULT_PORT) -> list[dict]:
+        """List the devices an OpenRGB server on ``host`` offers, flagging those already added."""
+        IPv4Address(host)
+        controllers = await self.openrgb.devices(host, port)
+        configured = {
+            light["device"]
+            for light in self.lights.list()
+            if light.get("protocol") == "openrgb" and light["ip_address"] == host
+        }
+        return [
+            {
+                "ip_address": host,
+                "device": controller.name,
+                "led_count": controller.led_count,
+                "protocol": "openrgb",
+                "configured": controller.name in configured,
+                "suggested_name": self.openrgb_name(controller.name),
+            }
+            for controller in controllers
+        ]
 
     async def discover(self, broadcast_space: str = AppConfig.GLOBAL_BROADCAST) -> list[dict]:
         """Scan for lights, follow saved lights to new IPs, and flag configured ones."""

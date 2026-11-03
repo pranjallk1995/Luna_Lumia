@@ -6,6 +6,7 @@ from app.transport.branding import ServerBranding
 from app.core.config import AppConfig
 from app.data.database import Database
 from app.integrations.devices import WizDiscovery, WizLightAdapter
+from app.integrations.openrgb import LightRouter, OpenRGBAdapter
 from app.integrations.vibia import VibiaPlayback
 from app.transport.http_routes import LumiaHTTPRoutes
 from app.transport.mcp_tools import LumiaMCPTools
@@ -55,7 +56,8 @@ class LunaLumiaApplication:
             WeatherSchemeRepository(self.database),
             MusicSchemeRepository(self.database),
         ).install()
-        self.adapter = WizLightAdapter(timeout=config.device_timeout_seconds)
+        self.openrgb = OpenRGBAdapter(timeout=config.device_timeout_seconds)
+        self.adapter = LightRouter(WizLightAdapter(timeout=config.device_timeout_seconds), self.openrgb)
         self.engine = SceneEngine(self.adapter.apply)
         self.engine.start()
         self.service = self._build_service()
@@ -98,7 +100,7 @@ class LunaLumiaApplication:
             location,
         )
         return LumiaService(
-            lights=LightService(lights, WizDiscovery(), images),
+            lights=LightService(lights, WizDiscovery(), images, self.openrgb),
             collections=CollectionService(collections, images),
             images=images,
             control=control,

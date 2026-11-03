@@ -23,6 +23,10 @@ ALTER TABLE lights ADD COLUMN IF NOT EXISTS mac_address TEXT;
 ALTER TABLE lights ADD COLUMN IF NOT EXISTS background_image_url TEXT;
 ALTER TABLE lights ADD COLUMN IF NOT EXISTS color_temp SMALLINT NOT NULL DEFAULT 4000
     CHECK (color_temp BETWEEN 2200 AND 6500);
+-- PC RGB devices served by OpenRGB share their PC's IP, told apart by device name.
+ALTER TABLE lights ADD COLUMN IF NOT EXISTS device TEXT;
+ALTER TABLE lights DROP CONSTRAINT IF EXISTS lights_ip_address_key;
+CREATE UNIQUE INDEX IF NOT EXISTS lights_address_idx ON lights (ip_address, COALESCE(device, ''));
 CREATE UNIQUE INDEX IF NOT EXISTS lights_mac_address_idx
     ON lights (mac_address) WHERE mac_address IS NOT NULL;
 CREATE TABLE IF NOT EXISTS room_images (
@@ -74,7 +78,7 @@ CREATE TABLE IF NOT EXISTS schedules (
  last_run_date DATE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 INSERT INTO lights (name, ip_address) VALUES ('Living room light', '192.168.1.8')
-ON CONFLICT (ip_address) DO NOTHING;
+ON CONFLICT DO NOTHING;
 -- Schedules run at a fixed time, or at sunrise/sunset (plus an offset) for the saved location.
 ALTER TABLE schedules ALTER COLUMN run_time DROP NOT NULL;
 ALTER TABLE schedules ADD COLUMN IF NOT EXISTS time_mode TEXT NOT NULL DEFAULT 'time'
