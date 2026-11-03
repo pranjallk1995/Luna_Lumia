@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.core.config import AppConfig
-from app.integrations.openrgb import light_address
+from app.integrations.router import light_address
 
 Row = dict[str, Any]
 Sender = Callable[..., Awaitable[None]]
@@ -198,7 +198,7 @@ class Playback:
     scene_id: int
     steps: list[Step]
     loops: bool
-    lights: dict[int, str]  # light id -> address (IP, or openrgb:// URL)
+    lights: dict[int, str]  # light id -> address (IP, or a PC device URL)
     task: asyncio.Task | None = field(default=None, repr=False)
     clock: BeatClock | None = None
 

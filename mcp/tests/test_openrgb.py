@@ -14,11 +14,10 @@ from app.integrations.openrgb import (
     SET_CUSTOM_MODE,
     UPDATE_LEDS,
     ControllerParser,
-    LightRouter,
     OpenRGBAdapter,
     OpenRGBAddress,
-    light_address,
 )
+from app.integrations.router import LightRouter, light_address
 
 
 def text(value: str) -> bytes:
@@ -171,6 +170,12 @@ class OpenRGBTests(unittest.TestCase):
         with self.assertRaisesRegex(LookupError, "no LEDs"):
             asyncio.run(self.adapter.apply(board, color="#FFFFFF"))
 
+    def test_device_resized_in_openrgb_gets_the_new_led_count(self):
+        asyncio.run(self.adapter.apply(self.keyboard, color="#FF0000"))
+        self.server.devices[1] = ("Corsair K70 RGB PRO V2", 6)
+        asyncio.run(self.adapter.apply(self.keyboard, color="#00FF00"))
+        self.assertEqual(self.colors(self.server.updates(2)[-1][1]), [(0, 255, 0)] * 6)
+
     def test_color_sent_after_the_server_restarted_still_arrives(self):
         asyncio.run(self.adapter.apply(self.keyboard, color="#FF0000"))
         self.server.drop_sessions()
@@ -204,6 +209,10 @@ class OpenRGBTests(unittest.TestCase):
         self.assertEqual(
             light_address({"ip_address": "192.168.1.20", "protocol": "openrgb", "device": "Harpoon"}),
             "openrgb://192.168.1.20:6742/Harpoon",
+        )
+        self.assertEqual(
+            light_address({"ip_address": "192.168.1.20", "protocol": "openrgb", "device": "Harpoon", "port": 7000}),
+            "openrgb://192.168.1.20:7000/Harpoon",
         )
 
     def test_light_create_requires_device_for_openrgb_only(self):

@@ -135,6 +135,7 @@ class LumiaHTTPRoutes:
         self._register_icons()
         self.route("GET", "/api/dashboard", self.dashboard)
         self.route("POST", "/api/discovery", self.discover)
+        self.route("POST", "/api/discovery/pc", self.discover_pc)
         self._register_lights()
         self._register_collections("room")
         self._register_collections("group")
@@ -152,6 +153,10 @@ class LumiaHTTPRoutes:
     async def discover(self, request: Request) -> list[dict]:
         body = await request.json()
         return await self.service.lights.discover(body.get("broadcast_space", AppConfig.GLOBAL_BROADCAST))
+
+    async def discover_pc(self, request: Request) -> dict:
+        body = await request.json()
+        return await self.service.lights.discover_pc(str(body.get("host", "")))
 
     async def update_room_image(self, request: Request) -> Any:
         entry = await self.payload(request, RoomImageUpdate)

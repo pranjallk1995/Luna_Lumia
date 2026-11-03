@@ -1,8 +1,8 @@
-import { CirclePlus, DoorOpen, House, Palette, Radar, RefreshCw, Sun, Thermometer, Trash2 } from "lucide-react";
+import { CirclePlus, DoorOpen, House, Monitor, Palette, Radar, RefreshCw, Sun, Thermometer, Trash2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { lumia, useAct, useControl, type Dashboard, type Discovered, type Light, type Settings } from "../api";
+import { lumia, useAct, useControl, type Dashboard, type Discovered, type Light, type PcDevice, type PcDiscovery, type PcSource, type Settings } from "../api";
 import { isValidName, lightColor, lightState, mostCommon, roomOf, temperatureSchemes } from "../dashboard";
 import { messageOf } from "../lib";
 import { Bulb, ColorChips, ColorInput, ModeToggle, NameEditor, SectionHead, Slider, TemperatureChips, Toggle, type Mode } from "./controls";
@@ -31,6 +31,80 @@ function FoundLight({ bulb, added, settings }: { bulb: Discovered; added: boolea
         {added ? "Added" : "Add"}
       </button>
     </div>
+  );
+}
+
+function FoundPcDevice({ device, added, settings }: { device: PcDevice; added: boolean; settings: Settings }) {
+  const [name, setName] = useState(device.suggested_name);
+  const act = useAct();
+  const add = () =>
+    act(() => lumia.create("lights", { name, ip_address: device.ip_address, protocol: device.protocol, device: device.device, port: device.port }));
+  return (
+    <div className="ll-found">
+      <label className="lv-field">
+        {device.device} · {device.protocol === "icue" ? "iCUE" : "OpenRGB"} · {device.led_count} LEDs
+        <input className="lv-input" value={name} disabled={added} maxLength={settings.name_max_chars} onChange={(event) => setName(event.target.value)} />
+      </label>
+      <button className="lv-button" type="button" disabled={added || !device.led_count} onClick={add}>
+        {added ? "Added" : "Add"}
+      </button>
+    </div>
+  );
+}
+
+const pcSourceLine = (label: string, source: PcSource) => (source.available ? `${label}: connected` : `${label}: not reachable (${source.error})`);
+
+/** Check one PC for OpenRGB and the iCUE bridge; see "PC RGB lights" in the README for their setup. */
+function AddPc({ dashboard, settings }: TabProps) {
+  const toast = useToast();
+  const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<PcDiscovery | null>(null);
+  const added = (device: PcDevice) =>
+    dashboard.lights.some((light) => light.ip_address === device.ip_address && light.protocol === device.protocol && light.device === device.device);
+
+  const check = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setChecking(true);
+    try {
+      setResult(await lumia.discoverPc(String(new FormData(event.currentTarget).get("host"))));
+    } catch (failure) {
+      toast(`PC check failed: ${messageOf(failure, "please try again.")}`);
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <>
+      <form className="ll-scan" onSubmit={check}>
+        <Monitor size={20} />
+        <div>
+          <strong>Add a PC's RGB devices</strong>
+          <p className="lv-caption">Asks a PC running OpenRGB or Lumia's iCUE bridge what it can light.</p>
+          <input className="lv-input" name="host" placeholder="192.168.1.15" aria-label="PC IP address" required />
+        </div>
+        <button className="lv-button" type="submit" disabled={checking}>
+          {checking ? "Checking…" : "Check"}
+        </button>
+      </form>
+      {result && (
+        <div className="ll-found-list">
+          <p className="lv-caption">
+            {pcSourceLine("OpenRGB", result.openrgb)}
+            <br />
+            {pcSourceLine("iCUE bridge", result.icue)}
+          </p>
+          {result.warnings.map((warning) => (
+            <p className="lv-alert" key={warning}>
+              {warning}
+            </p>
+          ))}
+          {result.devices.map((device) => (
+            <FoundPcDevice device={device} added={added(device)} settings={settings} key={`${device.protocol}/${device.device}`} />
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -89,6 +163,7 @@ function AddLights({ dashboard, settings, onClose }: TabProps & { onClose: () =>
             ))}
           </div>
         )}
+        <AddPc dashboard={dashboard} settings={settings} />
         <form className="lv-form" onSubmit={submit}>
           <p className="lv-caption">Or add one by its address</p>
           <div className="lv-form-row">
@@ -278,7 +353,7 @@ function LightCard({ light, dashboard, settings }: TabProps & { light: Light }) 
           )}
           <div className="ll-light-foot">
             <span className="ll-meta">
-              {light.ip_address} · {light.mac_address || "MAC not discovered"}
+              {light.ip_address} · {light.device || light.mac_address || "MAC not discovered"}
             </span>
             <button className="lv-icon-button" type="button" aria-label={`Delete ${light.name}`} title="Delete" onClick={() => setDeleting(true)}>
               <Trash2 size={16} />

@@ -1,6 +1,7 @@
 """WiZ protocol adapters for controlling and discovering lights on the LAN."""
 
 import asyncio
+import colorsys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
@@ -8,6 +9,7 @@ from ipaddress import IPv4Address, IPv4Network
 
 from pywizlight import PilotBuilder, wizlight
 from pywizlight.discovery import discover_lights
+from pywizlight.rgbcw import rgb2rgbcw, rgbcw2hs
 
 from app.core.models import LightState
 from app.core.config import AppConfig
@@ -36,8 +38,18 @@ class WizLightAdapter:
         return tuple(int(value[index : index + 2], 16) for index in (0, 2, 4))
 
     @staticmethod
-    def hex_color(rgb: tuple[int, int, int] | None) -> str | None:
-        return "#{:02X}{:02X}{:02X}".format(*rgb) if rgb and any(rgb) else None
+    def shown_color(rgb: tuple[int, int, int] | None, white: int) -> str | None:
+        """The color a bulb shows. It splits a pastel into vivid RGB plus white, so RGB alone reads too strong."""
+        if not rgb or not any(rgb):
+            return None
+        hue, saturation = rgbcw2hs(rgb, white)
+        channels = colorsys.hsv_to_rgb(hue / 360, saturation / 100, 1)
+        return "#{:02X}{:02X}{:02X}".format(*(round(channel * 255) for channel in channels))
+
+    @classmethod
+    def same_on_bulb(cls, saved: str | None, reported: str | None) -> bool:
+        """Whether a bulb told to show ``saved`` would report ``reported``; the split loses the exact color."""
+        return bool(saved and reported) and cls.shown_color(*rgb2rgbcw(cls.rgb(saved))) == reported
 
     async def apply(
         self, ip_address: str, *, on=None, brightness=None, color=None, color_temp=None
@@ -66,7 +78,7 @@ class WizLightAdapter:
                 "mac_address": state.get_mac() or bulb.mac,
                 "on": bool(state.get_state()),
                 "brightness": max(1, round(brightness / 2.55)) if brightness else None,
-                "color": self.hex_color(state.get_rgb()),
+                "color": self.shown_color(state.get_rgb(), (state.get_cold_white() or 0) + (state.get_warm_white() or 0)),
                 "color_temp": self.clamp_color_temp(state.get_colortemp()),
             }
 

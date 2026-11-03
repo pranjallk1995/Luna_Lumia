@@ -23,8 +23,11 @@ ALTER TABLE lights ADD COLUMN IF NOT EXISTS mac_address TEXT;
 ALTER TABLE lights ADD COLUMN IF NOT EXISTS background_image_url TEXT;
 ALTER TABLE lights ADD COLUMN IF NOT EXISTS color_temp SMALLINT NOT NULL DEFAULT 4000
     CHECK (color_temp BETWEEN 2200 AND 6500);
+-- Empty while a light shows a color rather than a temperature.
+ALTER TABLE lights ALTER COLUMN color_temp DROP NOT NULL;
 -- PC RGB devices served by OpenRGB share their PC's IP, told apart by device name.
 ALTER TABLE lights ADD COLUMN IF NOT EXISTS device TEXT;
+ALTER TABLE lights ADD COLUMN IF NOT EXISTS port INTEGER;
 ALTER TABLE lights DROP CONSTRAINT IF EXISTS lights_ip_address_key;
 CREATE UNIQUE INDEX IF NOT EXISTS lights_address_idx ON lights (ip_address, COALESCE(device, ''));
 CREATE UNIQUE INDEX IF NOT EXISTS lights_mac_address_idx

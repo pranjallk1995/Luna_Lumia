@@ -10,7 +10,10 @@ from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 from app.integrations.devices import WizDiscovery, WizLightAdapter
-from app.integrations.openrgb import DEFAULT_PORT, OpenRGBAdapter, light_address
+from app.integrations import icue as icue_integration
+from app.integrations.icue import ICueAdapter
+from app.integrations.openrgb import DEFAULT_PORT, OpenRGBAdapter
+from app.integrations.router import light_address
 from app.core.errors import NotFoundError
 from app.core.models import (
     CollectionKind,
@@ -145,6 +148,8 @@ class LightControlService:
                         "moved": True,
                         "error": f"A different bulb ({reported}) now answers at {light['ip_address']}",
                     }
+                if WizLightAdapter.same_on_bulb(light.get("color"), state.get("color")):
+                    state["color"] = light["color"]
                 saved = self.lights.update_state(light["id"], **state, reachable=True)
                 return {"light": saved, "ok": True}
             except Exception as error:
@@ -299,11 +304,13 @@ class LightService:
         discovery: WizDiscovery,
         images: BackgroundImageService,
         openrgb: OpenRGBAdapter | None = None,
+        icue: ICueAdapter | None = None,
     ) -> None:
         self.lights = lights
         self.discovery = discovery
         self.images = images
         self.openrgb = openrgb or OpenRGBAdapter()
+        self.icue = icue or ICueAdapter()
 
     def list(self) -> list[Row]:
         return self.lights.list()
@@ -381,8 +388,8 @@ class LightService:
         return f"{max(set(prefixes), key=prefixes.count)}.255"
 
     @staticmethod
-    def openrgb_name(device: str) -> str:
-        """A valid Lumia light name from an OpenRGB device name (letters, digits, spaces; 30 max)."""
+    def pc_light_name(device: str) -> str:
+        """A valid Lumia light name from a PC device name (letters, digits, spaces; 30 max)."""
         cleaned = " ".join("".join(c if c.isalnum() else " " for c in device).split())
         return (cleaned[:30].strip() or "PC RGB")
 
@@ -390,21 +397,65 @@ class LightService:
         """List the devices an OpenRGB server on ``host`` offers, flagging those already added."""
         IPv4Address(host)
         controllers = await self.openrgb.devices(host, port)
+        found = [(controller.name, controller.led_count) for controller in controllers]
+        return self._pc_devices(host, "openrgb", found, port)
+
+    async def discover_icue(self, host: str, port: int = icue_integration.DEFAULT_PORT) -> list[dict]:
+        """List the Corsair devices iCUE offers through the bridge on ``host``."""
+        IPv4Address(host)
+        devices = await self.icue.devices(host, port)
+        found = [(item["device"], item["led_count"]) for item in devices]
+        return self._pc_devices(host, "icue", found, port)
+
+    @staticmethod
+    def same_device(first: str, second: str) -> bool:
+        """Whether two programs' names look like one device: "K70 RGB PRO" and "Corsair K70 RGB PRO V2"."""
+        words = [set(name.casefold().split()) for name in (first, second)]
+        return words[0] <= words[1] or words[1] <= words[0]
+
+    async def discover_pc(
+        self, host: str, openrgb_port: int = DEFAULT_PORT, icue_port: int = icue_integration.DEFAULT_PORT
+    ) -> dict:
+        """Check a PC for OpenRGB and the iCUE bridge, and warn of devices both would drive."""
+        IPv4Address(host)
+        sources = {"openrgb": self.discover_openrgb(host, openrgb_port), "icue": self.discover_icue(host, icue_port)}
+        found = await asyncio.gather(*sources.values(), return_exceptions=True)
+        result: dict[str, Any] = {"ip_address": host, "devices": [], "warnings": []}
+        for protocol, outcome in zip(sources, found):
+            failed = isinstance(outcome, (OSError, LookupError, ValueError))
+            if isinstance(outcome, BaseException) and not failed:
+                raise outcome
+            result[protocol] = {"available": not failed, "error": str(outcome) if failed else None}
+            if not failed:
+                result["devices"] += outcome
+        for name, led_count in {d["device"]: d["led_count"] for d in result["devices"] if d["protocol"] == "openrgb"}.items():
+            if not led_count:
+                result["warnings"].append(f"{name} has no LEDs in OpenRGB. Size its zones there before adding it.")
+            for other in result["devices"]:
+                if other["protocol"] == "icue" and self.same_device(name, other["device"]):
+                    result["warnings"].append(
+                        f"{name} (OpenRGB) and {other['device']} (iCUE) look like one device. Add it "
+                        "from one of them and turn off its detector in OpenRGB, or their lighting will fight."
+                    )
+        return result
+
+    def _pc_devices(self, host: str, protocol: str, found: list[tuple[str, int]], port: int) -> list[dict]:
         configured = {
             light["device"]
             for light in self.lights.list()
-            if light.get("protocol") == "openrgb" and light["ip_address"] == host
+            if light.get("protocol") == protocol and light["ip_address"] == host
         }
         return [
             {
                 "ip_address": host,
-                "device": controller.name,
-                "led_count": controller.led_count,
-                "protocol": "openrgb",
-                "configured": controller.name in configured,
-                "suggested_name": self.openrgb_name(controller.name),
+                "device": name,
+                "led_count": led_count,
+                "protocol": protocol,
+                "port": port,
+                "configured": name in configured,
+                "suggested_name": self.pc_light_name(name),
             }
-            for controller in controllers
+            for name, led_count in found
         ]
 
     async def discover(self, broadcast_space: str = AppConfig.GLOBAL_BROADCAST) -> list[dict]:

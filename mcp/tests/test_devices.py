@@ -31,6 +31,38 @@ class DeviceTests(unittest.TestCase):
         result=asyncio.run(LightControlService(repo,adapter).poll_statuses())
         self.assertTrue(result[0]["ok"])
         self.assertEqual(repo.saved[0][1],{"on":True,"brightness":64,"color":"#AABBCC","reachable":True})
+    def test_bulb_color_includes_its_white_channel(self):
+        self.assertEqual(WizLightAdapter.shown_color((255,14,0),117),"#FF7B75")
+        self.assertIsNone(WizLightAdapter.shown_color((None,None,None),0))
+    def test_poll_keeps_the_saved_color_when_the_bulb_shows_it(self):
+        class Repo(FakeRepository):
+            def targets(self,target_type,target_id):
+                return [{"id":1,"ip_address":"192.168.1.8","name":"A","color":"#EE6860"}]
+        class Adapter(FakeAdapter):
+            async def status(self,ip_address):
+                return {"mac_address":None,"on":True,"brightness":100,"color":WizLightAdapter.shown_color((255,14,0),117)}
+        repo=Repo()
+        asyncio.run(LightControlService(repo,Adapter()).poll_statuses())
+        self.assertEqual(repo.saved[0][1]["color"],"#EE6860")
+    def test_poll_saves_a_color_changed_outside_lumia(self):
+        class Repo(FakeRepository):
+            def targets(self,target_type,target_id):
+                return [{"id":1,"ip_address":"192.168.1.8","name":"A","color":"#EE6860"}]
+        class Adapter(FakeAdapter):
+            async def status(self,ip_address):
+                return {"mac_address":None,"on":True,"brightness":100,"color":"#00FF00"}
+        repo=Repo()
+        asyncio.run(LightControlService(repo,Adapter()).poll_statuses())
+        self.assertEqual(repo.saved[0][1]["color"],"#00FF00")
+    def test_saving_a_color_clears_the_temperature(self):
+        from app.data.repositories import LightRepository
+        calls=[]
+        repo=LightRepository.__new__(LightRepository)
+        repo.fetch_one=lambda sql,values: calls.append(values)
+        repo.update_state(1,color="#EE6860")
+        repo.update_state(1,color_temp=3000)
+        repo.update_state(1,brightness=50)
+        self.assertEqual([values[3] for values in calls],[True,False,False])
     def test_discovery_shape(self):
         discovery=WizDiscovery()
         async def fake_probe(ip_address):

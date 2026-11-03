@@ -32,9 +32,9 @@ Lumia discovers compatible bulbs, stores their IP and normalized MAC addresses, 
 - Control one light, a room/group, or all lights.
 - Set power, brightness, RGB color, or white temperature from 2200-6500 K.
 - Apply UI changes immediately. Lumia does not continuously poll bulbs in the background.
-- Drive PC RGB devices (keyboards, mice, motherboards) through [OpenRGB](https://openrgb.org):
-  each device becomes a light that shows one color, so schemes, schedules, weather and
-  music work on it too.
+- Drive PC RGB devices through [OpenRGB](https://openrgb.org) (such as motherboards) or
+  Corsair iCUE (keyboards and mice): each device becomes a light that shows one color, so
+  schemes, schedules, weather and music work on it too.
 
 ### Rooms, groups, and images
 
@@ -281,17 +281,11 @@ control power,
 brightness, RGB color, or color temperature for one light, every light, or a
 saved group.
 
+- `discover_pc_lights`
 - `discover_pc_rgb_devices`, `add_pc_rgb_device`
+- `discover_icue_devices`, `add_icue_device`
 
-PC RGB devices are reached through OpenRGB's SDK server. On the PC, run OpenRGB with
-`--server` and set *Settings → Server → Default Host* to `0.0.0.0` (port 6742), then
-allow OpenRGB through the PC's firewall on private networks. `discover_pc_rgb_devices`
-takes the PC's LAN IP and lists its devices; `add_pc_rgb_device` saves one as a light.
-A device with `led_count` 0 (such as a motherboard whose addressable headers are unsized)
-reports an error until its zones are sized in OpenRGB.
-Lumia sets the whole device to one color in OpenRGB's Direct mode, scaling it for
-brightness; white temperatures are shown as their RGB equivalent. Vendor apps
-(iCUE, Armoury Crate) fight OpenRGB for the same devices, so close them.
+These add a PC's RGB devices as lights. See [PC RGB lights](#pc-rgb-lights) for the setup.
 
 ### Rooms, groups, and images
 
@@ -367,7 +361,7 @@ with `set_music_scheme`.
 ### `lights`
 
 One row per discovered or manually added light. It stores the editable name,
-IP address, optional unique MAC address, protocol (`wiz` or `openrgb`), OpenRGB
+IP address, optional unique MAC address, protocol (`wiz`, `openrgb` or `icue`), PC
 device name (PC devices share their PC's IP, so IP plus device is unique), last known power,
 brightness, RGB color, color temperature, reachability, last-seen time, creation
 time, and optional background-image URL. Status refreshes update the cached
@@ -458,6 +452,120 @@ The backend follows the same layered layout across all three Luna apps:
 ```
 
 The browser app in `web/` talks only to `gateway.py`, which forwards an allowlist of backend routes.
+
+## PC RGB lights
+
+Any Windows PC with OpenRGB, iCUE, or both can light up alongside the bulbs. Each device
+becomes one Lumia light that shows one color at a time, so schemes, schedules, weather
+and music work on it. Per-key effects are not supported. White temperatures are shown as
+their RGB equivalent, and brightness scales the color.
+
+Lumia never scans for PCs: you give it each PC's IP address. Reserve that address on your
+router, because Lumia cannot follow a PC to a new one the way it follows a bulb.
+
+| Stack | Drives | How Lumia reaches it | Port |
+| --- | --- | --- | --- |
+| OpenRGB | ASUS boards and [anything else OpenRGB supports](https://openrgb.org/devices.html) | OpenRGB's SDK server | 6742 |
+| iCUE | Corsair keyboards and mice by default | [`bridge/icue_bridge.py`](bridge/icue_bridge.py) on the PC, because iCUE's SDK only runs on its own machine | 6743 |
+
+Lumia does not talk to Armoury Crate. ASUS lighting goes through OpenRGB.
+
+### Give each device to one program
+
+Programs that drive the same device overwrite each other, often with no error anywhere.
+The read-back can look right while the LEDs do not, so check the hardware itself.
+
+- **Corsair devices:** let iCUE drive them, and turn off their detectors in OpenRGB
+  (*Settings → Supported Devices*), then restart OpenRGB. On one K70 RGB PRO, OpenRGB left
+  half the keys dark even with iCUE closed, while iCUE lit every key.
+- **ASUS boards:** let OpenRGB drive them. If the board drops back to Armoury Crate's
+  lighting, stop that service from an admin PowerShell. Armoury Crate lighting will not work
+  until you start the service again.
+
+  ```powershell
+  Stop-Service LightingService
+  Set-Service LightingService -StartupType Manual
+  ```
+
+  iCUE also lists ASUS boards, so leave `motherboard` out of the bridge's device types.
+- **Addressable headers:** OpenRGB reports them with 0 LEDs until you size them
+  (*Devices → Zones → Resize*). Using more LEDs than are fitted is harmless.
+
+### Set up OpenRGB
+
+1. Turn on *Settings → General → Start at login*, *Start minimized* and *Start server*, or
+   add `--server` to its shortcut. Opening OpenRGB by hand without `--server` leaves the
+   server off.
+2. Set *Settings → Server → Default Host* to `0.0.0.0`.
+3. Allow port 6742 through the PC's firewall, only from the machine that runs Lumia.
+   OpenRGB's server has no password, so anyone who can reach it can change the lights.
+
+Avoid OpenRGB's *Rescan Devices* while using Lumia: it turns its devices off until Lumia's
+next command.
+
+### Set up iCUE
+
+Copy the `bridge` folder to the PC and run this from an admin PowerShell in it. Admin
+rights are only needed for the firewall rule; without them, the script prints the command
+for you to run later.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -AllowFrom 192.168.1.50
+```
+
+`-AllowFrom` is the address Lumia connects from, and it may be a list. It defaults to the
+PC's local subnets. When Lumia runs in Docker on this same PC under WSL, use
+`-AllowFrom <this PC's LAN IP>,172.16.0.0/12`. The installer needs no Python: it keeps its
+own copy in `%LOCALAPPDATA%\LunaLumia\icue-bridge`, verifies its downloads, starts the bridge,
+and adds it to Windows startup. It needs the
+[Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe), which iCUE
+normally brings along.
+
+| Option | Default | Use |
+| --- | --- | --- |
+| `-Port` | `6743` | The port to listen on. For another port, add the device with the MCP tools |
+| `-DeviceTypes` | `keyboard,mouse` | What the bridge controls. Also: `mousemat`, `headset`, `headset_stand`, `fan_led_controller`, `led_controller`, `memory_module`, `cooler`, `motherboard`, `graphics_card`, `touchbar`, `game_controller` |
+| `-AllowFrom` | `LocalSubnet` | Who the firewall lets in |
+| `-InstallDir` | see above | Where to install |
+| `-NoFirewall`, `-NoStartup`, `-NoStart` | off | Skip that step |
+| `-Uninstall` | off | Remove the bridge, its startup entry and, with admin rights, its firewall rule |
+
+These settings land in `icue_bridge.json` beside the bridge. You can edit that file and
+restart the bridge instead of reinstalling.
+
+The installer prints a line for Lumia's `.env`. Add one entry per PC, then restart Lumia:
+
+```sh
+LUNALUMIA_ICUE_TOKENS=192.168.1.15=token-of-that-pc,192.168.1.20=token-of-that-pc
+```
+
+A token only opens its own PC. `LUNALUMIA_ICUE_TOKEN` is a fallback for any PC not listed.
+While the bridge runs it holds exclusive control of its devices, so iCUE's own effects stay
+hidden. They come back when the bridge stops. iCUE must be running for the bridge to work,
+and the bridge reconnects by itself when iCUE restarts.
+
+### Add the devices to Lumia
+
+In the UI, open **Lights → Add lights → Add a PC's RGB devices** and enter the PC's IP. Or
+call `discover_pc_lights`, then `add_pc_rgb_device` or `add_icue_device`, passing the
+`port` it reports. Discovery says which stacks answered and why the others did not. It
+warns about devices that two programs would both drive, and devices with no LEDs. The UI
+checks the default ports only; `discover_pc_lights` takes `openrgb_port` and `icue_port`.
+
+### Troubleshooting
+
+| Symptom | Likely cause |
+| --- | --- |
+| OpenRGB times out | Started without `--server`, or the firewall. Windows firewalls usually time out rather than refuse |
+| iCUE bridge times out | The bridge is stopped, or the firewall rule is missing |
+| `iCUE is not connected` | iCUE is closed. Start it and the bridge reconnects |
+| `No iCUE bridge token` or `Unauthorized` | That PC's token is missing or wrong in `.env`. Compare it with `icue_token.txt` |
+| Some keys dark, or flashes then reverts | Two programs drive the device. See above |
+| Device has no LEDs | Size its zones in OpenRGB |
+| Lights went off by themselves | OpenRGB was rescanned or restarted. Apply a scheme again |
+
+The bridge logs to `icue_bridge.log` beside it. Run its tests on any machine, with no iCUE
+needed: `cd bridge && python3 -m unittest test_icue_bridge`.
 
 ## Development workflow
 

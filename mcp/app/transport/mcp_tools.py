@@ -143,6 +143,17 @@ class LumiaMCPTools:
             return await lights.discover(broadcast_space)
 
         @server.tool()
+        async def discover_pc_lights(host: str, openrgb_port: int = 6742, icue_port: int = 6743):
+            """Check a PC for OpenRGB and the iCUE bridge, listing the devices each offers.
+
+            Start here for a new PC. ``host`` is its LAN IP. Each source reports whether
+            it answered and why not. ``warnings`` names devices both programs would
+            drive, which fight each other, and devices with no LEDs. Add a device with
+            add_pc_rgb_device or add_icue_device, passing its ``port``.
+            """
+            return await lights.discover_pc(host, openrgb_port, icue_port)
+
+        @server.tool()
         async def discover_pc_rgb_devices(host: str, port: int = 6742):
             """List the RGB devices (keyboard, mouse, motherboard, ...) of a PC running OpenRGB.
 
@@ -154,13 +165,31 @@ class LumiaMCPTools:
             return await lights.discover_openrgb(host, port)
 
         @server.tool()
-        def add_pc_rgb_device(host: str, device: str, name: str):
+        def add_pc_rgb_device(host: str, device: str, name: str, port: int | None = None):
             """Add one OpenRGB device as a Lumia light, so it takes colors, schemes and schedules.
 
             ``device`` is the exact name from discover_pc_rgb_devices; ``name`` is the
             Lumia light name (letters, numbers and spaces, up to 30 characters).
             """
-            return lights.add(LightCreate(name=name, ip_address=host, protocol="openrgb", device=device))
+            return lights.add(LightCreate(name=name, ip_address=host, protocol="openrgb", device=device, port=port))
+
+        @server.tool()
+        async def discover_icue_devices(host: str, port: int = 6743):
+            """List the Corsair devices (keyboard, mouse, ...) iCUE offers on a PC.
+
+            ``host`` is the PC's LAN IP. iCUE and Lumia's iCUE bridge must be running
+            there. Each device can then be added as a Lumia light with add_icue_device.
+            """
+            return await lights.discover_icue(host, port)
+
+        @server.tool()
+        def add_icue_device(host: str, device: str, name: str, port: int | None = None):
+            """Add one iCUE device as a Lumia light, so it takes colors, schemes and schedules.
+
+            ``device`` is the exact name from discover_icue_devices; ``name`` is the
+            Lumia light name (letters, numbers and spaces, up to 30 characters).
+            """
+            return lights.add(LightCreate(name=name, ip_address=host, protocol="icue", device=device, port=port))
 
     def _register_image_tools(self) -> None:
         server, images = self.server, self.service.images

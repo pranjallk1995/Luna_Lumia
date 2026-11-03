@@ -68,9 +68,9 @@ class LightRepository(Repository):
 
     def add(self, entry: LightCreate) -> Row | None:
         return self.fetch_one(
-            "INSERT INTO lights(name,ip_address,protocol,mac_address,device) "
-            "VALUES(%s,%s,%s,%s,%s) RETURNING *",
-            (entry.name, entry.ip_address, entry.protocol, entry.mac_address, entry.device),
+            "INSERT INTO lights(name,ip_address,protocol,mac_address,device,port) "
+            "VALUES(%s,%s,%s,%s,%s,%s) RETURNING *",
+            (entry.name, entry.ip_address, entry.protocol, entry.mac_address, entry.device, entry.port),
         )
 
     def delete(self, light_id: int) -> bool:
@@ -121,13 +121,16 @@ class LightRepository(Repository):
         color_temp=None,
         reachable=None,
     ) -> Row | None:
+        # A light shows a color or a temperature; an empty color_temp means the color.
+        shows_color = color is not None and color_temp is None
         return self.fetch_one(
             """UPDATE lights SET is_on=COALESCE(%s,is_on), brightness=COALESCE(%s,brightness),
-            color=COALESCE(%s,color), color_temp=COALESCE(%s,color_temp),
+            color=COALESCE(%s,color),
+            color_temp=CASE WHEN %s THEN NULL ELSE COALESCE(%s,color_temp) END,
             reachable=COALESCE(%s,reachable),
             last_seen=CASE WHEN %s THEN NOW() ELSE last_seen END
             WHERE id=%s RETURNING *""",
-            (on, brightness, color, color_temp, reachable, reachable is True, light_id),
+            (on, brightness, color, shows_color, color_temp, reachable, reachable is True, light_id),
         )
 
     def targets(self, target_type: str, target_id: int | None) -> list[Row]:

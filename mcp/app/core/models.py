@@ -71,15 +71,19 @@ class CollectionNamed(BaseModel):
 
 class LightCreate(LightNamed):
     ip_address: str = Field(pattern=r"^(?:\d{1,3}\.){3}\d{1,3}$")
-    protocol: Literal["wiz", "openrgb"] = "wiz"
+    protocol: Literal["wiz", "openrgb", "icue"] = "wiz"
     mac_address: str | None = Field(default=None, max_length=17)
-    # OpenRGB only: the device's name as OpenRGB lists it (e.g. "Corsair K70 RGB PRO V2").
+    # PC devices only: the device's name as OpenRGB or iCUE lists it (e.g. "ASUS B860M MAX GAMING AX").
     device: str | None = Field(default=None, min_length=1, max_length=100)
+    # PC devices only: the port OpenRGB or the iCUE bridge listens on, when not its default.
+    port: int | None = Field(default=None, ge=1, le=65535)
 
     @model_validator(mode="after")
     def device_matches_protocol(self):
-        if (self.protocol == "openrgb") != (self.device is not None):
-            raise ValueError("OpenRGB lights need a device name; WiZ lights take none")
+        if (self.protocol != "wiz") != (self.device is not None):
+            raise ValueError("PC lights need a device name; WiZ lights take none")
+        if self.protocol == "wiz" and self.port is not None:
+            raise ValueError("WiZ lights take no port")
         return self
 
     @field_validator("ip_address")

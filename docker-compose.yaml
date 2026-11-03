@@ -10,6 +10,8 @@ services:
       MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-http://localhost:18002}
       LUNAVIBIA_API_URL: ${LUNAVIBIA_API_URL:-http://luna-vibia-mcp:8000}
       LUNAVIBIA_API_TOKEN: ${LUNAVIBIA_API_TOKEN:-}
+      LUNALUMIA_ICUE_TOKEN: ${LUNALUMIA_ICUE_TOKEN:-}
+      LUNALUMIA_ICUE_TOKENS: ${LUNALUMIA_ICUE_TOKENS:-}
       TZ: Asia/Kolkata
     expose: ["8000"]
     ports: ["127.0.0.1:18002:8000"]

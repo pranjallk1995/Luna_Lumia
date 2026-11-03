@@ -24,6 +24,8 @@ export type Light = {
   name: string;
   ip_address: string;
   mac_address?: string | null;
+  protocol?: string;
+  device?: string | null;
   is_on: boolean;
   brightness: number;
   color: string;
@@ -99,6 +101,9 @@ export type Dashboard = {
 };
 
 export type Discovered = { ip_address: string; mac_address?: string | null; suggested_name: string };
+export type PcDevice = { ip_address: string; device: string; led_count: number; protocol: string; port: number; suggested_name: string };
+export type PcSource = { available: boolean; error: string | null };
+export type PcDiscovery = { ip_address: string; devices: PcDevice[]; warnings: string[]; openrgb: PcSource; icue: PcSource };
 export type LightState = Partial<Pick<Light, "brightness" | "color" | "color_temp">> & { on?: boolean };
 export type Target = { type: string; id: number | null };
 
@@ -111,6 +116,7 @@ export function useDashboard() {
 
 export const lumia = {
   discover: (broadcast: string) => post<Discovered[]>("/api/discovery", { broadcast_space: broadcast }),
+  discoverPc: (host: string) => post<PcDiscovery>("/api/discovery/pc", { host }),
   refreshLights: () => post("/api/lights/refresh"),
   create: (resource: string, payload: unknown) => post(`/api/${resource}`, payload),
   update: (resource: string, id: number, payload: unknown) => put(`/api/${resource}/${id}`, payload),

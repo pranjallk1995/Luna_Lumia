@@ -17,11 +17,14 @@ import struct
 import threading
 from dataclasses import dataclass, field
 
+from app.integrations.solid_color import SolidColors
+
 MAGIC = b"ORGB"
 HEADER = struct.Struct("<4sIII")  # magic, device index, packet id, payload size
 REQUEST_CONTROLLER_COUNT = 0
 REQUEST_CONTROLLER_DATA = 1
 SET_CLIENT_NAME = 50
+DEVICE_LIST_UPDATED = 100
 UPDATE_LEDS = 1050
 SET_CUSTOM_MODE = 1100
 DEFAULT_PORT = 6742
@@ -120,6 +123,7 @@ class OpenRGBConnection:
     sock: socket.socket | None = None
     controllers: dict[str, Controller] = field(default_factory=dict)
     direct: set[int] = field(default_factory=set)  # controllers already switched to Direct mode
+    stale: bool = False  # OpenRGB announced a device change, such as a resized zone
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def close(self) -> None:
@@ -144,7 +148,7 @@ class OpenRGBConnection:
         return b"".join(chunks)
 
     def _reply(self, packet_id: int) -> bytes:
-        """Read until the reply to ``packet_id``, skipping notifications such as device-list updates."""
+        """Read until the reply to ``packet_id``, noting device-list updates on the way."""
         while True:
             magic, _, received_id, size = HEADER.unpack(self._read_exact(HEADER.size))
             if magic != MAGIC:
@@ -152,6 +156,8 @@ class OpenRGBConnection:
             payload = self._read_exact(size)
             if received_id == packet_id:
                 return payload
+            if received_id == DEVICE_LIST_UPDATED:
+                self.stale = True
 
     def _connect(self) -> None:
         self.sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
@@ -168,7 +174,7 @@ class OpenRGBConnection:
             controllers.setdefault(controller.name, controller)
         if [c.index for c in controllers.values()] != [c.index for c in self.controllers.values()]:
             self.direct = set()  # indexes may have shifted
-        self.controllers = controllers
+        self.controllers, self.stale = controllers, False
 
     def run(self, action):
         """Run ``action(self)`` under the lock, reconnecting once if the session dropped."""
@@ -184,8 +190,8 @@ class OpenRGBConnection:
                         raise
 
     def controller(self, name: str) -> Controller:
-        if name not in self.controllers:
-            self._load_controllers()  # devices can be plugged in after Lumia connected
+        if self.stale or name not in self.controllers:
+            self._load_controllers()  # devices can be plugged in or resized after Lumia connected
         if name not in self.controllers:
             raise LookupError(f"OpenRGB has no device named {name!r} on {self.host}")
         return self.controllers[name]
@@ -211,8 +217,7 @@ class OpenRGBAdapter:
 
     timeout: float = 3.0
     connections: dict[tuple[str, int], OpenRGBConnection] = field(default_factory=dict)
-    # Last color/brightness per device, so a brightness-only or power-on command keeps its color.
-    memory: dict[str, dict] = field(default_factory=dict)
+    colors: SolidColors = field(default_factory=SolidColors)
     _guard: threading.Lock = field(default_factory=threading.Lock)
 
     def connection(self, address: OpenRGBAddress) -> OpenRGBConnection:
@@ -222,37 +227,13 @@ class OpenRGBAdapter:
                 self.connections[key] = OpenRGBConnection(address.host, address.port, self.timeout)
             return self.connections[key]
 
-    @staticmethod
-    def rgb(hex_color: str) -> tuple[int, int, int]:
-        value = hex_color.lstrip("#")
-        return tuple(int(value[index : index + 2], 16) for index in (0, 2, 4))
-
-    @staticmethod
-    def white(kelvin: int) -> tuple[int, int, int]:
-        from app.services.playback import ColorMath  # local import: services depend on integrations
-
-        return ColorMath.kelvin_to_rgb(kelvin)
-
-    def target_rgb(self, key: str, *, on, brightness, color, color_temp) -> tuple[int, int, int]:
-        remembered = self.memory.setdefault(key, {"rgb": (255, 255, 255), "brightness": 100})
-        if color is not None:
-            remembered["rgb"] = self.rgb(color)
-        elif color_temp is not None:
-            remembered["rgb"] = self.white(color_temp)
-        if brightness is not None:
-            remembered["brightness"] = brightness
-        if on is False or not any(remembered["rgb"]):
-            return (0, 0, 0)
-        scale = remembered["brightness"] / 100
-        return tuple(round(channel * scale) for channel in remembered["rgb"])
-
     async def apply(
         self, address: str, *, on=None, brightness=None, color=None, color_temp=None
     ) -> None:
         if on is None and all(value is None for value in (brightness, color, color_temp)):
             return
         target = OpenRGBAddress.parse(address)
-        rgb = self.target_rgb(
+        rgb = self.colors.target(
             str(target), on=on, brightness=brightness, color=color, color_temp=color_temp
         )
         connection = self.connection(target)
@@ -269,7 +250,7 @@ class OpenRGBAdapter:
             asyncio.to_thread(connection.run, lambda live: live.controller(target.device)),
             self.timeout + 1,
         )
-        remembered = self.memory.setdefault(str(target), {"rgb": (255, 255, 255), "brightness": 100})
+        remembered = self.colors.remembered(str(target))
         if controller.first_color and any(controller.first_color) and "seen" not in remembered:
             remembered.update(rgb=controller.first_color, seen=True)
         return {"mac_address": None}
@@ -283,27 +264,3 @@ class OpenRGBAdapter:
             return list(live.controllers.values())
 
         return await asyncio.wait_for(asyncio.to_thread(connection.run, controllers), self.timeout * 4)
-
-
-class LightRouter:
-    """Send each light's commands to the adapter for its protocol (WiZ or OpenRGB)."""
-
-    def __init__(self, wiz, openrgb: OpenRGBAdapter) -> None:
-        self.wiz, self.openrgb = wiz, openrgb
-
-    def _for(self, address: str):
-        return self.openrgb if OpenRGBAddress.is_openrgb(address) else self.wiz
-
-    async def apply(self, address: str, **state) -> None:
-        await self._for(address).apply(address, **state)
-
-    async def status(self, address: str) -> dict:
-        return await self._for(address).status(address)
-
-
-def light_address(light: dict) -> str:
-    """The address a light's adapter understands: its IP, or an openrgb:// URL for PC devices."""
-    if light.get("protocol") == "openrgb":
-        return str(OpenRGBAddress(light["ip_address"], light["device"]))
-    return light["ip_address"]
-

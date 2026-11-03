@@ -28,7 +28,7 @@ PROXIED_ROUTES = tuple(
     (method, re.compile(pattern))
     for method, pattern in (
         ("GET", r"/api/dashboard"),
-        ("POST", r"/api/discovery"),
+        ("POST", r"/api/discovery(/pc)?"),
         ("POST", r"/api/lights(/refresh)?"),
         ("PUT", rf"/api/lights/{ID}(/background)?"),
         ("DELETE", rf"/api/lights/{ID}"),

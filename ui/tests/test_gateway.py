@@ -106,6 +106,7 @@ class ProxyTests(GatewayTestCase):
         self.sign_in()
         for method, path in (
             ("POST", "/api/discovery"),
+            ("POST", "/api/discovery/pc"),
             ("POST", "/api/lights/refresh"),
             ("PUT", "/api/lights/3"),
             ("PUT", "/api/lights/3/background"),

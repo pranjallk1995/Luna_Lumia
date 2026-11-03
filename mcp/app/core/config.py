@@ -1,7 +1,7 @@
 """Validated runtime configuration for the Luna Lumia backend."""
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
 from urllib.parse import urlparse
@@ -34,9 +34,24 @@ class AppConfig:
     # Luna Vibia, whose playing track picks the music scheme ("" token = music off).
     vibia_api_url: str = "http://luna-vibia-mcp:8000"
     vibia_api_token: str = ""
+    # Shared with the iCUE bridges on PCs, for Corsair devices: one token for any PC,
+    # and per-PC tokens, which win ("" and empty = no iCUE lights).
+    icue_token: str = ""
+    icue_host_tokens: dict[str, str] = field(default_factory=dict)
     # Checks for a new track this often, so the lights (and beat pulses) change soon after it starts.
     music_interval_seconds: float = 2.0
     LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+    @staticmethod
+    def parse_host_tokens(value: str) -> dict[str, str]:
+        """Read "192.168.1.15=token,192.168.1.20=token" into a host -> token map."""
+        tokens = {}
+        for entry in filter(None, (item.strip() for item in value.split(","))):
+            host, separator, token = entry.partition("=")
+            if not separator or not host or not token:
+                raise RuntimeError("LUNALUMIA_ICUE_TOKENS must look like 192.168.1.15=token,192.168.1.20=token")
+            tokens[host.strip()] = token.strip()
+        return tokens
 
     @classmethod
     def from_env(cls) -> "AppConfig":
@@ -56,6 +71,8 @@ class AppConfig:
         return cls(
             vibia_api_url=os.getenv("LUNAVIBIA_API_URL", cls.vibia_api_url).strip().rstrip("/"),
             vibia_api_token=os.getenv("LUNAVIBIA_API_TOKEN", "").strip(),
+            icue_token=os.getenv("LUNALUMIA_ICUE_TOKEN", "").strip(),
+            icue_host_tokens=cls.parse_host_tokens(os.getenv("LUNALUMIA_ICUE_TOKENS", "")),
             mcp_public_url=mcp_public_url,
             database_url=database_url,
             api_token=api_token,
