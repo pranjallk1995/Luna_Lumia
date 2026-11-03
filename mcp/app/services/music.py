@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -24,7 +25,7 @@ def run_sync(coroutine):
     except RuntimeError:
         return asyncio.run(coroutine)
     with ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(asyncio.run, coroutine).result()
+        return pool.submit(contextvars.copy_context().run, asyncio.run, coroutine).result()
 
 
 class MusicMoods:

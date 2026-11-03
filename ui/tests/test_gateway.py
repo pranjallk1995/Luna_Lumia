@@ -6,8 +6,8 @@ from starlette.testclient import TestClient
 from config import SSOConfig, UIConfig
 from gateway import UIGateway
 
-OWNER = {"email": "owner@example.com", "email_verified": True}
-STRANGER = {"email": "other@example.com", "email_verified": True}
+OWNER = {"user_id": "owner", "email": "owner@example.com", "email_verified": True}
+STRANGER = {"user_id": "stranger", "email": "other@example.com", "email_verified": True}
 TOKEN = "t" * 32
 
 

@@ -2,12 +2,15 @@
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import Any
 
 from psycopg import Cursor
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
 from app.core.config import AppConfig
+from app.core import tenancy
+from app.data.tenants import TenantSchemas, use_space
 
 
 SCHEMA_SQL = """
@@ -80,8 +83,6 @@ CREATE TABLE IF NOT EXISTS schedules (
  weekdays SMALLINT[] NOT NULL, enabled BOOLEAN NOT NULL DEFAULT TRUE,
  last_run_date DATE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-INSERT INTO lights (name, ip_address) VALUES ('Living room light', '192.168.1.8')
-ON CONFLICT DO NOTHING;
 -- Schedules run at a fixed time, or at sunrise/sunset (plus an offset) for the saved location.
 ALTER TABLE schedules ALTER COLUMN run_time DROP NOT NULL;
 ALTER TABLE schedules ADD COLUMN IF NOT EXISTS time_mode TEXT NOT NULL DEFAULT 'time'
@@ -166,6 +167,7 @@ class Database:
 
     def __init__(self, url: str) -> None:
         self.pool = ConnectionPool(url, min_size=1, max_size=AppConfig.DB_POOL_MAX_SIZE, open=False)
+        self.tenants = TenantSchemas(self.pool.connection, self.create_tables)
 
     def open(self) -> None:
         self.pool.open(wait=True)
@@ -174,11 +176,19 @@ class Database:
         self.pool.close()
 
     def initialize_schema(self) -> None:
-        with self.cursor() as cursor:
-            cursor.execute(SCHEMA_SQL)
+        """Give the owner any data from before there were users; schemas come on first use."""
+        self.tenants.adopt_public_tables()
+
+    @staticmethod
+    def create_tables(connection: Any) -> None:
+        connection.execute(SCHEMA_SQL)
 
     @contextmanager
     def cursor(self) -> Iterator[Cursor]:
+        """A cursor on the current person's schema, in one transaction."""
+        user_id = tenancy.current()
+        self.tenants.ensure(user_id)
         with self.pool.connection() as connection:
+            use_space(connection, user_id)
             with connection.cursor(row_factory=dict_row) as cursor:
                 yield cursor

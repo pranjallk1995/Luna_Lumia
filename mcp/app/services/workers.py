@@ -4,6 +4,7 @@ import threading
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from app.core import tenancy
 from app.services.application import ScheduleService, WeatherService
 from app.services.music import MusicService
 
@@ -24,11 +25,13 @@ class PeriodicWorker:
         self.stop_event.set()
 
     def run(self) -> None:
-        while not self.stop_event.wait(self.interval):
-            try:
-                self.tick()
-            except Exception:
-                continue
+        # Automations drive the home's lights, which are the owner's alone.
+        with tenancy.acting_as(tenancy.OWNER):
+            while not self.stop_event.wait(self.interval):
+                try:
+                    self.tick()
+                except Exception:
+                    continue
 
     def tick(self) -> None:
         raise NotImplementedError

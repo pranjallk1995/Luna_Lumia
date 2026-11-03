@@ -9,6 +9,7 @@ from datetime import date, datetime, time, timedelta
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
+from app.core import tenancy
 from app.integrations.devices import WizDiscovery, WizLightAdapter
 from app.integrations import icue as icue_integration
 from app.integrations.icue import ICueAdapter
@@ -321,6 +322,7 @@ class LightService:
         return self.images.decorate_lights(self.lights.list())
 
     def add(self, entry: LightCreate) -> Row | None:
+        tenancy.require_owner("Adding lights")
         return self.lights.add(entry)
 
     def rename(self, light_id: int, name: str) -> Row:
@@ -397,6 +399,7 @@ class LightService:
 
     async def discover_openrgb(self, host: str, port: int = DEFAULT_PORT) -> list[dict]:
         """List the devices an OpenRGB server on ``host`` offers, flagging those already added."""
+        tenancy.require_owner("Finding PC devices")
         IPv4Address(host)
         controllers = await self.openrgb.devices(host, port)
         found = [(controller.name, controller.led_count) for controller in controllers]
@@ -404,6 +407,7 @@ class LightService:
 
     async def discover_icue(self, host: str, port: int = icue_integration.DEFAULT_PORT) -> list[dict]:
         """List the Corsair devices iCUE offers through the bridge on ``host``."""
+        tenancy.require_owner("Finding PC devices")
         IPv4Address(host)
         devices = await self.icue.devices(host, port)
         found = [(item["device"], item["led_count"]) for item in devices]
@@ -419,6 +423,7 @@ class LightService:
         self, host: str, openrgb_port: int = DEFAULT_PORT, icue_port: int = icue_integration.DEFAULT_PORT
     ) -> dict:
         """Check a PC for OpenRGB and the iCUE bridge, and warn of devices both would drive."""
+        tenancy.require_owner("Finding PC devices")
         IPv4Address(host)
         sources = {"openrgb": self.discover_openrgb(host, openrgb_port), "icue": self.discover_icue(host, icue_port)}
         found = await asyncio.gather(*sources.values(), return_exceptions=True)
@@ -462,6 +467,7 @@ class LightService:
 
     async def discover(self, broadcast_space: str = AppConfig.GLOBAL_BROADCAST) -> list[dict]:
         """Scan for lights, follow saved lights to new IPs, and flag configured ones."""
+        tenancy.require_owner("Finding lights on the network")
         results = await self.discovery.scan(broadcast_space)
         for result in results:
             result["mac_address"] = self.normalized_mac(result.get("mac_address"))

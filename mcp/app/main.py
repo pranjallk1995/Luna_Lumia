@@ -1,10 +1,10 @@
 """Compose and run the Luna Lumia MCP and HTTP server."""
 
-from mcp.server.fastmcp import FastMCP
-
 from app.transport.branding import ServerBranding
+from app.core import tenancy
 from app.core.config import AppConfig
 from app.data.database import Database
+from app.transport.luna_mcp import LunaMCP
 from app.integrations.devices import WizDiscovery, WizLightAdapter
 from app.integrations.icue import ICueAdapter
 from app.integrations.openrgb import OpenRGBAdapter
@@ -12,7 +12,7 @@ from app.integrations.router import LightRouter
 from app.integrations.vibia import VibiaPlayback
 from app.transport.http_routes import LumiaHTTPRoutes
 from app.transport.mcp_tools import LumiaMCPTools
-from app.services.playback import SceneEngine
+from app.services.playback import OwnerScenes, SceneEngine
 from app.services.presets import PresetCatalog
 from app.data.repositories import (
     CollectionRepository,
@@ -52,12 +52,13 @@ class LunaLumiaApplication:
         self.database = Database(config.database_url)
         self.database.open()
         self.database.initialize_schema()
-        PresetCatalog(
+        # Everyone starts with the built-in schemes; the owner's are refreshed on every start.
+        self.database.tenants.after_create = PresetCatalog(
             SceneRepository(self.database),
             TransitionRepository(self.database),
             WeatherSchemeRepository(self.database),
             MusicSchemeRepository(self.database),
-        ).install()
+        ).install
         self.openrgb = OpenRGBAdapter(timeout=config.device_timeout_seconds)
         self.icue = ICueAdapter(config.icue_token, config.device_timeout_seconds, config.icue_host_tokens)
         self.adapter = LightRouter(
@@ -65,10 +66,13 @@ class LunaLumiaApplication:
         )
         self.engine = SceneEngine(self.adapter.apply)
         self.engine.start()
+        self.scenes = OwnerScenes(self.engine)
         self.service = self._build_service()
         self.branding = ServerBranding(config.mcp_public_url)
-        self.mcp = FastMCP(
+        self.mcp = LunaMCP(
             "LunaLumia",
+            public_url=config.mcp_public_url or f"http://localhost:{config.port}",
+            api_token=config.api_token,
             icons=self.branding.mcp_icons(),
             host=config.host,
             port=config.port,
@@ -93,9 +97,9 @@ class LunaLumiaApplication:
         lights = LightRepository(self.database)
         collections = CollectionRepository(self.database)
         images = BackgroundImageService(RoomImageRepository(self.database), lights, collections)
-        control = LightControlService(lights, self.adapter, self.engine)
+        control = LightControlService(lights, self.adapter, self.scenes)
         transitions = TransitionService(TransitionRepository(self.database))
-        scenes = SceneService(SceneRepository(self.database), transitions, control, self.engine)
+        scenes = SceneService(SceneRepository(self.database), transitions, control, self.scenes)
         location = LocationService(LocationRepository(self.database), self.config.timezone)
         weather = WeatherService(
             WeatherRepository(self.database),
