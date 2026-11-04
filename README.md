@@ -285,10 +285,6 @@ The data lives in Sentia's `luna_sentia_postgres_data` volume, so it survives re
 
 ## MCP tools
 
-### Web UI
-
-- `get_ui_link` - the link to open this app's web UI, to give the user; they sign in with their Luna account.
-
 The MCP surface exposes the same application services used by the React UI.
 Tools validate names, identifiers, colors, brightness, schedules, and membership
 rules before changing PostgreSQL or contacting a light. Device-control tools
