@@ -7,6 +7,12 @@
 ![PostgreSQL in Luna Sentia](https://img.shields.io/badge/PostgreSQL-in_Luna_Sentia-4169E1?logo=postgresql&logoColor=white)
 ![Status: usable](https://img.shields.io/badge/Status-usable-2EA043)
 
+<p align="center">
+  <a href="docs/assets/luna-lumia-showcase.mp4"><img src="docs/assets/luna-lumia-showcase.webp" alt="From Google sign-in through Luna Unia to controlling lights in Luna Lumia" width="900"></a>
+</p>
+
+<p align="center"><em>From Google sign-in through Luna Unia to controlling lights in Luna Lumia. Select it for the sharper video.</em></p>
+
 ## Control, Automate, and Manage your Smart Lights using LLMs
 
 > **Work in progress:** Luna Lumia is a local-first and desktop-first smart-light controller under active development.
@@ -278,6 +284,10 @@ The owner's tables are in the schema `u_owner`, so qualify them, as in `SELECT *
 The data lives in Sentia's `luna_sentia_postgres_data` volume, so it survives recreating Lumia's containers.
 
 ## MCP tools
+
+### Web UI
+
+- `get_ui_link` - the link to open this app's web UI, to give the user; they sign in with their Luna account.
 
 The MCP surface exposes the same application services used by the React UI.
 Tools validate names, identifiers, colors, brightness, schedules, and membership
