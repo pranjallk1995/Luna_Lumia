@@ -116,8 +116,22 @@ Built-in solids: Focus, Daylight, Reading, Bedtime, Warm evening, Night light. B
 
 - Shared Luna styling, header geometry, typography, and navigation.
 - Icon-only navigation and sign-out controls on mobile.
-- Google OpenID Connect login plus a verified-email allowlist.
+- Google sign-in through Luna Sentia, with separate data for each person.
 - Independent bearer authentication for private UI-to-service REST calls.
+
+## Users and separate storage
+
+Each person signs in with Google and has their own space in Luna Lumia: the schema `u_<id>` in the `lunalumia` database. It is created the first time they use the app. The owner adds, disables, and deletes people at Luna Sentia's `/admin`, and can hide this app from everyone else there; see [Users and separate storage](https://github.com/pranjallk1995/Luna_Sentia#users-and-separate-storage).
+
+### Connecting an MCP client
+
+Add `https://<your lumia MCP host>/mcp` to your client, such as Claude or ChatGPT, as a custom connector using OAuth. The client signs you in with Google and shows an approval page; check the return address, then allow it. Its tools then act only on your data. A request without a valid token gets 401.
+
+### The lights belong to the owner
+
+Lights are on the owner's network, so only the owner can find or add them, and schedules and weather and music automations run for the owner alone. Nobody else can see what the lights are doing or reach the owner's network. Others keep their own schemes and settings, but a room or group needs at least one light, so they cannot create those. Consider hiding Lumia from everyone else, since they cannot use it fully.
+
+In the code, `mcp/app/core/tenancy.py` holds who the current request or job acts for, `mcp/app/data/tenants.py` creates and removes each person's schema, and `mcp/app/transport/luna_mcp.py` checks connector tokens and the private token on `/api/` routes. Code that does not say who it acts for raises `NoUserError` rather than reading anyone's data.
 
 ## Architecture
 
@@ -194,7 +208,7 @@ For [music schemes](#music), set `LUNAVIBIA_API_TOKEN` to the same value as in
 network (`http://luna-vibia-mcp:8000`). Left blank, music is off and `get_music`
 says why.
 
-Separate multiple emails with commas. `MCP_PUBLIC_URL` is optional and defaults to `http://localhost:18002`; set it to your public HTTPS origin when the server is exposed (plain HTTP is accepted only for localhost).
+`*` allows everyone with a Luna account; otherwise separate accounts with commas. `MCP_PUBLIC_URL` is optional and defaults to `http://localhost:18002`; set it to your public HTTPS origin when the server is exposed (plain HTTP is accepted only for localhost).
 
 ### Sign-in
 
@@ -206,8 +220,8 @@ Lumia needs no Google client of its own. Set in `.env`:
   Sentia's `.env`), for example `https://auth.lunaapps.fyi`.
 - `LUNA_SSO_INTERNAL_URL`: `http://luna-sentia-auth:8000`, where Lumia checks
   sessions over `luna_sentia_network`.
-- `LUNALUMIA_ALLOWED_EMAILS`: the accounts allowed into Lumia, checked
-  after Sentia confirms who is signed in.
+- `LUNALUMIA_ALLOWED_EMAILS`: who may use Lumia among the people with a Luna account: `*`
+  for everyone, or a comma-separated list. Checked after Sentia confirms who is signed in.
 
 Sentia's auth service must be healthy before Lumia can sign anyone in; see
 [Single sign-on](https://github.com/pranjallk1995/Luna_Sentia#single-sign-on) for its setup.
@@ -222,7 +236,7 @@ Open:
 
 - UI: <http://127.0.0.1:18503>
 - Health: <http://127.0.0.1:18002/health>
-- MCP: <http://127.0.0.1:18002/mcp>
+- MCP: <http://127.0.0.1:18002/mcp> (clients sign in; see Connecting an MCP client)
 - Favicon: <http://127.0.0.1:18002/favicon.ico>
 - Icons: `/icons/icon-{48,96,192,512}.png`
 
@@ -234,13 +248,13 @@ Open:
 | Database host | `luna-sentia-db` |
 | Timezone | `Asia/Kolkata` |
 
-The API token and email allowlist have no defaults. Keep localhost port `18002` private, and do not expose MCP without an authenticated gateway or authorization server.
+The API token and email allowlist have no defaults. MCP clients must sign in through Luna Sentia.
 
 ## Codex MCP configuration (optional)
 
 ```toml
 [mcp_servers.lunalumia]
-url = "http://127.0.0.1:18002/mcp"
+url = "https://lumia-mcp.example.com/mcp"
 enabled = true
 required = false
 startup_timeout_sec = 20
@@ -258,6 +272,8 @@ Database `lunalumia`, Password your `POSTGRES_PASSWORD`), or through the contain
 ```sh
 docker compose -f ../Luna_Sentia/docker-compose.yaml exec postgres psql -U sentia -d lunalumia
 ```
+
+The owner's tables are in the schema `u_owner`, so qualify them, as in `SELECT * FROM u_owner.lights`.
 
 The data lives in Sentia's `luna_sentia_postgres_data` volume, so it survives recreating Lumia's containers.
 
