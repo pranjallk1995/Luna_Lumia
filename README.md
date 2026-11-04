@@ -291,6 +291,10 @@ rules before changing PostgreSQL or contacting a light. Device-control tools
 return the resulting state where possible, while management tools return the
 saved database record.
 
+### Web UI
+
+- `get_ui_link` - the link to open this app's web UI, to give the user; they sign in with their Luna account.
+
 ### Lights and inventory
 
 - `list_lights`, `refresh_light_statuses`, `discover_lights_on_network`
