@@ -8,10 +8,10 @@
 ![Status: usable](https://img.shields.io/badge/Status-usable-2EA043)
 
 <p align="center">
-  <a href="docs/assets/luna-lumia-showcase.mp4"><img src="docs/assets/luna-lumia-showcase.webp" alt="From Google sign-in through Luna Unia to controlling lights in Luna Lumia" width="900"></a>
+  <a href="docs/assets/luna-lumia-showcase.mp4"><img src="docs/assets/luna-lumia-showcase.webp" alt="From Google sign-in through Luna Unia to controlling lights in Luna Lumia, then setting a scheme from a chat assistant through its MCP tools" width="900"></a>
 </p>
 
-<p align="center"><em>From Google sign-in through Luna Unia to controlling lights in Luna Lumia. Select it for the sharper video.</em></p>
+<p align="center"><em>From Google sign-in through Luna Unia to controlling lights in Luna Lumia, then setting a scheme from a chat assistant through its MCP tools. Select it for the sharper video.</em></p>
 
 ## Control, Automate, and Manage your Smart Lights using LLMs
 
