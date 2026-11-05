@@ -5,7 +5,7 @@
 ![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Luna Sentia required](https://img.shields.io/badge/Luna_Sentia-required-6C5CE7?logo=docker&logoColor=white)
 ![PostgreSQL in Luna Sentia](https://img.shields.io/badge/PostgreSQL-in_Luna_Sentia-4169E1?logo=postgresql&logoColor=white)
-![Status: usable](https://img.shields.io/badge/Status-usable-2EA043)
+![Status: v1.0](https://img.shields.io/badge/Status-v1.0-2EA043)
 
 <p align="center">
   <a href="docs/assets/luna-lumia-showcase.mp4"><img src="docs/assets/luna-lumia-showcase.webp" alt="From Google sign-in through Luna Unia to controlling lights in Luna Lumia, then setting a scheme from a chat assistant through its MCP tools" width="900"></a>
@@ -15,7 +15,7 @@
 
 ## Control, Automate, and Manage your Smart Lights using LLMs
 
-> **Work in progress:** Luna Lumia is a local-first and desktop-first smart-light controller under active development.
+> Luna Lumia is a local-first and desktop-first smart-light controller.
 
 Luna Lumia combines React, FastMCP, PostgreSQL (in Luna Sentia), and direct local WiZ control. It runs beside [Luna Visia](https://github.com/pranjallk1995/Luna_Visia) and [Luna Vita](https://github.com/pranjallk1995/Luna_Vita) on the shared private Docker network created by [Luna Sentia](https://github.com/pranjallk1995/Luna_Sentia) while keeping its services, ports, and database separate.
 
