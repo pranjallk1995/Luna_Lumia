@@ -5,7 +5,7 @@
 ![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Luna Sentia required](https://img.shields.io/badge/Luna_Sentia-required-6C5CE7?logo=docker&logoColor=white)
 ![PostgreSQL in Luna Sentia](https://img.shields.io/badge/PostgreSQL-in_Luna_Sentia-4169E1?logo=postgresql&logoColor=white)
-![Status: v1.0](https://img.shields.io/badge/Status-v1.0-2EA043)
+![Status: v1.1](https://img.shields.io/badge/Status-v1.1-2EA043)
 
 <p align="center">
   <a href="docs/assets/luna-lumia-showcase.mp4"><img src="docs/assets/luna-lumia-showcase.webp" alt="From Google sign-in through Luna Unia to controlling lights in Luna Lumia, then setting a scheme from a chat assistant through its MCP tools" width="900"></a>
@@ -311,8 +311,10 @@ saved group.
 - `discover_pc_lights`
 - `discover_pc_rgb_devices`, `add_pc_rgb_device`
 - `discover_icue_devices`, `add_icue_device`
+- `find_moved_pc_lights`, `move_pc_lights`
 
 These add a PC's RGB devices as lights. See [PC RGB lights](#pc-rgb-lights) for the setup.
+The last two follow a PC whose IP changed. See [When the PC's IP changes](#when-the-pcs-ip-changes).
 
 ### Rooms, groups, and images
 
@@ -588,6 +590,19 @@ call `discover_pc_lights`, then `add_pc_rgb_device` or `add_icue_device`, passin
 `port` it reports. Discovery says which stacks answered and why the others did not. It
 warns about devices that two programs would both drive, and devices with no LEDs. The UI
 checks the default ports only; `discover_pc_lights` takes `openrgb_port` and `icue_port`.
+
+### When the PC's IP changes
+
+PC lights have no MAC address, so Lumia recognises a PC by the devices it offers. When a
+refresh finds a PC light silent, Lumia probes the PC lights' /24 subnets on their saved
+ports. It asks every host that answers for its devices, and moves each light to the one PC
+that offers its exact device name. `find_moved_pc_lights` runs the same scan on demand, and
+takes a `subnet` such as `192.168.1` to look elsewhere. It reports lights that `moved`,
+stayed `unchanged`, matched several PCs (`ambiguous`), or were `not_found` because
+OpenRGB or the bridge is not running. `move_pc_lights` moves every light from a known old
+IP to a new one. A DHCP reservation on the router keeps the PC's IP from changing at all.
+If `.env` gives iCUE bridge tokens per host in `LUNALUMIA_ICUE_TOKENS`, update that PC's
+entry to its new IP too.
 
 ### Troubleshooting
 

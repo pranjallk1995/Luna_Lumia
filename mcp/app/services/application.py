@@ -475,6 +475,116 @@ class LightService:
             for name, led_count in found
         ]
 
+    PC_PROTOCOLS = ("openrgb", "icue")
+    PROBE_TIMEOUT = 0.75
+
+    def pc_lights(self) -> list[Row]:
+        return [light for light in self.lights.list() if light.get("protocol") in self.PC_PROTOCOLS]
+
+    @classmethod
+    def pc_port(cls, light: Row) -> int:
+        return light.get("port") or (DEFAULT_PORT if light["protocol"] == "openrgb" else icue_integration.DEFAULT_PORT)
+
+    @classmethod
+    async def _listening(cls, host: str, port: int) -> bool:
+        try:
+            _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), cls.PROBE_TIMEOUT)
+        except (OSError, asyncio.TimeoutError):
+            return False
+        writer.close()
+        return True
+
+    async def _pc_device_names(self, protocol: str, port: int, host: str) -> set[str]:
+        """The device names a PC offers on ``port``, or none if it does not answer."""
+        try:
+            if protocol == "openrgb":
+                return {controller.name for controller in await self.openrgb.devices(host, port)}
+            return {item["device"] for item in await self.icue.devices(host, port)}
+        except (OSError, LookupError, ValueError, asyncio.TimeoutError):
+            return set()
+
+    def _allowed_pc_moves(self, moves: dict[int, str]) -> dict[int, str]:
+        """The moves whose (new IP, device) is not held by a light that stays put."""
+        saved = self.lights.list()
+        by_id = {light["id"]: light for light in saved}
+        held = {(light["ip_address"], light.get("device") or ""): light["id"] for light in saved}
+        return {
+            light_id: ip_address
+            for light_id, ip_address in moves.items()
+            if held.get((ip_address, by_id[light_id].get("device") or ""), light_id) in moves
+        }
+
+    async def find_moved_pc_lights(self, subnet: str | None = None) -> dict[str, Any]:
+        """Find PCs whose IP changed by the RGB devices they offer, and move their lights.
+
+        PC lights have no MAC, so a PC is recognised by its devices: every host on
+        the /24 that listens on a saved PC light's port is asked for its devices,
+        and a light moves to the one host offering its exact device name. With no
+        ``subnet`` (like ``192.168.1``), the subnets the PC lights were last on are
+        scanned.
+        """
+        tenancy.require_owner("Finding PC lights on the network")
+        pc_lights = self.pc_lights()
+        if subnet:
+            octets = subnet.strip().removesuffix("/24").strip(".").split(".")
+            if len(octets) not in (3, 4):
+                raise ValueError("subnet must look like 192.168.1")
+            prefix = ".".join(octets[:3])
+            IPv4Address(f"{prefix}.0")
+            prefixes = {prefix}
+        else:
+            prefixes = {light["ip_address"].rsplit(".", 1)[0] for light in pc_lights}
+        sources = {(light["protocol"], self.pc_port(light)) for light in pc_lights}
+        hosts = [f"{prefix}.{last}" for prefix in sorted(prefixes) for last in range(1, 255)]
+        probes = [(protocol, port, host) for protocol, port in sorted(sources) for host in hosts]
+        listening = await asyncio.gather(*(self._listening(host, port) for _, port, host in probes))
+        answering = [probe for probe, up in zip(probes, listening) if up]
+        names = await asyncio.gather(*(self._pc_device_names(*probe) for probe in answering))
+        offered = dict(zip(answering, names))
+
+        moves, unchanged, not_found, ambiguous = {}, [], [], []
+        for light in pc_lights:
+            protocol, port = light["protocol"], self.pc_port(light)
+            matches = sorted(
+                host for (kind, at, host), devices in offered.items()
+                if kind == protocol and at == port and light.get("device") in devices
+            )
+            if light["ip_address"] in matches:
+                unchanged.append(light["name"])
+            elif len(matches) == 1:
+                moves[light["id"]] = matches[0]
+            elif matches:
+                ambiguous.append({"name": light["name"], "hosts": matches})
+            else:
+                not_found.append(light["name"])
+        allowed = self._allowed_pc_moves(moves)
+        self.lights.relocate(allowed)
+        by_id = {light["id"]: light for light in pc_lights}
+        return {
+            "scanned": sorted(f"{prefix}.0/24" for prefix in prefixes),
+            "moved": [
+                {"id": light_id, "name": by_id[light_id]["name"], "from": by_id[light_id]["ip_address"], "to": ip}
+                for light_id, ip in allowed.items()
+            ],
+            "blocked": [by_id[light_id]["name"] for light_id in moves if light_id not in allowed],
+            "unchanged": unchanged,
+            "ambiguous": ambiguous,
+            "not_found": not_found,
+        }
+
+    def move_pc_lights(self, old_host: str, new_host: str) -> list[Row]:
+        """Point every PC light saved at ``old_host`` to ``new_host`` (the PC got a new IP)."""
+        tenancy.require_owner("Moving PC lights")
+        IPv4Address(old_host)
+        IPv4Address(new_host)
+        moving = {light["id"]: new_host for light in self.pc_lights() if light["ip_address"] == old_host}
+        if not moving:
+            raise NotFoundError(f"No PC lights are saved at {old_host}")
+        if len(self._allowed_pc_moves(moving)) < len(moving):
+            raise ValueError(f"{new_host} already has a light for one of these devices")
+        self.lights.relocate(moving)
+        return [light for light in self.lights.list() if light["id"] in moving]
+
     async def discover(self, broadcast_space: str = AppConfig.GLOBAL_BROADCAST) -> list[dict]:
         """Scan for lights, follow saved lights to new IPs, and flag configured ones."""
         tenancy.require_owner("Finding lights on the network")
@@ -1105,12 +1215,20 @@ class LumiaService:
 
         Routers can hand bulbs new addresses. A known bulb (one with a saved MAC)
         that is silent, or whose IP now answers with another bulb's MAC, triggers
-        a LAN scan that moves every light to the IP where its MAC answers.
+        a LAN scan that moves every light to the IP where its MAC answers. A silent
+        PC light (OpenRGB or iCUE) has no MAC, so its PC is looked for on the LAN by
+        the devices it offers instead.
         """
         results = await self.control.poll_statuses()
-        if not any(not item["ok"] and item["light"].get("mac_address") for item in results):
+        failed = [item["light"] for item in results if not item["ok"]]
+        scans = []
+        if any(light.get("mac_address") for light in failed):
+            scans.append(self.lights.discover(self.lights.subnet_broadcast()))
+        if tenancy.is_owner() and any(light.get("protocol") in LightService.PC_PROTOCOLS for light in failed):
+            scans.append(self.lights.find_moved_pc_lights())
+        if not scans:
             return results
-        await self.lights.discover(self.lights.subnet_broadcast())
+        await asyncio.gather(*scans)
         return await self.control.poll_statuses()
 
     def dashboard(self) -> dict[str, Any]:

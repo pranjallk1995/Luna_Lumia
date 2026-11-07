@@ -138,6 +138,7 @@ class LumiaHTTPRoutes:
         self.route("GET", "/api/dashboard", self.dashboard)
         self.route("POST", "/api/discovery", self.discover)
         self.route("POST", "/api/discovery/pc", self.discover_pc)
+        self.route("POST", "/api/discovery/pc/moved", self.find_moved_pc_lights)
         self._register_lights()
         self._register_collections("room")
         self._register_collections("group")
@@ -159,6 +160,10 @@ class LumiaHTTPRoutes:
     async def discover_pc(self, request: Request) -> dict:
         body = await request.json()
         return await self.service.lights.discover_pc(str(body.get("host", "")))
+
+    async def find_moved_pc_lights(self, request: Request) -> dict:
+        body = await request.json()
+        return await self.service.lights.find_moved_pc_lights(body.get("subnet") or None)
 
     async def update_room_image(self, request: Request) -> Any:
         entry = await self.payload(request, RoomImageUpdate)

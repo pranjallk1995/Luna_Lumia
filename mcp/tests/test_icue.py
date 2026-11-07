@@ -5,6 +5,7 @@ import types
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from app.core import tenancy
 from app.core.config import AppConfig
 from app.core.models import LightCreate
 from app.integrations.icue import ICueAdapter, ICueAddress
@@ -196,6 +197,132 @@ class PcDiscoveryTests(unittest.TestCase):
     def test_refuses_an_invalid_address(self):
         with self.assertRaises(ValueError):
             asyncio.run(self.service(None, None).discover_pc("not-an-ip"))
+
+
+class MovedPcTests(unittest.TestCase):
+    """A PC that got a new IP is found by the devices it offers."""
+
+    def setUp(self):
+        owner = tenancy.acting_as(tenancy.OWNER)
+        owner.__enter__()
+        self.addCleanup(owner.__exit__, None, None, None)
+
+    def rows(self):
+        return [
+            {"id": 1, "name": "PC Keyboard", "ip_address": "192.168.1.15", "protocol": "icue", "device": "K70 RGB PRO", "port": None},
+            {"id": 2, "name": "PC Case", "ip_address": "192.168.1.15", "protocol": "openrgb", "device": "ASUS Board", "port": None},
+            {"id": 3, "name": "Bulb", "ip_address": "192.168.1.8", "protocol": "wiz", "device": None, "port": None},
+        ]
+
+    def service(self, rows, offers):
+        """``offers`` maps (host, port) to the device names a PC offers there."""
+
+        class Lights:
+            def __init__(self):
+                self.rows = rows
+            def list(self):
+                return [dict(row) for row in self.rows]
+            def relocate(self, new_ips):
+                for row in self.rows:
+                    row["ip_address"] = new_ips.get(row["id"], row["ip_address"])
+
+        async def openrgb_devices(host, port):
+            return [types.SimpleNamespace(name=name, led_count=1) for name in offers[(host, port)]]
+
+        async def icue_devices(host, port):
+            return [{"device": name, "led_count": 1} for name in offers[(host, port)]]
+
+        service = LightService(
+            Lights(), None, None,
+            types.SimpleNamespace(devices=openrgb_devices), types.SimpleNamespace(devices=icue_devices),
+        )
+
+        async def listening(host, port):
+            return (host, port) in offers
+
+        service._listening = listening
+        return service
+
+    def test_follows_the_pc_to_its_new_ip(self):
+        rows = self.rows()
+        offers = {("192.168.1.11", 6743): {"K70 RGB PRO"}, ("192.168.1.11", 6742): {"ASUS Board"}}
+        result = asyncio.run(self.service(rows, offers).find_moved_pc_lights())
+        self.assertEqual(result["scanned"], ["192.168.1.0/24"])
+        self.assertEqual({m["name"]: (m["from"], m["to"]) for m in result["moved"]}, {
+            "PC Keyboard": ("192.168.1.15", "192.168.1.11"), "PC Case": ("192.168.1.15", "192.168.1.11"),
+        })
+        self.assertEqual([row["ip_address"] for row in rows], ["192.168.1.11", "192.168.1.11", "192.168.1.8"])
+
+    def test_a_light_still_answering_stays(self):
+        rows = self.rows()
+        offers = {("192.168.1.15", 6743): {"K70 RGB PRO"}, ("192.168.1.15", 6742): {"ASUS Board"}}
+        result = asyncio.run(self.service(rows, offers).find_moved_pc_lights())
+        self.assertEqual((result["moved"], sorted(result["unchanged"])), ([], ["PC Case", "PC Keyboard"]))
+
+    def test_two_pcs_with_the_device_is_ambiguous_and_none_is_not_found(self):
+        rows = self.rows()
+        offers = {("192.168.1.11", 6743): {"K70 RGB PRO"}, ("192.168.1.12", 6743): {"K70 RGB PRO"}}
+        result = asyncio.run(self.service(rows, offers).find_moved_pc_lights())
+        self.assertEqual(result["ambiguous"], [{"name": "PC Keyboard", "hosts": ["192.168.1.11", "192.168.1.12"]}])
+        self.assertEqual(result["not_found"], ["PC Case"])
+        self.assertEqual(rows[0]["ip_address"], "192.168.1.15")
+
+    def test_a_pc_that_does_not_answer_its_devices_is_skipped(self):
+        rows = self.rows()
+
+        async def refused(host, port):
+            raise ConnectionRefusedError("refused")
+
+        service = self.service(rows, {("192.168.1.11", 6743): set()})
+        service.icue = types.SimpleNamespace(devices=refused)
+        result = asyncio.run(service.find_moved_pc_lights())
+        self.assertEqual((result["moved"], sorted(result["not_found"])), ([], ["PC Case", "PC Keyboard"]))
+
+    def test_does_not_take_an_address_another_light_holds(self):
+        rows = self.rows() + [
+            {"id": 4, "name": "Other K70", "ip_address": "192.168.1.11", "protocol": "icue", "device": "K70 RGB PRO", "port": None},
+        ]
+        result = asyncio.run(self.service(rows, {("192.168.1.11", 6743): {"K70 RGB PRO"}}).find_moved_pc_lights())
+        self.assertEqual(result["blocked"], ["PC Keyboard"])
+        self.assertEqual(rows[0]["ip_address"], "192.168.1.15")
+
+    def test_scans_the_given_subnet(self):
+        offers = {("10.0.0.5", 6743): {"K70 RGB PRO"}, ("10.0.0.5", 6742): {"ASUS Board"}}
+        result = asyncio.run(self.service(self.rows(), offers).find_moved_pc_lights("10.0.0"))
+        self.assertEqual((result["scanned"], len(result["moved"])), (["10.0.0.0/24"], 2))
+        with self.assertRaises(ValueError):
+            asyncio.run(self.service(self.rows(), {}).find_moved_pc_lights("not.a.net"))
+
+    def test_move_pc_lights_moves_every_light_of_that_pc(self):
+        rows = self.rows()
+        moved = self.service(rows, {}).move_pc_lights("192.168.1.15", "192.168.1.11")
+        self.assertEqual(sorted(light["name"] for light in moved), ["PC Case", "PC Keyboard"])
+        self.assertEqual(rows[2]["ip_address"], "192.168.1.8")
+
+    def test_move_pc_lights_refuses_a_clash_without_moving_anything(self):
+        rows = self.rows() + [
+            {"id": 4, "name": "Other K70", "ip_address": "192.168.1.11", "protocol": "icue", "device": "K70 RGB PRO", "port": None},
+        ]
+        with self.assertRaises(ValueError):
+            self.service(rows, {}).move_pc_lights("192.168.1.15", "192.168.1.11")
+        self.assertEqual([row["ip_address"] for row in rows[:2]], ["192.168.1.15", "192.168.1.15"])
+
+    def test_refresh_rescans_for_a_silent_pc_light(self):
+        from app.services.application import LumiaService
+
+        class Control:
+            polls = 0
+            async def poll_statuses(self):
+                Control.polls += 1
+                return [{"light": {"id": 1, "protocol": "icue", "mac_address": None}, "ok": Control.polls > 1}]
+
+        class Lights:
+            rescanned = False
+            async def discover(self, space): raise AssertionError("no bulb scan expected")
+            async def find_moved_pc_lights(self): Lights.rescanned = True
+
+        result = asyncio.run(LumiaService(Lights(), None, None, Control(), None, None, None, None, None).refresh_lights())
+        self.assertEqual((Lights.rescanned, Control.polls, result[0]["ok"]), (True, 2, True))
 
 
 class RoutingTests(unittest.TestCase):

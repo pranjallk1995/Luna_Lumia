@@ -49,6 +49,10 @@ class OwnerDeviceTests(unittest.TestCase):
             with self.assertRaises(PermissionError):
                 asyncio.run(self.lights.discover_icue("192.168.1.15"))
             with self.assertRaises(PermissionError):
+                asyncio.run(self.lights.find_moved_pc_lights())
+            with self.assertRaises(PermissionError):
+                self.lights.move_pc_lights("192.168.1.15", "192.168.1.11")
+            with self.assertRaises(PermissionError):
                 self.lights.add(mock.Mock())
         self.discovery.discover.assert_not_called()
         self.repository.add.assert_not_called()

@@ -54,10 +54,29 @@ class LumiaMCPTools:
             """Ask every light for its current power, brightness, color, and reachability, and save it.
 
             Lumia does not poll in the background, so call this before relying on
-            list_lights if a light may have been changed outside Lumia. A light that
-            moved to a new IP address is found again by its MAC address.
+            list_lights if a light may have been changed outside Lumia. A bulb that
+            moved to a new IP address is found again by its MAC address, and a PC
+            light by the devices its PC offers (see find_moved_pc_lights).
             """
             return await self.service.refresh_lights()
+
+        @server.tool()
+        async def find_moved_pc_lights(subnet: str | None = None):
+            """Find PCs whose IP address changed and move their RGB lights to the new address.
+
+            PC lights (OpenRGB, iCUE) have no MAC, so every host on the network that
+            listens on their ports is asked for its devices, and each light follows
+            the one PC offering its exact device name. ``subnet`` (like
+            ``192.168.1``) scans another /24; by default the PC lights' own subnets
+            are scanned. Lists what ``moved``, stayed ``unchanged``, matched several
+            PCs (``ambiguous``), or was ``not_found`` because its program is not running.
+            """
+            return await lights.find_moved_pc_lights(subnet)
+
+        @server.tool()
+        def move_pc_lights(old_host: str, new_host: str):
+            """Point every PC light saved at ``old_host`` to ``new_host``, when the PC's IP is known to have changed."""
+            return lights.move_pc_lights(old_host, new_host)
 
         @server.tool()
         def list_rooms():
