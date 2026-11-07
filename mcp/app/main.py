@@ -2,6 +2,7 @@
 
 from app.transport.branding import ServerBranding
 from app.core import tenancy
+from app.integrations.visia import VisiaImageTagger
 from app.core.config import AppConfig
 from app.data.database import Database
 from app.transport.luna_mcp import LunaMCP
@@ -98,7 +99,10 @@ class LunaLumiaApplication:
     def _build_service(self) -> LumiaService:
         lights = LightRepository(self.database)
         collections = CollectionRepository(self.database)
-        images = BackgroundImageService(RoomImageRepository(self.database), lights, collections)
+        images = BackgroundImageService(
+            RoomImageRepository(self.database), lights, collections,
+            VisiaImageTagger(self.config.visia_api_url, self.config.visia_companion_token),
+        )
         control = LightControlService(lights, self.adapter, self.scenes)
         transitions = TransitionService(TransitionRepository(self.database))
         scenes = SceneService(SceneRepository(self.database), transitions, control, self.scenes)

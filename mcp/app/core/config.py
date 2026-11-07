@@ -34,6 +34,10 @@ class AppConfig:
     # Luna Vibia, whose playing track picks the music scheme ("" token = music off).
     vibia_api_url: str = "http://luna-vibia-mcp:8000"
     vibia_api_token: str = ""
+    # Luna Visia, where room and light pictures live; Lumia tags the ones it shows
+    # ("" token = no tagging).
+    visia_api_url: str = "http://luna-visia-mcp:8000"
+    visia_companion_token: str = ""
     # Shared with the iCUE bridges on PCs, for Corsair devices: one token for any PC,
     # and per-PC tokens, which win ("" and empty = no iCUE lights).
     icue_token: str = ""
@@ -71,6 +75,8 @@ class AppConfig:
         return cls(
             vibia_api_url=os.getenv("LUNAVIBIA_API_URL", cls.vibia_api_url).strip().rstrip("/"),
             vibia_api_token=os.getenv("LUNAVIBIA_API_TOKEN", "").strip(),
+            visia_api_url=os.getenv("LUNAVISIA_API_URL", cls.visia_api_url).strip().rstrip("/"),
+            visia_companion_token=os.getenv("LUNAVISIA_COMPANION_TOKEN", "").strip(),
             icue_token=os.getenv("LUNALUMIA_ICUE_TOKEN", "").strip(),
             icue_host_tokens=cls.parse_host_tokens(os.getenv("LUNALUMIA_ICUE_TOKENS", "")),
             mcp_public_url=mcp_public_url,

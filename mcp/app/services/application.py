@@ -50,6 +50,7 @@ from app.services.sun import SunCalculator
 from app.core.config import AppConfig
 
 if TYPE_CHECKING:
+    from app.integrations.visia import VisiaImageTagger
     from app.services.music import MusicService
 
 
@@ -170,16 +171,25 @@ class BackgroundImageService:
         room_images: RoomImageRepository,
         lights: LightRepository,
         collections: CollectionRepository,
+        tagger: VisiaImageTagger | None = None,
     ) -> None:
         self.room_images = room_images
         self.lights = lights
         self.collections = collections
+        self.tagger = tagger
+
+    def tagged(self, row: Row | None, image_url: str | None) -> Row | None:
+        """Tag ``image_url`` "luna lumia" in Visia, noting the outcome on ``row``."""
+        outcome = self.tagger.tag(image_url) if self.tagger and row else None
+        if outcome:
+            row["visia_tag"] = outcome
+        return row
 
     def list_room_images(self) -> list[Row]:
         return self.room_images.list()
 
     def update_room_image(self, room_key: str, image_url: str) -> Row | None:
-        return self.room_images.upsert(room_key, image_url)
+        return self.tagged(self.room_images.upsert(room_key, image_url), image_url)
 
     def catalog(self) -> RoomImageCatalog:
         return RoomImageCatalog(self.room_images.list())
@@ -232,7 +242,7 @@ class BackgroundImageService:
         light = self.lights.update_image(light_id, image_url)
         if not light:
             raise NotFoundError("Light not found")
-        return light
+        return self.tagged(light, image_url)
 
     def infer_light_image(self, light_id: int, room_name: str | None = None) -> Row:
         light = self.lights.get(light_id)
@@ -249,7 +259,7 @@ class BackgroundImageService:
             else scheme_counts.most_common(1)[0][0]
         )
         selected = catalog.select(room_key, preferred_scheme)
-        assigned = self.lights.update_image(light_id, selected["image_url"])
+        assigned = self.tagged(self.lights.update_image(light_id, selected["image_url"]), selected["image_url"])
         source = "room_name" if supplied_name else "light_name"
         return self._describe(assigned, selected, room_key, source)
 
@@ -283,7 +293,7 @@ class BackgroundImageService:
             scheme_counts.most_common(1)[0][0] if scheme_counts else None
         )
         selected = catalog.select(room_key, preferred_scheme)
-        assigned = self.collections.update_image(collection_id, selected["image_url"])
+        assigned = self.tagged(self.collections.update_image(collection_id, selected["image_url"]), selected["image_url"])
         assigned["light_ids"] = collection["light_ids"]
         return self._describe(assigned, selected, room_key, source)
 
@@ -295,7 +305,7 @@ class BackgroundImageService:
         collection = self.collections.update_image(collection_id, image_url)
         if not collection:
             raise NotFoundError("Room/group not found")
-        return collection
+        return self.tagged(collection, image_url)
 
 
 class LightService:

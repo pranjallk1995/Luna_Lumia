@@ -320,7 +320,7 @@ These add a PC's RGB devices as lights. See [PC RGB lights](#pc-rgb-lights) for 
 - `list_groups`, `get_group`, `create_group`, `rename_group`, `delete_group`
 - `add_lights_to_room`, `remove_light_from_room`
 - `add_lights_to_group`, `remove_light_from_group`
-- `list_room_images`, `update_room_image`
+- `list_room_images`, `update_room_image` (a Luna Visia picture set on a room type, room, or light is tagged `luna lumia` in Visia when `LUNAVISIA_COMPANION_TOKEN` matches Visia's; the result's `visia_tag` says how it went)
 - `set_light_background_image`, `clear_light_background_image`, `set_room_background_image`
 
 Rooms enforce exclusive membership; reusable groups allow overlaps. Room and
