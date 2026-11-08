@@ -36,6 +36,8 @@ class UIConfig:
     """Immutable gateway settings."""
 
     UI_ROOT: ClassVar[Path] = Path(__file__).resolve().parent
+    # The release this image holds, shown in the footer and on Luna Unia's cards.
+    VERSION: ClassVar[str] = (UI_ROOT / "VERSION").read_text().strip()
     # The built React app; the Dockerfile puts it here.
     STATIC_DIR: ClassVar[Path] = UI_ROOT / "static"
     API_TIMEOUT_SECONDS: ClassVar[float] = 8.0

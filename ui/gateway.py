@@ -125,6 +125,7 @@ class UIGateway:
     @staticmethod
     def settings() -> dict[str, Any]:
         return {
+            "version": UIConfig.VERSION,
             "preset_colors": UIConfig.PRESET_COLORS,
             "temperature_presets": UIConfig.TEMPERATURE_PRESETS,
             "weekday_names": UIConfig.WEEKDAY_NAMES,
@@ -166,7 +167,7 @@ class UIGateway:
 
     @staticmethod
     async def health(request: Request) -> Response:
-        return JSONResponse({"status": "ok"})
+        return JSONResponse({"status": "ok", "version": UIConfig.VERSION})
 
     def application(self) -> Starlette:
         app = Starlette(

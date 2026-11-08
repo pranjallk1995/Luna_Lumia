@@ -8,6 +8,7 @@ import { post, put, remove, request } from "./http";
 import { messageOf } from "./lib";
 
 export type Settings = {
+  version: string;
   preset_colors: Record<string, string>;
   temperature_presets: string[];
   weekday_names: string[];

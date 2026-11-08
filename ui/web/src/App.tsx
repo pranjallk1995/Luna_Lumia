@@ -97,6 +97,7 @@ function Workspace({ logoutUrl, settings }: { logoutUrl: string; settings: Setti
       {data && section === "rooms" && <RoomsTab dashboard={data} settings={settings} />}
       {data && section === "schemes" && <SchemesTab dashboard={data} settings={settings} />}
       {data && section === "schedules" && <SchedulesTab dashboard={data} settings={settings} />}
+      <footer className="lv-footer">Luna Lumia · v{settings.version}</footer>
     </main>
   );
 }
