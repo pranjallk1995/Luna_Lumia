@@ -6,6 +6,7 @@ import asyncio
 import logging
 from ipaddress import IPv4Address
 from datetime import date, datetime, time, timedelta
+from time import monotonic
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
@@ -1205,10 +1206,18 @@ class LumiaService:
         self.schedules = schedules
         self.weather = weather
         self.music = music
+        # When each kind of scan may next run, after one that found nothing new.
+        self.quiet_until: dict[str, float] = {}
 
     def decorate(self, schemes: list[Row]) -> list[Row]:
         """Mark each scheme with the weather slots and music moods it plays for."""
         return self.music.decorate(self.weather.decorate(schemes))
+
+    # A switched-off bulb or PC should not cost a network scan on every refresh.
+    RESCAN_COOLDOWN_SECONDS = 300.0
+
+    def _scan_due(self, kind: str) -> bool:
+        return monotonic() >= self.quiet_until.get(kind, 0.0)
 
     async def refresh_lights(self) -> list[dict[str, Any]]:
         """Read every bulb's state; if a known bulb moved, find its new IP and read again.
@@ -1217,19 +1226,31 @@ class LumiaService:
         that is silent, or whose IP now answers with another bulb's MAC, triggers
         a LAN scan that moves every light to the IP where its MAC answers. A silent
         PC light (OpenRGB or iCUE) has no MAC, so its PC is looked for on the LAN by
-        the devices it offers instead.
+        the devices it offers instead. A scan that leaves its kind of light silent
+        is not repeated for a few minutes: that light is probably switched off.
         """
+        def silent(rows: list[dict[str, Any]]) -> dict[str, bool]:
+            lights = [item["light"] for item in rows if not item["ok"]]
+            return {
+                "bulbs": any(light.get("mac_address") for light in lights),
+                "pcs": any(light.get("protocol") in LightService.PC_PROTOCOLS for light in lights),
+            }
+
         results = await self.control.poll_statuses()
-        failed = [item["light"] for item in results if not item["ok"]]
-        scans = []
-        if any(light.get("mac_address") for light in failed):
-            scans.append(self.lights.discover(self.lights.subnet_broadcast()))
-        if tenancy.is_owner() and any(light.get("protocol") in LightService.PC_PROTOCOLS for light in failed):
-            scans.append(self.lights.find_moved_pc_lights())
+        missing = silent(results)
+        scans = {}
+        if missing["bulbs"] and self._scan_due("bulbs"):
+            scans["bulbs"] = self.lights.discover(self.lights.subnet_broadcast())
+        if missing["pcs"] and tenancy.is_owner() and self._scan_due("pcs"):
+            scans["pcs"] = self.lights.find_moved_pc_lights()
         if not scans:
             return results
-        await asyncio.gather(*scans)
-        return await self.control.poll_statuses()
+        await asyncio.gather(*scans.values())
+        results = await self.control.poll_statuses()
+        missing = silent(results)
+        for kind in scans:
+            self.quiet_until[kind] = monotonic() + self.RESCAN_COOLDOWN_SECONDS if missing[kind] else 0.0
+        return results
 
     def dashboard(self) -> dict[str, Any]:
         return {

@@ -600,7 +600,8 @@ that offers its exact device name. `find_moved_pc_lights` runs the same scan on 
 takes a `subnet` such as `192.168.1` to look elsewhere. It reports lights that `moved`,
 stayed `unchanged`, matched several PCs (`ambiguous`), or were `not_found` because
 OpenRGB or the bridge is not running. `move_pc_lights` moves every light from a known old
-IP to a new one. A DHCP reservation on the router keeps the PC's IP from changing at all.
+IP to a new one. A scan that leaves a PC silent is not repeated on refresh for five minutes,
+since the PC is probably off; `find_moved_pc_lights` always runs. A DHCP reservation on the router keeps the PC's IP from changing at all.
 If `.env` gives iCUE bridge tokens per host in `LUNALUMIA_ICUE_TOKENS`, update that PC's
 entry to its new IP too.
 

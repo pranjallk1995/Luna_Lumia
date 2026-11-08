@@ -325,6 +325,51 @@ class MovedPcTests(unittest.TestCase):
         self.assertEqual((Lights.rescanned, Control.polls, result[0]["ok"]), (True, 2, True))
 
 
+class RescanCooldownTests(unittest.TestCase):
+    """A light that stays silent after a scan does not trigger another for a while."""
+
+    def setUp(self):
+        owner = tenancy.acting_as(tenancy.OWNER)
+        owner.__enter__()
+        self.addCleanup(owner.__exit__, None, None, None)
+
+    def service(self, recovers):
+        from app.services.application import LumiaService
+
+        class Control:
+            async def poll_statuses(self):
+                return [{"light": {"id": 1, "protocol": "icue", "mac_address": None}, "ok": lights.scans > 0 and recovers}]
+
+        class Lights:
+            scans = 0
+            async def find_moved_pc_lights(self):
+                self.scans += 1
+
+        lights = Lights()
+        return LumiaService(lights, None, None, Control(), None, None, None, None, None), lights
+
+    def refresh(self, service):
+        return asyncio.run(service.refresh_lights())
+
+    def test_a_pc_still_silent_after_a_scan_is_not_scanned_for_again_soon(self):
+        service, lights = self.service(recovers=False)
+        self.refresh(service)
+        self.refresh(service)
+        self.assertEqual(lights.scans, 1)
+
+    def test_scanning_resumes_after_the_cooldown(self):
+        service, lights = self.service(recovers=False)
+        self.refresh(service)
+        service.quiet_until["pcs"] = 0.0
+        self.refresh(service)
+        self.assertEqual(lights.scans, 2)
+
+    def test_a_scan_that_found_the_pc_sets_no_cooldown(self):
+        service, lights = self.service(recovers=True)
+        self.refresh(service)
+        self.assertEqual(service.quiet_until["pcs"], 0.0)
+
+
 class RoutingTests(unittest.TestCase):
     def test_router_sends_each_protocol_to_its_adapter(self):
         calls = []
