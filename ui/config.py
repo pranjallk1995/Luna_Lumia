@@ -91,6 +91,4 @@ class UIConfig:
             for email in os.getenv("LUNALUMIA_ALLOWED_EMAILS", "").split(",")
             if email.strip()
         )
-        if not allowed_emails:
-            raise RuntimeError("LUNALUMIA_ALLOWED_EMAILS must list at least one account.")
         return cls(api_url=api_url, api_token=api_token, allowed_emails=allowed_emails, sso=SSOConfig.from_env())

@@ -215,7 +215,9 @@ To start Sentia and every Luna app together, with or without Compose Watch, use
 `../luna.sh start [--watch]`; see the
 [Sentia README](https://github.com/pranjallk1995/Luna_Sentia#start-everything).
 
-Copy the example environment file and fill in the placeholders:
+A fresh clone needs no `.env`: `luna.sh start` runs Lumia with localhost defaults, where only Luna Sentia's owner may use it and the UI-to-backend token is `lunalumia-dev-token-for-localhost-only`. Set your own values before giving it a public (https) address; `luna.sh start` refuses a public app that still uses the default token.
+
+To change them, copy the example environment file and fill in the placeholders:
 
 ```sh
 cp .env.example .env
@@ -244,8 +246,8 @@ Lumia needs no Google client of its own. Set in `.env`:
   Sentia's `.env`), for example `https://auth.lunaapps.fyi`.
 - `LUNA_SSO_INTERNAL_URL`: `http://luna-sentia-auth:8000`, where Lumia checks
   sessions over `luna_sentia_network`.
-- `LUNALUMIA_ALLOWED_EMAILS`: who may use Lumia among the people with a Luna account: `*`
-  for everyone, or a comma-separated list. Checked after Sentia confirms who is signed in.
+- `LUNALUMIA_ALLOWED_EMAILS`: who may use Lumia among the people with a Luna account: blank
+  (the default) for Sentia's owner only, `*` for everyone, or a comma-separated list. The owner always may. Checked after Sentia confirms who is signed in.
 
 Sentia's auth service must be healthy before Lumia can sign anyone in; see
 [Single sign-on](https://github.com/pranjallk1995/Luna_Sentia#single-sign-on) for its setup.
