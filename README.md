@@ -260,7 +260,7 @@ docker compose up --build
 
 Open:
 
-- UI: <http://127.0.0.1:18503>
+- UI: <http://127.0.0.1:18502>
 - Health: <http://127.0.0.1:18002/health>
 - MCP: <http://127.0.0.1:18002/mcp> (clients sign in; see Connecting an MCP client)
 - Favicon: <http://127.0.0.1:18002/favicon.ico>
@@ -292,7 +292,7 @@ Reload tasks that predate a newly added server or tool.
 ## Database UI
 
 Lumia's database is in Luna Sentia's PostgreSQL, which is not published to the host. Inspect it with [Adminer in Luna Sentia](https://github.com/pranjallk1995/Luna_Sentia#database-ui)
-at <http://127.0.0.1:19080> (System `PostgreSQL`, Server `luna-sentia-db`, Username and
+at <http://127.0.0.1:19000> (System `PostgreSQL`, Server `luna-sentia-db`, Username and
 Database `lunalumia`, Password your `POSTGRES_PASSWORD`), or through the container:
 
 ```sh

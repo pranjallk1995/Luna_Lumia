@@ -5,12 +5,12 @@ services:
     working_dir: /workspace/mcp
     restart: unless-stopped
     environment:
-      LUNA_SSO_URL: ${LUNA_SSO_URL:-http://localhost:19090}
+      LUNA_SSO_URL: ${LUNA_SSO_URL:-http://localhost:19001}
       LUNA_SSO_INTERNAL_URL: ${LUNA_SSO_INTERNAL_URL:-http://luna-sentia-auth:8000}
       DATABASE_URL: postgresql://lunalumia:${POSTGRES_PASSWORD:-lunalumia-dev}@luna-sentia-db:5432/lunalumia
       LUNALUMIA_API_TOKEN: ${LUNALUMIA_API_TOKEN:-lunalumia-dev-token-for-localhost-only}
       MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-http://localhost:18002}
-      UI_PUBLIC_URL: ${UI_PUBLIC_URL:-http://localhost:18503}
+      UI_PUBLIC_URL: ${UI_PUBLIC_URL:-http://localhost:18502}
       LUNAVIBIA_API_URL: ${LUNAVIBIA_API_URL:-http://luna-vibia-mcp:8000}
       LUNAVIBIA_API_TOKEN: ${LUNAVIBIA_API_TOKEN:-lunavibia-dev-token-for-localhost-only}
       LUNAVISIA_API_URL: ${LUNAVISIA_API_URL:-http://luna-visia-mcp:8000}
@@ -44,13 +44,13 @@ services:
     working_dir: /workspace/ui
     restart: unless-stopped
     environment:
-      LUNA_SSO_URL: ${LUNA_SSO_URL:-http://localhost:19090}
+      LUNA_SSO_URL: ${LUNA_SSO_URL:-http://localhost:19001}
       LUNA_SSO_INTERNAL_URL: ${LUNA_SSO_INTERNAL_URL:-http://luna-sentia-auth:8000}
       LUNALUMIA_API_URL: http://luna-lumia-mcp:8000
       LUNALUMIA_API_TOKEN: ${LUNALUMIA_API_TOKEN:-lunalumia-dev-token-for-localhost-only}
       LUNALUMIA_ALLOWED_EMAILS: ${LUNALUMIA_ALLOWED_EMAILS:-}
       TZ: Asia/Kolkata
-    ports: ["127.0.0.1:18503:8501"]
+    ports: ["127.0.0.1:18502:8501"]
     develop:
       watch:
         # The gateway restarts on Python changes; the browser app is built into the image.
