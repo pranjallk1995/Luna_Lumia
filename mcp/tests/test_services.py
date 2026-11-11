@@ -211,3 +211,59 @@ class RefreshTests(unittest.TestCase):
             async def discover(self, space): raise AssertionError("no scan expected")
 
         asyncio.run(LumiaService(Lights(), None, None, Control(), None, None, None, None, None).refresh_lights())
+
+
+class ControlRediscoveryTests(unittest.TestCase):
+    """A command to a bulb whose IP changed finds it on the LAN and is sent again."""
+
+    class Lights:
+        def __init__(self):
+            self.rows = {1: {"id": 1, "name": "A", "ip_address": "192.168.1.8", "mac_address": "aa:bb:cc:dd:ee:01"},
+                         2: {"id": 2, "name": "B", "ip_address": "192.168.1.9", "mac_address": "aa:bb:cc:dd:ee:02"}}
+        def targets(self, target_type, target_id):
+            return [dict(row) for row in self.rows.values() if target_type == "all" or row["id"] == target_id]
+        def update_state(self, light_id, **state): return {**self.rows[light_id], **state}
+
+    class Adapter:
+        def __init__(self, answering): self.answering, self.sent = answering, []
+        async def apply(self, address, **state):
+            self.sent.append(address)
+            if address not in self.answering:
+                raise TimeoutError()
+
+    def service(self, answering, moves_to=None):
+        from app.services.application import LightControlService, LumiaService
+
+        lights = self.Lights()
+        adapter = self.Adapter(answering)
+        control = LightControlService(lights, adapter)
+
+        class Inventory:
+            scans = 0
+            def subnet_broadcast(self): return "192.168.1.255"
+            async def discover(self, space):
+                Inventory.scans += 1
+                if moves_to:
+                    lights.rows[1]["ip_address"] = moves_to
+
+        LumiaService(Inventory(), None, None, control, None, None, None, None, None)
+        return control, adapter, Inventory
+
+    def test_a_moved_bulb_is_found_and_sent_the_command_again(self):
+        control, adapter, inventory = self.service({"192.168.1.9", "192.168.1.30"}, moves_to="192.168.1.30")
+        results = asyncio.run(control.control("all", None, LightState(on=True)))
+        self.assertEqual([item["ok"] for item in results], [True, True])
+        self.assertEqual(inventory.scans, 1)
+        self.assertEqual(adapter.sent.count("192.168.1.9"), 1)  # only the silent light is sent again
+        self.assertIn("192.168.1.30", adapter.sent)
+
+    def test_lights_that_answer_cost_no_scan(self):
+        control, _, inventory = self.service({"192.168.1.8", "192.168.1.9"})
+        asyncio.run(control.control("all", None, LightState(on=True)))
+        self.assertEqual(inventory.scans, 0)
+
+    def test_a_bulb_still_silent_after_the_scan_is_reported_and_not_scanned_for_again_soon(self):
+        control, _, inventory = self.service({"192.168.1.9"})
+        first = asyncio.run(control.control("light", 1, LightState(on=True)))
+        asyncio.run(control.control("light", 1, LightState(on=True)))
+        self.assertEqual((first[0]["ok"], inventory.scans), (False, 1))

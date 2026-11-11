@@ -7,6 +7,7 @@ import logging
 from ipaddress import IPv4Address
 from datetime import date, datetime, time, timedelta
 from time import monotonic
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
@@ -72,6 +73,8 @@ class LightControlService:
         self.lights = lights
         self.adapter = adapter or WizLightAdapter()
         self.engine = engine
+        # Set by LumiaService: finds lights that went silent on the LAN (see follow_moved_lights).
+        self.follow_moved: Callable[..., Awaitable[list[dict[str, Any]] | None]] | None = None
 
     def resolve_targets(self, target_type: str, target_id: int | None) -> list[Row]:
         if target_type not in self.UNSCOPED_TARGETS and target_id is None:
@@ -95,6 +98,27 @@ class LightControlService:
         changes_light = any(v is not None for v in (state.brightness, state.color, state.color_temp))
         powered_on = state.on if state.on is not None else (True if changes_light else None)
 
+        results = await self._send(targets, state, color, powered_on)
+        if self.follow_moved is None or all(item["ok"] for item in results):
+            return results
+        # Routers can hand bulbs new addresses: find the silent lights where they
+        # answer now and send them the command again.
+        failed_ids = {item["light"]["id"] for item in results if not item["ok"]}
+
+        async def resend() -> list[dict[str, Any]]:
+            moved = [light for light in self.lights.targets("all", None) if light["id"] in failed_ids]
+            return await self._send(moved, state, color, powered_on)
+
+        retried = await self.follow_moved([item for item in results if not item["ok"]], resend)
+        if not retried:
+            return results
+        by_id = {item["light"]["id"]: item for item in retried}
+        return [by_id.get(item["light"]["id"], item) for item in results]
+
+    async def _send(
+        self, targets: list[Row], state: LightState, color: str | None, powered_on: bool | None
+    ) -> list[dict[str, Any]]:
+        """Send ``state`` to each light and save what each one now shows, or that it was silent."""
         async def send(light: Row) -> Exception | None:
             try:
                 await self.adapter.apply(
@@ -1208,6 +1232,8 @@ class LumiaService:
         self.music = music
         # When each kind of scan may next run, after one that found nothing new.
         self.quiet_until: dict[str, float] = {}
+        if control is not None:
+            control.follow_moved = self.follow_moved_lights
 
     def decorate(self, schemes: list[Row]) -> list[Row]:
         """Mark each scheme with the weather slots and music moods it plays for."""
@@ -1220,14 +1246,24 @@ class LumiaService:
         return monotonic() >= self.quiet_until.get(kind, 0.0)
 
     async def refresh_lights(self) -> list[dict[str, Any]]:
-        """Read every bulb's state; if a known bulb moved, find its new IP and read again.
+        """Read every bulb's state; if a known bulb moved, find its new IP and read again."""
+        results = await self.control.poll_statuses()
+        return await self.follow_moved_lights(results, self.control.poll_statuses) or results
+
+    async def follow_moved_lights(
+        self,
+        results: list[dict[str, Any]],
+        again: Callable[[], Awaitable[list[dict[str, Any]]]],
+    ) -> list[dict[str, Any]] | None:
+        """Find silent lights at their new IPs and run ``again``; None when no scan ran.
 
         Routers can hand bulbs new addresses. A known bulb (one with a saved MAC)
         that is silent, or whose IP now answers with another bulb's MAC, triggers
         a LAN scan that moves every light to the IP where its MAC answers. A silent
         PC light (OpenRGB or iCUE) has no MAC, so its PC is looked for on the LAN by
-        the devices it offers instead. A scan that leaves its kind of light silent
-        is not repeated for a few minutes: that light is probably switched off.
+        the devices it offers instead. Both scans are the owner's. A scan that leaves
+        its kind of light silent is not repeated for a few minutes: that light is
+        probably switched off.
         """
         def silent(rows: list[dict[str, Any]]) -> dict[str, bool]:
             lights = [item["light"] for item in rows if not item["ok"]]
@@ -1236,17 +1272,20 @@ class LumiaService:
                 "pcs": any(light.get("protocol") in LightService.PC_PROTOCOLS for light in lights),
             }
 
-        results = await self.control.poll_statuses()
         missing = silent(results)
+        if not any(missing.values()) or not tenancy.is_owner():
+            return None
         scans = {}
         if missing["bulbs"] and self._scan_due("bulbs"):
             scans["bulbs"] = self.lights.discover(self.lights.subnet_broadcast())
-        if missing["pcs"] and tenancy.is_owner() and self._scan_due("pcs"):
+        if missing["pcs"] and self._scan_due("pcs"):
             scans["pcs"] = self.lights.find_moved_pc_lights()
         if not scans:
-            return results
-        await asyncio.gather(*scans.values())
-        results = await self.control.poll_statuses()
+            return None
+        for kind, outcome in zip(scans, await asyncio.gather(*scans.values(), return_exceptions=True)):
+            if isinstance(outcome, Exception):
+                LOG.warning("Looking for moved %s failed: %s", kind, outcome)
+        results = await again()
         missing = silent(results)
         for kind in scans:
             self.quiet_until[kind] = monotonic() + self.RESCAN_COOLDOWN_SECONDS if missing[kind] else 0.0

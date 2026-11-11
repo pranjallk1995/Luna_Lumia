@@ -326,7 +326,11 @@ MAC addresses to reconcile already-saved lights whose IP changed and backfills
 missing MAC values. Refresh reads live reachability and power state. The setters
 control power,
 brightness, RGB color, or color temperature for one light, every light, or a
-saved group.
+saved group. When a light misses a command from a setter or a solid scheme, Lumia
+looks for it on the network the way a refresh does (by MAC for bulbs, by device
+name for PC lights), moves it to its new IP, and sends it the command again, so
+nobody has to ask for discovery first. A light still silent after that scan is
+probably switched off, and is not scanned for again for five minutes.
 
 - `discover_pc_lights`
 - `discover_pc_rgb_devices`, `add_pc_rgb_device`
