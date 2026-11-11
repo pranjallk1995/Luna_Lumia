@@ -5,7 +5,7 @@
 ![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Luna Sentia required](https://img.shields.io/badge/Luna_Sentia-required-6C5CE7?logo=docker&logoColor=white)
 ![PostgreSQL in Luna Sentia](https://img.shields.io/badge/PostgreSQL-in_Luna_Sentia-4169E1?logo=postgresql&logoColor=white)
-![Status: v1.1](https://img.shields.io/badge/Status-v1.1-2EA043)
+![Status: v1.2](https://img.shields.io/badge/Status-v1.2-2EA043)
 
 <p align="center">
   <a href="docs/assets/luna-lumia-showcase.mp4"><img src="docs/assets/luna-lumia-showcase.webp" alt="From Google sign-in through Luna Unia to controlling lights in Luna Lumia, then setting a scheme from a chat assistant through its MCP tools" width="900"></a>
