@@ -194,6 +194,24 @@ React UI (through its gateway) or MCP client
 
 Transport handlers call the `LumiaService` facade instead of SQL or device adapters directly. Lumia's database lives in Luna Sentia's PostgreSQL, which is not published to the host.
 
+## Quickstart
+
+On one machine you need no `.env`. Clone Lumia beside [Luna Sentia](https://github.com/pranjallk1995/Luna_Sentia),
+which runs its database, models, and sign-in, then start both:
+
+```sh
+git clone https://github.com/pranjallk1995/Luna_Sentia.git
+git clone https://github.com/pranjallk1995/Luna_Lumia.git
+./Luna_Sentia/luna.sh start lumia
+```
+
+`start` pulls the release images, starts Sentia and waits until it is healthy, then starts
+Lumia. Once both are up, it deletes the images their new ones replaced. Open
+<http://localhost:18502> and sign in as Sentia's owner with one click. Add your bulbs from the Lights tab, which scans your network for them. Clone and name Luna Vibia too if the lights should follow its music. To run your
+local code instead, use `./Luna_Sentia/luna.sh start --build lumia`. Before giving Lumia a
+public address, set your own secrets as described in [Start](#start). Every option of
+`luna.sh` is in [Start everything](https://github.com/pranjallk1995/Luna_Sentia#start-everything).
+
 ## Start
 
 Start [Luna Sentia](https://github.com/pranjallk1995/Luna_Sentia) first and wait until it is healthy. Sentia runs
