@@ -601,13 +601,26 @@ next command.
 
 ### Set up iCUE
 
-Copy the `bridge` folder to the PC and run this from an admin PowerShell in it. Admin
-rights are only needed for the firewall rule; without them, the script prints the command
-for you to run later.
+Run this from an admin PowerShell on the PC. It downloads the three files the installer
+needs from this repository's `bridge` folder, without git, and runs it. Admin rights are
+only needed for the firewall rules; without them, the script prints the commands for you
+to run later.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -AllowFrom 192.168.1.50
+$dir = "$HOME\Downloads\lumia-bridge"
+New-Item -ItemType Directory -Force $dir | Out-Null
+$base = "https://raw.githubusercontent.com/pranjallk1995/Luna_Lumia/main/bridge"
+foreach ($f in "install.ps1", "icue_bridge.py", "lumia_keeper.ps1") {
+    Invoke-WebRequest "$base/$f" -OutFile "$dir\$f" -UseBasicParsing
+}
+cd $dir
+powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
+
+With git, `git clone --depth 1 https://github.com/pranjallk1995/Luna_Lumia.git` and run
+`.\install.ps1` the same way from `Luna_Lumia\bridge`. The installer copies what it needs
+into its own folder, so the download can be deleted afterwards. To update the bridge or the
+keeper, run the same again: it keeps the bridge's token.
 
 `-AllowFrom` is the address Lumia connects from, and it may be a list. It defaults to the
 PC's local subnets, which keeps working when the router gives the machine running Lumia a
