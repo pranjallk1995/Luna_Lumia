@@ -1,6 +1,6 @@
 /** Pure lookups and wording over the dashboard's data. */
 
-import type { Collection, Dashboard, Light, Schedule, Scheme, Step, Target, Transition } from "./api";
+import type { Collection, Dashboard, Discovered, Light, MovedPcLights, Schedule, Scheme, Step, Target, Transition } from "./api";
 
 export const rgb = (hex: string) =>
   [1, 3, 5].map((start) => parseInt(hex.slice(start, start + 2), 16)).join(",");
@@ -263,3 +263,21 @@ export const todayIso = () => {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 };
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
+/** What "Find moved lights" says: which lights it followed to new addresses, and which it could not find. */
+export function movedSummary(dashboard: Dashboard, bulbs: Discovered[], pcs: MovedPcLights | null): string {
+  const byIp = new Map(dashboard.lights.filter((light) => !light.device).map((light) => [light.ip_address, light.name]));
+  const movedBulbs = bulbs.filter((bulb) => bulb.moved_from).map((bulb) => byIp.get(bulb.moved_from!) ?? bulb.suggested_name);
+  const moved = [...movedBulbs, ...(pcs?.moved ?? []).map((light) => light.name)];
+  // By MAC, since another bulb may have taken a silent one's address.
+  const found = new Set(bulbs.map((bulb) => bulb.mac_address?.toUpperCase()));
+  const silentBulbs = dashboard.lights.filter((light) => light.mac_address && !light.device && !found.has(light.mac_address.toUpperCase()));
+  const parts = [moved.length ? `Moved ${plural(moved.length, "light")} to new addresses: ${moved.join(", ")}.` : "No light had moved."];
+  if (silentBulbs.length) parts.push(`${silentBulbs.map((light) => light.name).join(", ")} did not answer: switched off at the wall?`);
+  if (pcs?.not_found.length)
+    parts.push(`${pcs.not_found.join(", ")} not found on ${pcs.scanned.join(", ")}: is the PC on, with OpenRGB's server and the iCUE bridge running?`);
+  if (pcs?.ambiguous.length) parts.push(`${pcs.ambiguous.map((item) => item.name).join(", ")} answered on several PCs, so they stayed put.`);
+  return parts.join(" ");
+}

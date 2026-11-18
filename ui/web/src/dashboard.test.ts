@@ -17,6 +17,7 @@ import {
   isFinished,
   isValidName,
   mostCommon,
+  movedSummary,
   scheduleAnchor,
   scheduleClock,
   scheduleDays,
@@ -171,5 +172,29 @@ describe("redesign helpers", () => {
     expect(nextRun({ ...daily, enabled: false }, now)).toBeNull();
     expect(minutesOf("17:52")).toBe(1072);
     expect(minutesOf("--:--")).toBeNull();
+  });
+});
+
+describe("finding moved lights", () => {
+  const bulb = (id: number, name: string, ip: string) => ({ id, name, ip_address: ip, mac_address: `M${id}` }) as Light;
+  const pc = (id: number, name: string) => ({ id, name, ip_address: "192.168.1.14", device: name }) as Light;
+  const house = { lights: [bulb(9, "Kitchen", "192.168.1.4"), bulb(7, "Dining", "192.168.1.3"), bulb(1, "Office", "192.168.1.9"), pc(328, "Keyboard")] } as Dashboard;
+
+  it("names what moved, which bulbs were silent, and why a PC was not found", () => {
+    const bulbs = [
+      { ip_address: "192.168.1.3", mac_address: "M9", suggested_name: "WiZ light 8AAC", moved_from: "192.168.1.4" },
+      { ip_address: "192.168.1.9", mac_address: "M1", suggested_name: "WiZ light 2872" },
+    ];
+    const pcs = { scanned: ["192.168.1.0/24"], moved: [], blocked: [], unchanged: [], ambiguous: [], not_found: ["Keyboard"] };
+    const text = movedSummary(house, bulbs, pcs);
+    expect(text).toContain("Moved 1 light to new addresses: Kitchen.");
+    expect(text).toContain("Dining did not answer");
+    expect(text).not.toContain("Office");
+    expect(text).toContain("Keyboard not found on 192.168.1.0/24");
+  });
+
+  it("says so when nothing moved", () => {
+    expect(movedSummary(house, ["M1", "M9", "M7"].map((mac) => ({ ip_address: "192.168.1.9", mac_address: mac, suggested_name: mac })), null))
+      .toBe("No light had moved.");
   });
 });

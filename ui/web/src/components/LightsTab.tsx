@@ -3,7 +3,7 @@ import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { lumia, useAct, useControl, type Dashboard, type Discovered, type Light, type PcDevice, type PcDiscovery, type PcSource, type Settings } from "../api";
-import { isValidName, lightState, mostCommon, roomOf, shownColor, temperatureSchemes } from "../dashboard";
+import { isValidName, lightState, mostCommon, movedSummary, roomOf, shownColor, temperatureSchemes } from "../dashboard";
 import { messageOf } from "../lib";
 import { Bulb, ColorChips, ColorInput, ModeToggle, NameEditor, SectionHead, Slider, TemperatureChips, Toggle, type Mode } from "./controls";
 import { Dialog } from "./Dialog";
@@ -372,6 +372,35 @@ function LightCard({ light, dashboard, settings }: TabProps & { light: Light }) 
   );
 }
 
+/** Follows lights the router gave new addresses: bulbs by MAC, PCs by the devices they offer. */
+function FindMoved({ dashboard, settings }: TabProps) {
+  const client = useQueryClient();
+  const toast = useToast();
+  const [scanning, setScanning] = useState(false);
+  const hasPc = dashboard.lights.some((light) => light.device);
+  const scan = async () => {
+    setScanning(true);
+    try {
+      const [bulbs, pcs] = await Promise.all([
+        lumia.discover(settings.discovery_broadcast),
+        hasPc ? lumia.findMovedPcLights() : Promise.resolve(null),
+      ]);
+      toast(movedSummary(dashboard, bulbs, pcs));
+    } catch (failure) {
+      toast(`Looking for moved lights failed: ${messageOf(failure, "please try again.")}`);
+    } finally {
+      setScanning(false);
+      client.invalidateQueries({ queryKey: ["dashboard"] });
+    }
+  };
+  return (
+    <button className="lv-button" type="button" disabled={scanning} onClick={scan} title="After a router restart: finds lights at their new addresses">
+      <Radar size={17} />
+      {scanning ? "Looking…" : "Find moved lights"}
+    </button>
+  );
+}
+
 export function LightsTab({ dashboard, settings }: TabProps) {
   const [adding, setAdding] = useState(false);
   // Sorted by room, with the room on each card: most rooms hold one light, so a heading per room would leave rows nearly empty.
@@ -382,6 +411,7 @@ export function LightsTab({ dashboard, settings }: TabProps) {
       <HouseSummary dashboard={dashboard} settings={settings} />
       <section className="ll-block" aria-labelledby="lights-title">
         <SectionHead title="Lights" count={lights.length} id="lights-title">
+          {lights.length > 0 && <FindMoved dashboard={dashboard} settings={settings} />}
           <button className="lv-button lv-button-primary" type="button" onClick={() => setAdding(true)}>
             <CirclePlus size={17} />
             Add lights

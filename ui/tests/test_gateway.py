@@ -107,6 +107,7 @@ class ProxyTests(GatewayTestCase):
         for method, path in (
             ("POST", "/api/discovery"),
             ("POST", "/api/discovery/pc"),
+            ("POST", "/api/discovery/pc/moved"),
             ("POST", "/api/lights/refresh"),
             ("PUT", "/api/lights/3"),
             ("PUT", "/api/lights/3/background"),

@@ -34,6 +34,7 @@ Lumia discovers compatible bulbs, stores their IP and normalized MAC addresses, 
 
 - Discover WiZ bulbs without adding them automatically.
 - Persist IP and normalized MAC addresses so known bulbs can be reconciled after DHCP changes.
+- After a router restart, **Find moved lights** on the Lights tab follows every bulb (by MAC) and PC (by its devices) to its new address, and says which lights did not answer.
 - Rename, delete, and refresh lights on demand.
 - Control one light, a room/group, or all lights.
 - Set power, brightness, RGB color, or white temperature from 2200-6500 K.
@@ -360,7 +361,10 @@ saved group. When a light misses a command from a setter or a solid scheme, Lumi
 looks for it on the network the way a refresh does (by MAC for bulbs, by device
 name for PC lights), moves it to its new IP, and sends it the command again, so
 nobody has to ask for discovery first. A light still silent after that scan is
-probably switched off, and is not scanned for again for five minutes.
+probably switched off, and is not scanned for again for five minutes. When the
+router reshuffles several bulbs and a scan misses one, that bulb keeps its address
+and so does any bulb moving into it; the others still move, and the next scan
+finishes the job.
 
 - `discover_pc_lights`
 - `discover_pc_rgb_devices`, `add_pc_rgb_device`
@@ -543,8 +547,9 @@ becomes one Lumia light that shows one color at a time, so schemes, schedules, w
 and music work on it. Per-key effects are not supported. White temperatures are shown as
 their RGB equivalent, and brightness scales the color.
 
-Lumia never scans for PCs: you give it each PC's IP address. Reserve that address on your
-router, because Lumia cannot follow a PC to a new one the way it follows a bulb.
+You add each PC by its IP address. Reserve that address on your router if you can. If the
+PC still gets a new one, Lumia finds it by the devices it offers (see
+[When the PC's IP changes](#when-the-pcs-ip-changes)).
 
 | Stack | Drives | How Lumia reaches it | Port |
 | --- | --- | --- | --- |
@@ -582,12 +587,14 @@ The read-back can look right while the LEDs do not, so check the hardware itself
 
 ### Set up OpenRGB
 
-1. Turn on *Settings → General → Start at login*, *Start minimized* and *Start server*, or
-   add `--server` to its shortcut. Opening OpenRGB by hand without `--server` leaves the
-   server off.
-2. Set *Settings → Server → Default Host* to `0.0.0.0`.
-3. Allow port 6742 through the PC's firewall, only from the machine that runs Lumia.
+1. Set *Settings → Server → Default Host* to `0.0.0.0`.
+2. Run the iCUE bridge's installer below, even without Corsair devices. Its keeper starts
+   OpenRGB with its server and opens port 6742 in the firewall, to your local network only:
    OpenRGB's server has no password, so anyone who can reach it can change the lights.
+
+Without the keeper, turn on *Settings → General → Start at login*, *Start minimized* and
+*Start server*, and allow port 6742 through the firewall yourself. Opening OpenRGB by hand
+without `--server` leaves the server off.
 
 Avoid OpenRGB's *Rescan Devices* while using Lumia: it turns its devices off until Lumia's
 next command.
@@ -603,10 +610,16 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -AllowFrom 192.168.1.50
 ```
 
 `-AllowFrom` is the address Lumia connects from, and it may be a list. It defaults to the
-PC's local subnets. When Lumia runs in Docker on this same PC under WSL, use
+PC's local subnets, which keeps working when the router gives the machine running Lumia a
+new address; a single address stops working then, with the PC's firewall silently dropping
+Lumia's connections. When Lumia runs in Docker on this same PC under WSL, use
 `-AllowFrom <this PC's LAN IP>,172.16.0.0/12`. The installer needs no Python: it keeps its
-own copy in `%LOCALAPPDATA%\LunaLumia\icue-bridge`, verifies its downloads, starts the bridge,
-and adds it to Windows startup. It needs the
+own copy in `%LOCALAPPDATA%\LunaLumia\icue-bridge`, verifies its downloads, and adds a
+keeper (`lumia_keeper.ps1`) to Windows startup. The keeper checks every 30 seconds that the
+bridge and OpenRGB's server are listening and starts whichever is not, restarting an OpenRGB
+opened without its server, so neither needs a reboot after it stops. It logs to
+`lumia_keeper.log` beside the bridge. Running iCUE is not enough on its own: Lumia talks to
+the bridge, which talks to iCUE. It needs the
 [Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe), which iCUE
 normally brings along.
 
@@ -615,9 +628,11 @@ normally brings along.
 | `-Port` | `6743` | The port to listen on. For another port, add the device with the MCP tools |
 | `-DeviceTypes` | `keyboard,mouse` | What the bridge controls. Also: `mousemat`, `headset`, `headset_stand`, `fan_led_controller`, `led_controller`, `memory_module`, `cooler`, `motherboard`, `graphics_card`, `touchbar`, `game_controller` |
 | `-AllowFrom` | `LocalSubnet` | Who the firewall lets in |
+| `-OpenRGBPath` | found by itself | OpenRGB.exe, for the keeper to start; `-NoOpenRGB` leaves OpenRGB alone |
+| `-OpenRGBPort` | `6742` | OpenRGB's server port, for the keeper's check and the firewall |
 | `-InstallDir` | see above | Where to install |
 | `-NoFirewall`, `-NoStartup`, `-NoStart` | off | Skip that step |
-| `-Uninstall` | off | Remove the bridge, its startup entry and, with admin rights, its firewall rule |
+| `-Uninstall` | off | Remove the bridge, the keeper's startup entry and, with admin rights, both firewall rules |
 
 These settings land in `icue_bridge.json` beside the bridge. You can edit that file and
 restart the bridge instead of reinstalling.
@@ -650,7 +665,8 @@ checks the default ports only; `discover_pc_lights` takes `openrgb_port` and `ic
 PC lights have no MAC address, so Lumia recognises a PC by the devices it offers. When a
 refresh finds a PC light silent, Lumia probes the PC lights' /24 subnets on their saved
 ports. It asks every host that answers for its devices, and moves each light to the one PC
-that offers its exact device name. `find_moved_pc_lights` runs the same scan on demand, and
+that offers its exact device name. **Find moved lights** on the Lights tab and
+`find_moved_pc_lights` run the same scan on demand, and
 takes a `subnet` such as `192.168.1` to look elsewhere. It reports lights that `moved`,
 stayed `unchanged`, matched several PCs (`ambiguous`), or were `not_found` because
 OpenRGB or the bridge is not running. `move_pc_lights` moves every light from a known old

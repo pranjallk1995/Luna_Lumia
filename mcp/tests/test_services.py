@@ -127,6 +127,56 @@ class LightServiceTests(unittest.TestCase):
         self.assertTrue(all(item["configured"] for item in result))
         self.assertEqual(result[0]["moved_from"], "192.168.1.5")
 
+    def test_a_missed_bulb_holds_its_address_and_the_rest_still_move(self):
+        # The router reshuffled: Kitchen .4 -> .3, Bathroom .5 -> .4, Dining .3 -> .8,
+        # Living .10 -> .2, Entrance .2 -> .6. The scan misses Dining, so Kitchen
+        # cannot take .3 and keeps .4, so Bathroom must wait too.
+        relocated = []
+
+        class UniqueLights(FakeLights):
+            def relocate(self, new_ips):
+                relocated.append(dict(new_ips))
+                super().relocate(new_ips)
+                addresses = [row["ip_address"] for row in self.rows]
+                assert len(addresses) == len(set(addresses)), addresses
+
+        lights = UniqueLights([
+            {"id": 7, "name": "Dining", "ip_address": "192.168.1.3", "mac_address": "98:77:D5:D6:C3:D4"},
+            {"id": 9, "name": "Kitchen", "ip_address": "192.168.1.4", "mac_address": "98:77:D5:D6:8A:AC"},
+            {"id": 74, "name": "Bathroom", "ip_address": "192.168.1.5", "mac_address": "98:77:D5:D6:A0:84"},
+            {"id": 11, "name": "Entrance", "ip_address": "192.168.1.2", "mac_address": "98:77:D5:D6:8C:66"},
+            {"id": 12, "name": "Living", "ip_address": "192.168.1.10", "mac_address": "98:77:D5:D6:B3:5A"},
+        ])
+
+        class Reshuffled:
+            async def scan(self, broadcast_space):
+                return [
+                    {"ip_address": "192.168.1.3", "mac_address": "9877d5d68aac", "protocol": "wiz"},
+                    {"ip_address": "192.168.1.4", "mac_address": "9877d5d6a084", "protocol": "wiz"},
+                    {"ip_address": "192.168.1.6", "mac_address": "9877d5d68c66", "protocol": "wiz"},
+                    {"ip_address": "192.168.1.2", "mac_address": "9877d5d6b35a", "protocol": "wiz"},
+                ]
+
+        asyncio.run(LightService(lights, Reshuffled(), None).discover("192.168.1.255"))
+        self.assertEqual(relocated, [{11: "192.168.1.6", 12: "192.168.1.2"}])
+        self.assertEqual({row["name"]: row["ip_address"] for row in lights.rows}, {
+            "Dining": "192.168.1.3", "Kitchen": "192.168.1.4", "Bathroom": "192.168.1.5",
+            "Entrance": "192.168.1.6", "Living": "192.168.1.2",
+        })
+
+    def test_allowed_moves_keep_pc_devices_apart_and_follow_chains(self):
+        saved = [
+            {"id": 1, "ip_address": "192.168.1.4", "device": None},
+            {"id": 2, "ip_address": "192.168.1.14", "device": "K70 RGB PRO"},
+            {"id": 3, "ip_address": "192.168.1.3", "device": None},
+        ]
+        # A bulb may take a PC's address: PC devices are told apart by name.
+        self.assertEqual(LightService.allowed_moves(saved, {1: "192.168.1.14"}), {1: "192.168.1.14"})
+        # 3 -> .4 waits while 1 stays; with 1 moving on, both go.
+        self.assertEqual(LightService.allowed_moves(saved, {3: "192.168.1.4"}), {})
+        self.assertEqual(LightService.allowed_moves(saved, {3: "192.168.1.4", 1: "192.168.1.9"}),
+                         {3: "192.168.1.4", 1: "192.168.1.9"})
+
     def test_discovery_never_steals_another_lights_mac(self):
         lights = FakeLights([
             {"id": 1, "name": "A", "ip_address": "192.168.1.8", "mac_address": None},

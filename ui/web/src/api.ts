@@ -105,9 +105,10 @@ export type Dashboard = {
   live: Record<string, Frame>;
 };
 
-export type Discovered = { ip_address: string; mac_address?: string | null; suggested_name: string };
+export type Discovered = { ip_address: string; mac_address?: string | null; suggested_name: string; moved_from?: string };
 export type PcDevice = { ip_address: string; device: string; led_count: number; protocol: string; port: number; suggested_name: string };
 export type PcSource = { available: boolean; error: string | null };
+export type MovedPcLights = { scanned: string[]; moved: { id: number; name: string; from: string; to: string }[]; blocked: string[]; unchanged: string[]; ambiguous: { name: string; hosts: string[] }[]; not_found: string[] };
 export type PcDiscovery = { ip_address: string; devices: PcDevice[]; warnings: string[]; openrgb: PcSource; icue: PcSource };
 export type LightState = Partial<Pick<Light, "brightness" | "color" | "color_temp">> & { on?: boolean };
 export type Target = { type: string; id: number | null };
@@ -126,6 +127,7 @@ export function useDashboard() {
 export const lumia = {
   discover: (broadcast: string) => post<Discovered[]>("/api/discovery", { broadcast_space: broadcast }),
   discoverPc: (host: string) => post<PcDiscovery>("/api/discovery/pc", { host }),
+  findMovedPcLights: () => post<MovedPcLights>("/api/discovery/pc/moved", {}),
   refreshLights: () => post("/api/lights/refresh"),
   create: (resource: string, payload: unknown) => post(`/api/${resource}`, payload),
   update: (resource: string, id: number, payload: unknown) => put(`/api/${resource}/${id}`, payload),

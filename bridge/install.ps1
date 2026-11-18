@@ -1,11 +1,16 @@
 # Install Luna Lumia's iCUE bridge on this Windows PC. See "PC RGB lights" in the README.
 # Keeps its own Python in -InstallDir, so nothing is installed system-wide.
+# A keeper (lumia_keeper.ps1) starts at sign-in and restarts the bridge, and OpenRGB with
+# its server, whenever either stops listening.
 
 param(
     [string]$InstallDir = "$env:LOCALAPPDATA\LunaLumia\icue-bridge",
     [int]$Port = 6743,
     [string[]]$DeviceTypes = @("keyboard", "mouse"),
     [string[]]$AllowFrom = @("LocalSubnet"),
+    [string]$OpenRGBPath = "",
+    [int]$OpenRGBPort = 6742,
+    [switch]$NoOpenRGB,
     [switch]$NoFirewall,
     [switch]$NoStartup,
     [switch]$NoStart,
@@ -20,7 +25,11 @@ $PythonSha256 = "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c
 $CueSdkUrl = "https://files.pythonhosted.org/packages/a6/a5/38725e09cfda81a04c60de15381baefa99e6b59c8222d1f667f2c3959ea0/cuesdk-4.0.84-py3-none-any.whl"
 $CueSdkSha256 = "b079fa25eb1c0dd0a5618c1be4b586af0620ece697161536387bae01f46f9003"
 $RuleName = "Luna Lumia iCUE bridge"
-$Shortcut = Join-Path ([Environment]::GetFolderPath("Startup")) "Luna Lumia iCUE bridge.lnk"
+$OpenRGBRuleName = "Luna Lumia OpenRGB server"
+$Startup = [Environment]::GetFolderPath("Startup")
+# Older installs started the bridge itself at sign-in; the keeper does that now.
+$OldShortcut = Join-Path $Startup "Luna Lumia iCUE bridge.lnk"
+$Shortcut = Join-Path $Startup "Luna Lumia keeper.lnk"
 $Utf8NoBom = New-Object Text.UTF8Encoding($false)
 
 function Test-Admin {
@@ -28,7 +37,22 @@ function Test-Admin {
     (New-Object Security.Principal.WindowsPrincipal($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function Stop-Keeper {
+    Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -like "*lumia_keeper.ps1*" } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+}
+
+function Find-OpenRGB {
+    if ($OpenRGBPath) { return $OpenRGBPath }
+    $running = Get-Process OpenRGB -ErrorAction SilentlyContinue | Where-Object Path | Select-Object -First 1
+    if ($running) { return $running.Path }
+    $places = @("$env:ProgramFiles\OpenRGB\OpenRGB.exe", "${env:ProgramFiles(x86)}\OpenRGB\OpenRGB.exe", "$env:LOCALAPPDATA\Programs\OpenRGB\OpenRGB.exe")
+    $places | Where-Object { Test-Path $_ } | Select-Object -First 1
+}
+
 function Stop-Bridge {
+    Stop-Keeper
     # A bridge started from an admin window hides its path from a normal one, so also go by its port.
     $byPath = Get-Process pythonw, python -ErrorAction SilentlyContinue |
         Where-Object { $_.Path -and $_.Path.StartsWith($InstallDir, [StringComparison]::OrdinalIgnoreCase) } |
@@ -56,12 +80,14 @@ function Get-Verified($Url, $Sha256, $Path) {
 
 if ($Uninstall) {
     Stop-Bridge
-    Remove-Item $Shortcut -ErrorAction SilentlyContinue
-    if (Get-NetFirewallRule -DisplayName $RuleName -ErrorAction SilentlyContinue) {
-        if (Test-Admin) {
-            Remove-NetFirewallRule -DisplayName $RuleName
-        } else {
-            Write-Host "Run this as admin to remove the firewall rule: Remove-NetFirewallRule -DisplayName '$RuleName'"
+    Remove-Item $Shortcut, $OldShortcut -ErrorAction SilentlyContinue
+    foreach ($rule in $RuleName, $OpenRGBRuleName) {
+        if (Get-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue) {
+            if (Test-Admin) {
+                Remove-NetFirewallRule -DisplayName $rule
+            } else {
+                Write-Host "Run this as admin to remove the firewall rule: Remove-NetFirewallRule -DisplayName '$rule'"
+            }
         }
     }
     Remove-Item $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -92,7 +118,13 @@ try {
     Remove-Item $Downloads -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-Copy-Item (Join-Path $PSScriptRoot "icue_bridge.py") $InstallDir -Force
+Copy-Item (Join-Path $PSScriptRoot "icue_bridge.py"), (Join-Path $PSScriptRoot "lumia_keeper.ps1") $InstallDir -Force
+$OpenRGB = if ($NoOpenRGB) { $null } else { Find-OpenRGB }
+if (-not $NoOpenRGB -and -not $OpenRGB) {
+    Write-Host "OpenRGB was not found, so the keeper looks after the bridge only. Pass -OpenRGBPath to add it."
+}
+$keeperSettings = @{ bridge_port = $Port; openrgb_path = $OpenRGB; openrgb_port = $OpenRGBPort } | ConvertTo-Json -Compress
+[IO.File]::WriteAllText((Join-Path $InstallDir "lumia_keeper.json"), $keeperSettings, $Utf8NoBom)
 
 # The bridge reads these back; a BOM would break both.
 $settings = @{ bind = "0.0.0.0"; port = $Port; device_types = @($DeviceTypes) } | ConvertTo-Json -Compress
@@ -110,36 +142,45 @@ $check = "import sys, pathlib; sys.path.insert(0, r'$InstallDir'); import icue_b
 & (Join-Path $Python "python.exe") -c $check
 if ($LASTEXITCODE -ne 0) { throw "Those settings are not valid, see the error above." }
 
-$PythonW = Join-Path $Python "pythonw.exe"
-$Launch = "-c `"import sys; sys.path.insert(0, r'$InstallDir'); import icue_bridge; icue_bridge.main()`""
+$Keeper = Join-Path $InstallDir "lumia_keeper.ps1"
+$PowerShell = Join-Path $PSHOME "powershell.exe"
+$KeeperArgs = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Keeper`""
 
+Remove-Item $OldShortcut -ErrorAction SilentlyContinue
 if (-not $NoStartup) {
     $link = (New-Object -ComObject WScript.Shell).CreateShortcut($Shortcut)
-    $link.TargetPath = $PythonW
-    $link.Arguments = $Launch
+    $link.TargetPath = $PowerShell
+    $link.Arguments = $KeeperArgs
     $link.WorkingDirectory = $InstallDir
+    $link.WindowStyle = 7
     $link.Save()
 }
 
 if (-not $NoFirewall) {
-    $firewall = "New-NetFirewallRule -DisplayName '$RuleName' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port -RemoteAddress $($AllowFrom -join ',') -Profile Any"
-    if (Test-Admin) {
-        Remove-NetFirewallRule -DisplayName $RuleName -ErrorAction SilentlyContinue
-        Invoke-Expression $firewall | Out-Null
-    } else {
-        Write-Host "Not running as admin, so the firewall was not changed. From an admin PowerShell, run:"
-        Write-Host "  $firewall"
+    $rules = @{ $RuleName = $Port }
+    if ($OpenRGB) { $rules[$OpenRGBRuleName] = $OpenRGBPort }
+    foreach ($rule in $rules.Keys) {
+        $firewall = "New-NetFirewallRule -DisplayName '$rule' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $($rules[$rule]) -RemoteAddress $($AllowFrom -join ',') -Profile Any"
+        if (Test-Admin) {
+            Remove-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue
+            Invoke-Expression $firewall | Out-Null
+        } else {
+            Write-Host "Not running as admin, so the firewall was not changed. From an admin PowerShell, run:"
+            Write-Host "  $firewall"
+        }
     }
 }
 
 if (-not $NoStart) {
-    Start-Process $PythonW -ArgumentList $Launch -WorkingDirectory $InstallDir
-    Start-Sleep -Seconds 3
+    # The keeper starts the bridge at once, and OpenRGB's server within a minute.
+    Start-Process $PowerShell -ArgumentList $KeeperArgs -WorkingDirectory $InstallDir -WindowStyle Hidden
+    Start-Sleep -Seconds 6
     if (Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue) {
         Write-Host "The bridge is listening on port $Port."
     } else {
-        Write-Host "The bridge did not start. Check $InstallDir\icue_bridge.log"
+        Write-Host "The bridge did not start. Check $InstallDir\icue_bridge.log and lumia_keeper.log"
     }
+    if ($OpenRGB) { Write-Host "The keeper starts OpenRGB's server within a minute if it is not running." }
 }
 
 $address = (Get-NetIPConfiguration | Where-Object IPv4DefaultGateway | Select-Object -First 1).IPv4Address.IPAddress

@@ -391,22 +391,16 @@ class LightService:
         """Update saved lights whose bulb (matched by MAC) now answers at a new IP.
 
         DHCP can reshuffle addresses, so the MAC is the stable identity. A move
-        is skipped if its new IP is held by a saved light that is not moving.
+        is skipped if its new IP is held by a saved light that stays put.
         """
         by_mac = {light["mac_address"]: light for light in saved if light.get("mac_address")}
-        by_ip = {light["ip_address"]: light for light in saved}
         moves = {}
         for result in results:
             light = by_mac.get(result["mac_address"])
             if light and light["ip_address"] != result["ip_address"]:
                 moves[light["id"]] = result["ip_address"]
                 result["moved_from"] = light["ip_address"]
-        blocked = {
-            light_id
-            for light_id, ip_address in moves.items()
-            if (holder := by_ip.get(ip_address)) and holder["id"] not in moves
-        }
-        self.lights.relocate({key: ip for key, ip in moves.items() if key not in blocked})
+        self.lights.relocate(self.allowed_moves(saved, moves))
 
     def _backfill_macs(self, saved: list[Row], results: list[dict]) -> None:
         """Record a MAC for a saved light that has none, unless another light owns it."""
@@ -529,15 +523,29 @@ class LightService:
             return set()
 
     def _allowed_pc_moves(self, moves: dict[int, str]) -> dict[int, str]:
-        """The moves whose (new IP, device) is not held by a light that stays put."""
-        saved = self.lights.list()
+        return self.allowed_moves(self.lights.list(), moves)
+
+    @staticmethod
+    def allowed_moves(saved: list[Row], moves: dict[int, str]) -> dict[int, str]:
+        """The moves whose (new IP, device) is not held by a light that stays put.
+
+        A light whose own move is dropped stays put too, so dropping repeats until
+        nothing changes: when a scan misses one bulb of a reshuffle, the bulbs
+        moving into the addresses it keeps wait for the next scan instead of
+        failing the whole update on the unique address.
+        """
         by_id = {light["id"]: light for light in saved}
         held = {(light["ip_address"], light.get("device") or ""): light["id"] for light in saved}
-        return {
-            light_id: ip_address
-            for light_id, ip_address in moves.items()
-            if held.get((ip_address, by_id[light_id].get("device") or ""), light_id) in moves
-        }
+        allowed = {light_id: ip for light_id, ip in moves.items() if light_id in by_id}
+        while True:
+            kept = {
+                light_id: ip_address
+                for light_id, ip_address in allowed.items()
+                if held.get((ip_address, by_id[light_id].get("device") or ""), light_id) in allowed
+            }
+            if kept == allowed:
+                return kept
+            allowed = kept
 
     async def find_moved_pc_lights(self, subnet: str | None = None) -> dict[str, Any]:
         """Find PCs whose IP changed by the RGB devices they offer, and move their lights.
