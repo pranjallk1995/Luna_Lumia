@@ -84,6 +84,46 @@ services:
       mcp:
         condition: service_healthy
 
+  # The iCUE bridge on the PC with the Corsair lights (bridge/icue_bridge.py), as host:port (port 6743).
+  # Only a health check: started by `luna.sh start` after the app (profile "host"), so a service that is
+  # down shows unhealthy in `docker ps` without stopping the app from starting. Blank LUNALUMIA_ICUE_WATCH: it exits.
+  corsair:
+    image: ghcr.io/pranjallk1995/luna-lumia-mcp:${LUNA_IMAGE_TAG:-v2.0.0}
+    profiles: ["host"]
+    network_mode: bridge
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: on-failure
+    environment:
+      WATCH: ${LUNALUMIA_ICUE_WATCH:-}
+    entrypoint: ["sh", "-c", "test -n \"$$WATCH\" || exit 0; exec sleep infinity"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, socket; host, port = os.environ['WATCH'].rsplit(':', 1); socket.create_connection((host, int(port)), 5).close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 2
+      start_period: 5s
+
+  # OpenRGB's SDK server on the PC with the other RGB lights, as host:port (port 6742).
+  # Only a health check: started by `luna.sh start` after the app (profile "host"), so a service that is
+  # down shows unhealthy in `docker ps` without stopping the app from starting. Blank LUNALUMIA_OPENRGB_WATCH: it exits.
+  pc-rgb:
+    image: ghcr.io/pranjallk1995/luna-lumia-mcp:${LUNA_IMAGE_TAG:-v2.0.0}
+    profiles: ["host"]
+    network_mode: bridge
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: on-failure
+    environment:
+      WATCH: ${LUNALUMIA_OPENRGB_WATCH:-}
+    entrypoint: ["sh", "-c", "test -n \"$$WATCH\" || exit 0; exec sleep infinity"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, socket; host, port = os.environ['WATCH'].rsplit(':', 1); socket.create_connection((host, int(port)), 5).close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 2
+      start_period: 5s
+
 networks:
   sentia_network:
     external: true

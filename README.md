@@ -635,6 +635,12 @@ the bridge, which talks to iCUE. It needs the
 [Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe), which iCUE
 normally brings along.
 
+To see both in `docker ps`, set `LUNALUMIA_ICUE_WATCH` and `LUNALUMIA_OPENRGB_WATCH` in Lumia's `.env`
+to the PC's address and ports (`192.168.1.15:6743`, `192.168.1.15:6742`). `luna.sh start` then
+starts `luna_lumia-corsair-1` and `luna_lumia-pc-rgb-1`, containers that only check every 30
+seconds that each port answers: healthy, or unhealthy when the PC is off or the keeper has not
+restarted it yet. They are not waited for, so a PC that is off never holds Lumia up.
+
 | Option | Default | Use |
 | --- | --- | --- |
 | `-Port` | `6743` | The port to listen on. For another port, add the device with the MCP tools |
