@@ -23,6 +23,8 @@ from config import SSOConfig, UIConfig
 from sso import CURRENT_USER, LunaSingleSignOn, send_user
 
 ID = r"\d+"
+# A picture for a light, room, or group: larger than other requests, and slow while Visia captions it.
+PICTURE_ROUTE = re.compile(r"/api/(lights|rooms|groups)/\d+/background-image")
 # The backend routes the browser app may reach, as (method, path pattern).
 PROXIED_ROUTES = tuple(
     (method, re.compile(pattern))
@@ -32,6 +34,7 @@ PROXIED_ROUTES = tuple(
         ("POST", r"/api/lights(/refresh)?"),
         ("PUT", rf"/api/lights/{ID}(/background)?"),
         ("DELETE", rf"/api/lights/{ID}"),
+        ("POST", rf"/api/(lights|rooms|groups)/{ID}/background-image"),
         ("POST", r"/api/control/(light|group|all|on)"),
         ("POST", r"/api/(rooms|groups)"),
         ("PUT", rf"/api/(rooms|groups)/{ID}"),
@@ -135,6 +138,8 @@ class UIGateway:
             "discovery_broadcast": UIConfig.DISCOVERY_BROADCAST,
             "name_max_chars": UIConfig.NAME_MAX_CHARS,
             "max_sequence_steps": UIConfig.MAX_SEQUENCE_STEPS,
+            "picture_size": UIConfig.PICTURE_SIZE,
+            "picture_types": UIConfig.PICTURE_TYPES,
         }
 
     # Backend
@@ -144,7 +149,8 @@ class UIGateway:
         if not any(method == request.method and pattern.fullmatch(path) for method, pattern in PROXIED_ROUTES):
             return JSONResponse({"error": "Not found."}, status_code=404)
         body = await request.body()
-        if len(body) > UIConfig.MAX_REQUEST_BYTES:
+        picture = bool(PICTURE_ROUTE.fullmatch(path))
+        if len(body) > (UIConfig.MAX_PICTURE_BYTES if picture else UIConfig.MAX_REQUEST_BYTES):
             return JSONResponse({"error": "This request is too large."}, status_code=413)
         try:
             response = await self.backend.request(
@@ -153,6 +159,7 @@ class UIGateway:
                 params=request.query_params,
                 content=body,
                 headers={"Content-Type": request.headers.get("content-type", "application/json")},
+                timeout=UIConfig.PICTURE_TIMEOUT_SECONDS if picture else UIConfig.API_TIMEOUT_SECONDS,
             )
         except httpx.HTTPError:
             return JSONResponse({"error": UNAVAILABLE}, status_code=502)

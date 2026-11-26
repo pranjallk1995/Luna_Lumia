@@ -3,7 +3,8 @@ import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { lumia, useAct, useControl, type Dashboard, type Discovered, type Light, type PcDevice, type PcDiscovery, type PcSource, type Settings } from "../api";
-import { isValidName, lightState, mostCommon, movedSummary, roomOf, shownColor, temperatureSchemes } from "../dashboard";
+import { hasOwnPicture, imageStyle, isValidName, lightState, mostCommon, movedSummary, roomOf, shownColor, temperatureSchemes } from "../dashboard";
+import { AddPicture } from "./AddPicture";
 import { messageOf } from "../lib";
 import { Bulb, ColorChips, ColorInput, ModeToggle, NameEditor, SectionHead, Slider, TemperatureChips, Toggle, type Mode } from "./controls";
 import { Dialog } from "./Dialog";
@@ -298,6 +299,7 @@ function LightCard({ light, dashboard, settings }: TabProps & { light: Light }) 
   const seen = lastSeen(light);
   const frame = dashboard.live[light.id];
   const playing = dashboard.scenes.find((scheme) => scheme.id === dashboard.playing[light.id]);
+  const ownPicture = hasOwnPicture(dashboard, light.effective_image_url);
 
   return (
     <article className={offline ? "ll-panel ll-light ll-light-offline" : "ll-panel ll-light"}>
@@ -308,7 +310,7 @@ function LightCard({ light, dashboard, settings }: TabProps & { light: Light }) 
             <DoorOpen size={12} />
             {room ?? "Not in a room"}
           </span>
-          <NameEditor name={light.name} entity="Light" maxChars={settings.name_max_chars} onRename={(name) => act(() => lumia.renameLight(light.id, name))} />
+          <NameEditor name={light.name} entity="Light" maxChars={settings.name_max_chars} onRename={(name) => act(() => lumia.renameLight(light.id, name, ownPicture))} />
           {offline ? (
             <span className="ll-bad">Offline{seen ? ` · last seen ${seen}` : ""}</span>
           ) : frame ? (
@@ -357,6 +359,11 @@ function LightCard({ light, dashboard, settings }: TabProps & { light: Light }) 
               <ColorChips settings={settings} disabled={offline} onPick={(color) => send({ color })} />
             </div>
           )}
+          <div className="ll-light-picture">
+            <span className="ll-light-thumb" style={imageStyle(light.effective_image_url)} aria-hidden="true" />
+            <span className="ll-meta">{ownPicture ? "Its own picture" : light.effective_image_url ? "The room's picture" : "No picture"}</span>
+            <AddPicture kind="light" id={light.id} name={light.name} settings={settings} own={ownPicture} className="lv-button ll-small-button" />
+          </div>
           <div className="ll-light-foot">
             <span className="ll-meta">
               {light.ip_address} · {light.device || light.mac_address || "MAC not discovered"}

@@ -42,6 +42,11 @@ class UIConfig:
     STATIC_DIR: ClassVar[Path] = UI_ROOT / "static"
     API_TIMEOUT_SECONDS: ClassVar[float] = 8.0
     MAX_REQUEST_BYTES: ClassVar[int] = 1024 * 1024
+    # "Add image" sends a picture fitted in the browser, and waits while Luna Visia captions it.
+    MAX_PICTURE_BYTES: ClassVar[int] = 8 * 1024 * 1024
+    PICTURE_TIMEOUT_SECONDS: ClassVar[float] = 660.0
+    PICTURE_SIZE: ClassVar[tuple[int, int]] = (1536, 1024)
+    PICTURE_TYPES: ClassVar[tuple[str, ...]] = ("jpg", "jpeg", "png", "webp")
     # Hashed bundles never change under the same name.
     IMMUTABLE_CACHE_CONTROL: ClassVar[str] = "private, max-age=31536000, immutable"
     CONTENT_SECURITY_POLICY: ClassVar[str] = (

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from ipaddress import IPv4Address
 from datetime import date, datetime, time, timedelta
 from time import monotonic
@@ -262,6 +263,22 @@ class BackgroundImageService:
         assigned["effective_image_url"] = selected["image_url"]
         assigned["inference_source"] = source
         return assigned
+
+    def store_image(self, kind: str, item_id: int, content_base64: str) -> Row:
+        """Store a picture from the page in Luna Visia and show it on a light, room, or group."""
+        if not self.tagger:
+            raise ValueError("Luna Visia is not set up for Lumia.")
+        if not isinstance(content_base64, str) or not content_base64:
+            raise ValueError("Send the picture as content_base64.")
+        item = self.lights.get(item_id) if kind == "light" else self.collections.get(item_id)
+        if not item or (kind != "light" and item.get("kind") != kind):
+            raise NotFoundError("Light not found" if kind == "light" else "Room/group not found")
+        name = item["name"]
+        stem = re.sub(r"[^0-9A-Za-z]+", "_", f"{name} {kind}").strip("_").lower() or kind
+        image = self.tagger.store(stem, [kind, name.casefold()], content_base64)
+        if kind == "light":
+            return self.set_light_image(item_id, image["public_url"])
+        return self.apply_collection_image(item_id, image["public_url"])
 
     def set_light_image(self, light_id: int, image_url: str | None) -> Row:
         light = self.lights.update_image(light_id, image_url)

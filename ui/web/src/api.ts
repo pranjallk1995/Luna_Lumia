@@ -18,6 +18,8 @@ export type Settings = {
   discovery_broadcast: string;
   name_max_chars: number;
   max_sequence_steps: number;
+  picture_size: [number, number];
+  picture_types: string[];
 };
 
 export type Light = {
@@ -103,6 +105,8 @@ export type Dashboard = {
   location?: Place | null;
   playing: Record<string, number>;
   live: Record<string, Frame>;
+  /** The room-image catalog: the picture each kind of room borrows when it has none of its own. */
+  room_images: { room_key: string; image_url: string }[];
 };
 
 export type Discovered = { ip_address: string; mac_address?: string | null; suggested_name: string; moved_from?: string };
@@ -137,11 +141,14 @@ export const lumia = {
     post<{ scene?: string; light_ids?: number[] }>(`/api/scenes/${schemeId}/apply`, { target_type: type, target_id: id }),
   stopSchemes: ({ type, id }: Target) => post("/api/scenes/stop", { target_type: type, target_id: id }),
   saveLocation: (place: Pick<Place, "name" | "latitude" | "longitude">) => put("/api/location", place),
-  /** Rename a light, then re-infer its background from the new name. */
-  renameLight: async (id: number, name: string) => {
+  /** Rename a light, then re-infer its background from the new name, unless it has a picture of its own. */
+  renameLight: async (id: number, name: string, keepPicture = false) => {
     await put(`/api/lights/${id}`, { name });
-    await put(`/api/lights/${id}/background`, { image_url: null });
+    if (!keepPicture) await put(`/api/lights/${id}/background`, { image_url: null });
   },
+  /** Store a picture in Luna Visia and show it on a light, room, or group. */
+  storePicture: (kind: "light" | "room" | "group", id: number, dataUrl: string) =>
+    post(`/api/${kind}s/${id}/background-image`, { content_base64: dataUrl.slice(dataUrl.indexOf(",") + 1) }),
   addLights: (kind: string, id: number, lightIds: number[]) => post(`/api/${kind}s/${id}/lights`, { light_ids: lightIds }),
   removeLight: (kind: string, id: number, lightId: number) => remove(`/api/${kind}s/${id}/lights/${lightId}`),
 };

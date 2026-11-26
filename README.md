@@ -51,6 +51,7 @@ Lumia discovers compatible bulbs, stores their IP and normalized MAC addresses, 
 - Display Luna Visia images through immutable public URLs.
 - Infer images from room or member-light names while preserving the available image scheme.
 - Set and clear light or room image overrides through MCP tools.
+- Add a picture from the page: **Add image** on a room or group's photo band, and on a light under **Adjust**, stores it in Luna Visia (tagged `luna lumia`, the kind, and the name) and shows it on that card. A card without a picture of its own shows the room catalog's picture for its kind of room, and offers to add one; once it has its own, the button reads **Change image**, and renaming a light keeps it.
 
 ### Schemes and transitions
 

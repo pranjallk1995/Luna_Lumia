@@ -1750,3 +1750,12 @@ a {
   display: grid;
   gap: 0.5rem;
 }
+
+/* "Add image" on a room or group's photo band, and a light's picture in its Adjust panel */
+.ll-picture-button { position: absolute; top: 0.55rem; right: 0.6rem; display: inline-flex; align-items: center; gap: 0.35rem; min-height: 1.9rem; padding: 0.15rem 0.6rem; border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 999px; background: rgba(17, 17, 17, 0.72); color: #f5f5f5; font: inherit; font-size: var(--luna-text-small); cursor: pointer; }
+.ll-picture-button:hover, .ll-picture-button:focus-visible { background: rgba(17, 17, 17, 0.92); border-color: #f5f5f5; }
+.ll-picture-button[aria-busy="true"] { cursor: progress; }
+.ll-light-picture { display: flex; align-items: center; gap: 0.6rem; }
+.ll-light-picture .ll-meta { flex: 1; }
+.ll-light-picture .lv-button { display: inline-flex; align-items: center; gap: 0.35rem; }
+.ll-light-thumb { flex: none; width: 3.6rem; height: 2.4rem; border: 1px solid var(--lv-border); border-radius: 0.4rem; background-color: #1d1d1d; background-position: center; background-size: cover; }

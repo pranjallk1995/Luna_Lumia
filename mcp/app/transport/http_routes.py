@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable
 from decimal import Decimal
 from typing import Any
 
+import anyio
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, ValidationError
 from starlette.requests import Request
@@ -198,6 +199,15 @@ class LumiaHTTPRoutes:
         self.route("DELETE", "/api/lights/{item_id}", delete, NO_CONTENT)
         self.route("PUT", "/api/lights/{item_id}/background", background)
 
+        async def store_image(request: Request):
+            body = await request.json()
+            return await anyio.to_thread.run_sync(
+                images.store_image, "light", self.path_id(request), (body or {}).get("content_base64")
+            )
+
+        # The page's "Add image": a picture stored in Luna Visia, then shown on the light.
+        self.route("POST", "/api/lights/{item_id}/background-image", store_image)
+
         async def refresh(request: Request):
             return await self.service.refresh_lights()
 
@@ -236,6 +246,14 @@ class LumiaHTTPRoutes:
         self.route("POST", f"{base}/{{item_id}}/lights", add_lights)
         self.route("DELETE", f"{base}/{{item_id}}/lights/{{light_id}}", remove_light, NO_CONTENT)
         self.route("PUT", f"{base}/{{item_id}}/background", background)
+
+        async def store_image(request: Request):
+            body = await request.json()
+            return await anyio.to_thread.run_sync(
+                images.store_image, kind, self.path_id(request), (body or {}).get("content_base64")
+            )
+
+        self.route("POST", f"{base}/{{item_id}}/background-image", store_image)
 
     def _register_scenes(self) -> None:
         scenes = self.service.scenes

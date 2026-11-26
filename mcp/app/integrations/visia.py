@@ -65,6 +65,48 @@ class VisiaImageTagger:
             return self.failed(str(failed[0].get("error")))
         return "tagged"
 
+    # Visia captions each new image with its vision model before answering.
+    STORE_TIMEOUT_SECONDS = 300.0
+    STORE_ATTEMPTS = 2
+
+    def store(self, name: str, tags: list[str], content_base64: str) -> dict:
+        """Store a new picture in Visia, tagged; return Visia's answer with its public_url.
+
+        Unlike tagging this is not best-effort: a picture the person chose must be kept,
+        so a failure raises. Visia answers identical bytes with the image it already has.
+        """
+        if not self.companion_token:
+            raise ValueError(
+                "Storing pictures in Luna Visia is off: set LUNAVISIA_COMPANION_TOKEN to the "
+                "same value in Luna Lumia and Luna Visia."
+            )
+        failure = ""
+        for _ in range(self.STORE_ATTEMPTS):
+            try:
+                with httpx.Client(timeout=self.STORE_TIMEOUT_SECONDS, transport=self.transport) as client:
+                    response = client.post(
+                        f"{self.api_url}/api/companion/images",
+                        json={"name": name, "tags": [*self.TAGS, *tags], "content_base64": content_base64},
+                        headers={"Authorization": f"Bearer {self.companion_token}", tenancy.USER_HEADER: tenancy.current()},
+                    )
+            except httpx.TransportError as error:
+                failure = f"{type(error).__name__}: {error}"
+                continue
+            if response.status_code < 500:
+                break
+            failure = f"HTTP {response.status_code}"
+        else:
+            raise ConnectionError(f"Luna Visia could not store the picture ({failure}); try again.")
+        if response.status_code == 401:
+            raise ValueError("Luna Visia rejected Lumia's LUNAVISIA_COMPANION_TOKEN; set the same value in both apps.")
+        if response.status_code >= 400:
+            try:
+                detail = response.json().get("error") or response.text
+            except ValueError:
+                detail = response.text
+            raise ValueError(f"Luna Visia did not store the picture: {detail}")
+        return response.json()
+
     @staticmethod
     def failed(reason: str) -> str:
         message = f"Luna Visia could not tag this image for Lumia: {reason}"

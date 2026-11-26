@@ -57,5 +57,41 @@ class RoomPictureTaggingTests(unittest.TestCase):
         self.assertEqual((result["visia_tag"], tagged), ("tagged", [URL]))
 
 
+class StoringPicturesTests(unittest.TestCase):
+    def tagger(self, status=200, token="t" * 32):
+        self.requests = []
+
+        def respond(request):
+            self.requests.append(request)
+            if request.url.path.endswith("/tags"):
+                return httpx.Response(200, json={"tagged": [{}], "failed": []})
+            return httpx.Response(status, json={"status": "stored", "image_id": IMAGE_ID, "public_url": URL, "error": "too big"})
+
+        return VisiaImageTagger("http://visia/", token, transport=httpx.MockTransport(respond))
+
+    def test_a_picture_from_the_page_is_stored_tagged_and_shown(self):
+        tagger = self.tagger()
+        collections = FakeCollections()
+        images = BackgroundImageService(FakeRoomImages(), FakeLights(), collections, tagger)
+        result = images.store_image("room", 7, "AAAA")
+        stored = json.loads(self.requests[0].content)
+        self.assertEqual(str(self.requests[0].url), "http://visia/api/companion/images")
+        self.assertEqual(stored, {"name": "kitchen_room", "tags": ["luna lumia", "room", "kitchen"], "content_base64": "AAAA"})
+        self.assertEqual(result["background_image_url"], URL)
+
+    def test_a_picture_needs_its_item_visia_and_the_token(self):
+        from app.core.errors import NotFoundError
+
+        images = BackgroundImageService(FakeRoomImages(), FakeLights(), FakeCollections(), self.tagger())
+        with self.assertRaises(NotFoundError):
+            images.store_image("group", 7, "AAAA")  # 7 is a room
+        with self.assertRaises(NotFoundError):
+            images.store_image("light", 99, "AAAA")
+        with self.assertRaisesRegex(ValueError, "LUNAVISIA_COMPANION_TOKEN"):
+            BackgroundImageService(FakeRoomImages(), FakeLights(), FakeCollections(), self.tagger(token="")).store_image("room", 7, "AAAA")
+        with self.assertRaisesRegex(ValueError, "too big"):
+            BackgroundImageService(FakeRoomImages(), FakeLights(), FakeCollections(), self.tagger(status=413)).store_image("room", 7, "AAAA")
+
+
 if __name__ == "__main__":
     unittest.main()

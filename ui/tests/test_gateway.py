@@ -83,6 +83,15 @@ class ProxyTests(GatewayTestCase):
         self.assertEqual(self.backend_requests[0].url.path, "/api/control/light")
         self.assertIn(b"target_id", self.backend_requests[0].content)
 
+    def test_pictures_may_be_larger_and_wait_for_visia(self):
+        self.sign_in()
+        picture = {"content_base64": "A" * (2 * 1024 * 1024)}
+        for path in ("/api/lights/1/background-image", "/api/rooms/7/background-image", "/api/groups/3/background-image"):
+            self.assertEqual(self.client.post(path, json=picture).status_code, 200, path)
+            self.assertEqual(self.backend_requests[-1].extensions["timeout"]["read"], UIConfig.PICTURE_TIMEOUT_SECONDS)
+        self.assertEqual(self.client.post("/api/control/light", json=picture).status_code, 413)
+        self.assertEqual(self.client.get("/auth/session").json()["settings"]["picture_size"], list(UIConfig.PICTURE_SIZE))
+
     def test_routes_the_ui_does_not_use_are_not_forwarded(self):
         self.sign_in()
         for method, path in (

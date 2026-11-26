@@ -31,6 +31,10 @@ export const lightState = (light: Pick<Light, "is_on" | "reachable">) => (light.
 /** A light's room, if it has one. */
 export const roomOf = ({ rooms }: Pick<Dashboard, "rooms">, lightId: number) => rooms.find((room) => room.light_ids.includes(lightId));
 
+/** Whether a card shows a picture of its own, not none or one borrowed from the room-image catalog. */
+export const hasOwnPicture = ({ room_images }: Pick<Dashboard, "room_images">, url?: string | null) =>
+  Boolean(url) && !room_images.some((image) => image.image_url === url);
+
 export function imageStyle(url?: string | null): React.CSSProperties {
   return url ? { backgroundImage: `url("${url.replace(/"/g, "%22")}")` } : {};
 }

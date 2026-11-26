@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Dashboard, Light, Schedule, Scheme, Transition } from "./api";
 import {
+  hasOwnPicture,
   addableLights,
   curvePoints,
   filterSchemes,
@@ -196,5 +197,14 @@ describe("finding moved lights", () => {
   it("says so when nothing moved", () => {
     expect(movedSummary(house, ["M1", "M9", "M7"].map((mac) => ({ ip_address: "192.168.1.9", mac_address: mac, suggested_name: mac })), null))
       .toBe("No light had moved.");
+  });
+});
+
+describe("hasOwnPicture", () => {
+  const catalog = { room_images: [{ room_key: "kitchen", image_url: "https://visia/api/public/images/kitchen" }] };
+  it("tells a card's own picture from one borrowed from the room catalog, or none", () => {
+    expect(hasOwnPicture(catalog, "https://visia/api/public/images/mine")).toBe(true);
+    expect(hasOwnPicture(catalog, "https://visia/api/public/images/kitchen")).toBe(false);
+    expect(hasOwnPicture(catalog, null)).toBe(false);
   });
 });

@@ -2,7 +2,8 @@ import { Circle, ListChecks, Play, Plus, Square, Sun, Timer, Trash2 } from "luci
 import { useState, type FormEvent } from "react";
 
 import { lumia, useAct, useControl, type Collection, type Dashboard, type Settings } from "../api";
-import { imageStyle, isValidName, lightState, roomOf, shownColor } from "../dashboard";
+import { hasOwnPicture, imageStyle, isValidName, lightState, roomOf, shownColor } from "../dashboard";
+import { AddPicture } from "./AddPicture";
 import { messageOf } from "../lib";
 import { Bulb, LightChoice, NameEditor, SectionHead, Slider, Toggle } from "./controls";
 import { Dialog } from "./Dialog";
@@ -132,6 +133,7 @@ function CollectionCard({ collection, dashboard, settings }: TabProps & { collec
           </span>
         </div>
         <Toggle label={`${collection.name} on`} hideLabel checked={allOn} disabled={!live.length} onChange={(on) => control(target, { on }, inside, `Could not update ${collection.name}.`)} />
+        <AddPicture kind={kind} id={id} name={collection.name} settings={settings} own={hasOwnPicture(dashboard, collection.effective_image_url)} className="ll-picture-button" />
       </div>
       <div className="ll-collection-body">
         <Slider label={`${collection.name} brightness`} icon={Sun} min={1} max={100} unit="%" value={brightness} disabled={!lit.length} onCommit={(value) => control(target, { brightness: value }, (light) => inside(light) && light.is_on, `Could not update ${collection.name}.`)} />
