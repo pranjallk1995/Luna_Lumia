@@ -25,18 +25,21 @@ def text(value: str) -> bytes:
     return struct.pack("<H", len(raw)) + raw
 
 
-def controller_blob(name: str, leds: int, first=(10, 20, 30), matrix=False) -> bytes:
-    """A protocol-0 controller description, as OpenRGB sends it."""
+def controller_blob(name: str, leds: int, first=(10, 20, 30), matrix=False, zones=None) -> bytes:
+    """A protocol-0 controller description, as OpenRGB sends it; ``zones`` lists (name, LED count)."""
+    zones = zones or [("Keys", leds)]
     body = struct.pack("<i", 5) + text(name) + text("desc") + text("1.0") + text("SN") + text("HID")
     body += struct.pack("<H", 1) + struct.pack("<i", 0)  # one mode, active mode 0
     body += text("Direct") + struct.pack("<iIIIIIIII", 0, 0, 0, 0, 0, 0, 0, 0, 0)
     body += struct.pack("<H", 1) + bytes((1, 2, 3, 0))  # one mode color
-    body += struct.pack("<H", 1) + text("Keys") + struct.pack("<iIII", 2, leds, leds, leds)
-    if matrix:
-        grid = struct.pack("<II", 1, 2) + struct.pack("<II", 0, 1)
-        body += struct.pack("<H", len(grid)) + grid
-    else:
-        body += struct.pack("<H", 0)
+    body += struct.pack("<H", len(zones))
+    for zone_name, zone_leds in zones:
+        body += text(zone_name) + struct.pack("<iIII", 2, zone_leds, zone_leds, zone_leds)
+        if matrix:
+            grid = struct.pack("<II", 1, 2) + struct.pack("<II", 0, 1)
+            body += struct.pack("<H", len(grid)) + grid
+        else:
+            body += struct.pack("<H", 0)
     body += struct.pack("<H", leds) + b"".join(text(f"Key {i}") + struct.pack("<I", i) for i in range(leds))
     body += struct.pack("<H", leds) + bytes((*first, 0)) * leds
     return struct.pack("<I", len(body) + 4) + body
@@ -82,8 +85,8 @@ class FakeOpenRGBServer:
                     self.reply(conn, 0, 100, b"")
                     self.reply(conn, 0, packet_id, struct.pack("<I", len(self.devices)))
                 elif packet_id == REQUEST_CONTROLLER_DATA:
-                    name, leds = self.devices[device]
-                    self.reply(conn, device, packet_id, controller_blob(name, leds))
+                    name, leds, *zones = self.devices[device]
+                    self.reply(conn, device, packet_id, controller_blob(name, leds, zones=zones[0] if zones else None))
 
     def updates(self, at_least: int = 1):
         """LED updates received so far, waiting briefly: the client does not wait for them."""
@@ -221,6 +224,69 @@ class OpenRGBTests(unittest.TestCase):
             LightCreate(name="Keyboard", ip_address="192.168.1.20", protocol="openrgb")
         with self.assertRaises(ValueError):
             LightCreate(name="Bulb", ip_address="192.168.1.8", device="K70")
+
+
+BOARD = "ASUS B860M MAX GAMING AX"
+HEADERS = [("Addressable RGB Header 1", 2), ("Addressable RGB Header 2", 2), ("Addressable RGB Header 3", 10)]
+
+
+class PartTests(unittest.TestCase):
+    """Lights that are parts of one board: a header, or LEDs of a chain on it."""
+
+    def setUp(self):
+        self.server = FakeOpenRGBServer([(BOARD, 14, HEADERS)])
+        self.adapter = OpenRGBAdapter(timeout=2)
+
+    def tearDown(self):
+        self.server.close()
+
+    def address(self, zone=None, leds=None):
+        return str(OpenRGBAddress("127.0.0.1", BOARD, self.server.port, zone, leds))
+
+    def last_colors(self):
+        _, payload = self.server.updates()[-1]
+        size, count = struct.unpack_from("<IH", payload)
+        return [tuple(payload[6 + i * 4 : 9 + i * 4]) for i in range(count)]
+
+    def test_the_parser_reads_zones_and_every_color(self):
+        controller = ControllerParser(controller_blob(BOARD, 14, (1, 2, 3), zones=HEADERS)).parse(0)
+        self.assertEqual(controller.zones, HEADERS)
+        self.assertEqual(controller.colors, [(1, 2, 3)] * 14)
+        self.assertEqual(controller.part("3", "2-4"), [5, 6, 7])
+        self.assertEqual(controller.part("addressable rgb header 2", None), [2, 3])
+        for zone, leds in (("4", None), ("3", "9-11"), ("3", "5-2")):
+            with self.subTest(zone=zone, leds=leds), self.assertRaises((LookupError, ValueError)):
+                controller.part(zone, leds)
+
+    def test_a_part_keeps_its_place_in_the_address(self):
+        address = OpenRGBAddress.parse(self.address("3", "2-25"))
+        self.assertEqual((address.device, address.zone, address.leds), (BOARD, "3", "2-25"))
+        self.assertEqual(light_address({"protocol": "openrgb", "ip_address": "10.0.0.2", "device": BOARD, "zone": "3", "leds": "26-33"}),
+                         f"openrgb://10.0.0.2:6742/{BOARD}#zone=3&leds=26-33")
+
+    def test_painting_one_part_leaves_the_others_as_they_were(self):
+        asyncio.run(self.adapter.apply(self.address(), color="#000000"))
+        asyncio.run(self.adapter.apply(self.address("3", "1"), color="#FF0000"))
+        asyncio.run(self.adapter.apply(self.address("3", "2-4"), color="#0000FF"))
+        colors = self.last_colors()
+        self.assertEqual(colors[4], (255, 0, 0))
+        self.assertEqual(colors[5:8], [(0, 0, 255)] * 3)
+        self.assertEqual(colors[:4] + colors[8:], [(0, 0, 0)] * 10)
+
+    def test_single_leds_of_a_part_take_their_own_colors(self):
+        asyncio.run(self.adapter.apply(self.address("3", "6-10"), brightness=50, color="#000000",
+                                       keys={"LED 1": "#FF0000", "led 5": "#00FF00", "W": "#FFFFFF"}))
+        colors = self.last_colors()
+        self.assertEqual(colors[9:14], [(128, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 128, 0)])
+        self.assertEqual(len(asyncio.run(self.adapter.leds(self.address("3", "6-10")))), 5)
+        self.assertEqual(asyncio.run(self.adapter.leds(self.address("1")))[-1], {"key": "LED 2", "x": 2, "y": 0})
+
+    def test_a_part_can_be_a_light(self):
+        LightCreate(name="Front banner", ip_address="10.0.0.2", protocol="openrgb", device=BOARD, zone="3", leds="2-25")
+        for bad in ({"protocol": "icue", "device": "K70", "zone": "1"}, {"protocol": "openrgb", "device": BOARD, "leds": "25-2"},
+                    {"protocol": "openrgb", "device": BOARD, "leds": "a-b"}):
+            with self.subTest(bad), self.assertRaises(ValueError):
+                LightCreate(name="Part", ip_address="10.0.0.2", **bad)
 
 
 if __name__ == "__main__":

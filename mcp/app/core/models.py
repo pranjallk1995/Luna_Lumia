@@ -1,5 +1,6 @@
 """Validated request and command models for Luna Lumia."""
 
+import re
 from datetime import date, time
 from typing import ClassVar, Literal
 
@@ -77,6 +78,10 @@ class LightCreate(LightNamed):
     device: str | None = Field(default=None, min_length=1, max_length=100)
     # PC devices only: the port OpenRGB or the iCUE bridge listens on, when not its default.
     port: int | None = Field(default=None, ge=1, le=65535)
+    # OpenRGB only: a part of the device as its own light. zone is a zone's name or its
+    # number from 1 (an ARGB header); leds a range such as "2-25" within it (or within the device).
+    zone: str | None = Field(default=None, min_length=1, max_length=100)
+    leds: str | None = Field(default=None, pattern=r"^\d{1,4}(-\d{1,4})?$")
 
     @model_validator(mode="after")
     def device_matches_protocol(self):
@@ -84,6 +89,12 @@ class LightCreate(LightNamed):
             raise ValueError("PC lights need a device name; WiZ lights take none")
         if self.protocol == "wiz" and self.port is not None:
             raise ValueError("WiZ lights take no port")
+        if self.protocol != "openrgb" and (self.zone or self.leds):
+            raise ValueError("Only OpenRGB devices can be split into zones and LED ranges")
+        if self.leds and "-" in self.leds:
+            first, last = (int(part) for part in self.leds.split("-"))
+            if not 1 <= first <= last:
+                raise ValueError("An LED range counts from 1 and runs low to high, such as 2-25")
         return self
 
     @field_validator("ip_address")
@@ -187,12 +198,54 @@ class LightColor(BaseModel):
         return self
 
 
+# A keyboard key or LED group as the iCUE bridge names it ("W", "Space", "Keypad7", "Mouse 1"),
+# or a group of keys such as "wasd" or "arrows".
+KEY_NAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _]{0,39}")
+HEX_COLOR = re.compile(HEX_COLOR_PATTERN)
+
+
 class SceneStep(LightColor):
-    """One step of a sequence: fade in with ``transition_id``, then hold."""
+    """One step of a sequence: fade in with ``transition_id``, then hold.
+
+    In a per-key scheme ``keys`` colors keyboard keys by name; ``color`` (or
+    ``color_temp``) is every other key, and all of a light without per-key colors.
+    """
+
+    MAX_KEYS: ClassVar[int] = 200
 
     brightness: int = Field(ge=1, le=100)
     hold_ms: int = Field(default=1_000, ge=0, le=3_600_000)
     transition_id: int | None = None
+    keys: dict[str, str] | None = None
+
+    @field_validator("keys")
+    @classmethod
+    def valid_keys(cls, keys: dict[str, str] | None) -> dict[str, str] | None:
+        if keys is None:
+            return None
+        if len(keys) > cls.MAX_KEYS:
+            raise ValueError(f"A step colors at most {cls.MAX_KEYS} keys")
+        cleaned = {}
+        for name, color in keys.items():
+            if not KEY_NAME_PATTERN.fullmatch(name.strip()):
+                raise ValueError(f"{name!r} is not a key name; see list_light_leds")
+            if not isinstance(color, str) or not HEX_COLOR.fullmatch(color):
+                raise ValueError(f"The color of {name!r} must be #RRGGBB")
+            cleaned[name.strip()] = color.upper()
+        return cleaned
+
+
+class LedPaint(BaseModel):
+    """Colors for a PC light's keys or LEDs now: each named one its own, the rest ``color``."""
+
+    color: str = Field(default="#000000", pattern=HEX_COLOR_PATTERN)
+    brightness: int = Field(default=100, ge=1, le=100)
+    keys: dict[str, str] | None = None
+
+    @field_validator("keys")
+    @classmethod
+    def valid_keys(cls, keys: dict[str, str] | None) -> dict[str, str] | None:
+        return SceneStep.valid_keys(keys)
 
 
 class SceneCreate(BaseModel):
@@ -204,7 +257,7 @@ class SceneCreate(BaseModel):
     MAX_STEPS: ClassVar[int] = 24
 
     name: str = Field(min_length=1, max_length=100)
-    kind: Literal["solid", "sequence"] = "solid"
+    kind: Literal["solid", "sequence", "keys"] = "solid"
     color: str | None = Field(default=None, pattern=HEX_COLOR_PATTERN)
     color_temp: int | None = Field(
         default=None, ge=LightState.MIN_COLOR_TEMP, le=LightState.MAX_COLOR_TEMP
@@ -231,9 +284,17 @@ class SceneCreate(BaseModel):
             if self.steps:
                 raise ValueError("A solid scheme has no steps")
             self.color = self.color.upper() if self.color else None
+        elif self.kind == "keys":
+            if not 1 <= len(self.steps) <= self.MAX_STEPS:
+                raise ValueError(f"A per-key scheme needs 1 to {self.MAX_STEPS} steps")
+            if not any(step.keys for step in self.steps):
+                raise ValueError("A per-key scheme colors keys in at least one step")
+            self.color = self.color_temp = self.brightness = None
         else:
             if not 2 <= len(self.steps) <= self.MAX_STEPS:
                 raise ValueError(f"A sequence needs 2 to {self.MAX_STEPS} steps")
+            if any(step.keys for step in self.steps):
+                raise ValueError("Colors per key need a per-key scheme (kind \"keys\")")
             self.color = self.color_temp = self.brightness = None
         return self
 

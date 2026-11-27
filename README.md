@@ -43,6 +43,18 @@ Lumia discovers compatible bulbs, stores their IP and normalized MAC addresses, 
   Corsair iCUE (keyboards and mice): each device becomes a light that shows one color, so
   schemes, schedules, weather and music work on it too.
 
+### PC: keyboards key by key, case parts LED by LED
+
+The **PC** tab customises PC lights apart from the room lights:
+
+- **Keyboard:** drawn from its keys' real places, as iCUE reports them. Pick a brush color and press and drag across keys to paint them; the group buttons (WASD, Arrows, Numpad, F-keys, ...) paint many at once, **Rainbow** spreads one across the board, and **Background** colors every key left unpainted.
+- **Case parts and the mouse:** each a row of its LEDs, painted the same way.
+- **Live** shows each stroke on the device a moment later. **Save as scheme** keeps the pattern as a per-key scheme to play again from this tab, Schemes, a room, or a schedule; **edit** opens a saved one.
+
+A light can be **part of an OpenRGB device**: one zone (a motherboard's ARGB header) or a range of its LEDs, such as one banner in a chain of case parts. Parts of one device keep each other's colors, so the banners and the fans on one header can each play their own scheme. When several fans hang off one hub, the hub copies one signal to all of them: they share LED numbers, so they take colors together, and only LEDs that some parts have and others lack (a longer fan's last LEDs) can tell them apart.
+
+An assistant can do the same and more: `list_light_leds` gives every key's or LED's name and place, `set_light_leds` colors them now, and `create_key_scheme` saves still or animated per-key schemes (a wave, a ripple from a key), which fade key by key. Keyboards need the iCUE bridge from this release on the PC (`bridge/install.ps1`).
+
 ### Rooms, groups, and images
 
 - Put each light in at most one room and in multiple reusable groups.
@@ -375,7 +387,7 @@ and so does any bulb moving into it; the others still move, and the next scan
 finishes the job.
 
 - `discover_pc_lights`
-- `discover_pc_rgb_devices`, `add_pc_rgb_device`
+- `discover_pc_rgb_devices`, `add_pc_rgb_device` (a whole device, or one zone or LED range of it)
 - `discover_icue_devices`, `add_icue_device`
 - `find_moved_pc_lights`, `move_pc_lights`
 
@@ -401,6 +413,8 @@ already in use.
 - `list_schemes`
 - `create_solid_scheme`, `update_solid_scheme`
 - `create_sequence_scheme`, `update_sequence_scheme`
+- `create_key_scheme`, `update_key_scheme`: per-key and per-LED schemes, still or animated
+- `list_light_leds`, `set_light_leds`: a PC light's keys or LEDs by name and place, and coloring them now
 - `create_transition`, `update_transition`
 - `apply_scheme`, `stop_scheme`
 - `activate_scene`, `stop_scene`
@@ -457,7 +471,8 @@ with `set_music_scheme`.
 
 One row per discovered or manually added light. It stores the editable name,
 IP address, optional unique MAC address, protocol (`wiz`, `openrgb` or `icue`), PC
-device name (PC devices share their PC's IP, so IP plus device is unique), last known power,
+device name (PC devices share their PC's IP), and for a part of an OpenRGB device its `zone`
+and `leds` range (IP, device, zone and range together are unique), last known power,
 brightness, RGB color, color temperature, reachability, last-seen time, creation
 time, and optional background-image URL. Status refreshes update the cached
 device state; the database remains the inventory source of truth.
@@ -683,7 +698,8 @@ it, stop the running one first; if it was started from an admin window, stop it 
 
 In the UI, open **Lights → Add lights → Add a PC's RGB devices** and enter the PC's IP. Or
 call `discover_pc_lights`, then `add_pc_rgb_device` or `add_icue_device`, passing the
-`port` it reports. Discovery says which stacks answered and why the others did not. It
+`port` it reports. Discovery lists each OpenRGB device's zones (ARGB headers) with their LED
+counts; `add_pc_rgb_device` takes a `zone` and an `leds` range to add one part as its own light. Discovery says which stacks answered and why the others did not. It
 warns about devices that two programs would both drive, and devices with no LEDs. The UI
 checks the default ports only; `discover_pc_lights` takes `openrgb_port` and `icue_port`.
 

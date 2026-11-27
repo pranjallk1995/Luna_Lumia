@@ -18,6 +18,7 @@ from app.core.models import (
     GroupMembersUpdate,
     GroupUpdate,
     LightCreate,
+    LedPaint,
     LightImageUpdate,
     LightState,
     LightUpdate,
@@ -212,6 +213,19 @@ class LumiaHTTPRoutes:
             return await self.service.refresh_lights()
 
         self.route("POST", "/api/lights/refresh", refresh)
+
+        control = self.service.control
+
+        async def leds(request: Request):
+            return await control.light_leds(self.path_id(request))
+
+        async def paint_leds(request: Request):
+            entry = await self.payload(request, LedPaint)
+            return await control.paint_leds(self.path_id(request), entry.keys or {}, entry.color, entry.brightness)
+
+        # The PC tab: a keyboard's keys, or an OpenRGB light's LEDs, each painted its own color.
+        self.route("GET", "/api/lights/{item_id}/leds", leds)
+        self.route("PUT", "/api/lights/{item_id}/leds", paint_leds)
 
     def _register_collections(self, kind: str) -> None:
         collections, images = self.service.collections, self.service.images

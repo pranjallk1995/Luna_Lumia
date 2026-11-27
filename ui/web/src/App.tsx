@@ -1,21 +1,23 @@
-import { Clock, DoorOpen, Lightbulb, LogOut, Palette, Power, RefreshCw, type LucideIcon } from "lucide-react";
+import { Clock, DoorOpen, Keyboard, Lightbulb, LogOut, Palette, Power, RefreshCw, type LucideIcon } from "lucide-react";
 import { useState } from "react";
 
 import { lumia, useAct, useControl, useDashboard, type Dashboard, type Settings } from "./api";
 import { Brand, ForbiddenPage, SignInPage, UnreachablePage } from "./components/Gate";
 import { LightsTab } from "./components/LightsTab";
+import { PcTab } from "./components/PcTab";
 import { RoomsTab } from "./components/RoomsTab";
 import { SchedulesTab } from "./components/SchedulesTab";
 import { SchemesTab } from "./components/SchemesTab";
 import { useSession } from "./http";
 import { messageOf, remember, remembered } from "./lib";
 
-const SECTIONS = ["lights", "rooms", "schemes", "schedules"] as const;
+const SECTIONS = ["lights", "rooms", "pc", "schemes", "schedules"] as const;
 type Section = (typeof SECTIONS)[number];
 
 const NAV: { id: Section; label: string; icon: LucideIcon }[] = [
   { id: "lights", label: "Lights", icon: Lightbulb },
   { id: "rooms", label: "Rooms", icon: DoorOpen },
+  { id: "pc", label: "PC", icon: Keyboard },
   { id: "schemes", label: "Schemes", icon: Palette },
   { id: "schedules", label: "Schedules", icon: Clock },
 ];
@@ -95,6 +97,7 @@ function Workspace({ logoutUrl, settings }: { logoutUrl: string; settings: Setti
       )}
       {data && section === "lights" && <LightsTab dashboard={data} settings={settings} />}
       {data && section === "rooms" && <RoomsTab dashboard={data} settings={settings} />}
+      {data && section === "pc" && <PcTab dashboard={data} settings={settings} />}
       {data && section === "schemes" && <SchemesTab dashboard={data} settings={settings} />}
       {data && section === "schedules" && <SchedulesTab dashboard={data} settings={settings} />}
       <footer className="lv-footer">Luna Lumia{settings.version && ` · v${settings.version}`}</footer>

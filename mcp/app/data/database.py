@@ -32,7 +32,12 @@ ALTER TABLE lights ALTER COLUMN color_temp DROP NOT NULL;
 ALTER TABLE lights ADD COLUMN IF NOT EXISTS device TEXT;
 ALTER TABLE lights ADD COLUMN IF NOT EXISTS port INTEGER;
 ALTER TABLE lights DROP CONSTRAINT IF EXISTS lights_ip_address_key;
-CREATE UNIQUE INDEX IF NOT EXISTS lights_address_idx ON lights (ip_address, COALESCE(device, ''));
+-- A light may be part of an OpenRGB device: one zone (ARGB header), or a range of its LEDs.
+ALTER TABLE lights ADD COLUMN IF NOT EXISTS zone TEXT;
+ALTER TABLE lights ADD COLUMN IF NOT EXISTS leds TEXT;
+DROP INDEX IF EXISTS lights_address_idx;
+CREATE UNIQUE INDEX IF NOT EXISTS lights_part_idx
+    ON lights (ip_address, COALESCE(device, ''), COALESCE(zone, ''), COALESCE(leds, ''));
 CREATE UNIQUE INDEX IF NOT EXISTS lights_mac_address_idx
     ON lights (mac_address) WHERE mac_address IS NOT NULL;
 CREATE TABLE IF NOT EXISTS room_images (

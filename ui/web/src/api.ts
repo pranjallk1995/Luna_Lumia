@@ -6,6 +6,7 @@ import { useCallback } from "react";
 import { useToast } from "./components/Toasts";
 import { post, put, remove, request } from "./http";
 import { messageOf } from "./lib";
+import type { LightLeds } from "./pc";
 
 export type Settings = {
   version: string;
@@ -29,6 +30,9 @@ export type Light = {
   mac_address?: string | null;
   protocol?: string;
   device?: string | null;
+  /** Part of an OpenRGB device: a zone (header) number or name, and a range of its LEDs. */
+  zone?: string | null;
+  leds?: string | null;
   is_on: boolean;
   brightness: number;
   color: string;
@@ -55,12 +59,14 @@ export type Step = {
   brightness: number;
   hold_ms?: number;
   transition_id?: number | null;
+  /** Per-key schemes: keyboard keys (or groups such as "wasd") and their colors; color is every other key. */
+  keys?: Record<string, string> | null;
 };
 
 export type Scheme = {
   id: number;
   name: string;
-  kind: "solid" | "sequence";
+  kind: "solid" | "sequence" | "keys";
   is_preset: boolean;
   brightness: number;
   color?: string | null;
@@ -69,6 +75,8 @@ export type Scheme = {
   steps: Step[];
   cycle_ms?: number;
   preview_colors?: string[];
+  /** How many keys a per-key scheme colors across its steps. */
+  keys_colored?: number;
   weather_slots?: string[];
   music_moods?: string[];
 };
@@ -151,7 +159,14 @@ export const lumia = {
     post(`/api/${kind}s/${id}/background-image`, { content_base64: dataUrl.slice(dataUrl.indexOf(",") + 1) }),
   addLights: (kind: string, id: number, lightIds: number[]) => post(`/api/${kind}s/${id}/lights`, { light_ids: lightIds }),
   removeLight: (kind: string, id: number, lightId: number) => remove(`/api/${kind}s/${id}/lights/${lightId}`),
+  /** Show a pattern on a PC light now: each named key or LED its own color, the rest the background. */
+  paintLeds: (lightId: number, payload: { color: string; brightness: number; keys: Record<string, string> }) =>
+    put(`/api/lights/${lightId}/leds`, payload),
 };
+
+/** A PC light's keys (keyboards) or LEDs (case parts) with their places, for the PC tab. */
+export const useLightLeds = (lightId: number) =>
+  useQuery({ queryKey: ["leds", lightId], queryFn: () => request<LightLeds>(`/api/lights/${lightId}/leds`), retry: 1, staleTime: 5 * 60_000 });
 
 /** Run a change, then refresh the dashboard; a refusal becomes a toast, and the result says which. */
 export function useAct() {

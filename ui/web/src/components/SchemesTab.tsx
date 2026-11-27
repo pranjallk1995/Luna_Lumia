@@ -239,7 +239,7 @@ function SchemeCard({ scheme, dashboard, target, onEdit }: { scheme: Scheme; das
   const act = useAct();
   const toast = useToast();
   const playingOn = Object.entries(dashboard.playing).filter(([, id]) => id === scheme.id).map(([lightId]) => Number(lightId));
-  const details = `${scheme.kind === "sequence" ? "" : "Solid · "}${schemeDetails(scheme)}`;
+  const details = `${{ solid: "Solid · ", sequence: "", keys: "Per key · " }[scheme.kind]}${schemeDetails(scheme)}`;
 
   const stop = () =>
     act(async () => {
@@ -412,7 +412,13 @@ function Library({ dashboard, settings }: TabProps) {
       {creating && <NewScheme dashboard={dashboard} settings={settings} onClose={() => setCreating(false)} />}
       {editing && (
         <Dialog title={`Edit ${editing.name}`} size="large" onClose={() => setEditing(null)}>
-          {editing.kind === "sequence" ? (
+          {editing.kind === "keys" ? (
+            <p className="lv-caption">
+              {editing.name} colors {editing.keys_colored ?? 0} keyboard keys one by one. Ask your assistant to change it: it lists the
+              keyboard's keys and saves the new pattern with update_key_scheme. Apply it here like any scheme; lights without keys show
+              its background color.
+            </p>
+          ) : editing.kind === "sequence" ? (
             <SequenceBuilder dashboard={dashboard} settings={settings} editing={editing} onSaved={() => setEditing(null)} />
           ) : (
             <SolidBuilder dashboard={dashboard} settings={settings} editing={editing} onSaved={() => setEditing(null)} />

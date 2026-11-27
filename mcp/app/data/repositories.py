@@ -68,9 +68,10 @@ class LightRepository(Repository):
 
     def add(self, entry: LightCreate) -> Row | None:
         return self.fetch_one(
-            "INSERT INTO lights(name,ip_address,protocol,mac_address,device,port) "
-            "VALUES(%s,%s,%s,%s,%s,%s) RETURNING *",
-            (entry.name, entry.ip_address, entry.protocol, entry.mac_address, entry.device, entry.port),
+            "INSERT INTO lights(name,ip_address,protocol,mac_address,device,port,zone,leds) "
+            "VALUES(%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            (entry.name, entry.ip_address, entry.protocol, entry.mac_address, entry.device, entry.port,
+             entry.zone, entry.leds),
         )
 
     def delete(self, light_id: int) -> bool:

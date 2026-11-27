@@ -184,13 +184,21 @@ class LumiaMCPTools:
             return await lights.discover_openrgb(host, port)
 
         @server.tool()
-        def add_pc_rgb_device(host: str, device: str, name: str, port: int | None = None):
-            """Add one OpenRGB device as a Lumia light, so it takes colors, schemes and schedules.
+        def add_pc_rgb_device(
+            host: str, device: str, name: str, port: int | None = None, zone: str | None = None, leds: str | None = None
+        ):
+            """Add one OpenRGB device, or a part of it, as a Lumia light, so it takes colors, schemes and schedules.
 
             ``device`` is the exact name from discover_pc_rgb_devices; ``name`` is the
-            Lumia light name (letters, numbers and spaces, up to 30 characters).
+            Lumia light name (letters, numbers and spaces, up to 30 characters). To make a
+            part its own light, give ``zone`` (a zone's number from 1 or its name, as
+            discover_pc_rgb_devices lists them: a motherboard's ARGB header) and/or ``leds``,
+            a range such as "2-25" counted from 1 within the zone, for one piece of a chain
+            (a banner, a strip). Parts of one device keep each other's colors.
             """
-            return lights.add(LightCreate(name=name, ip_address=host, protocol="openrgb", device=device, port=port))
+            return lights.add(LightCreate(
+                name=name, ip_address=host, protocol="openrgb", device=device, port=port, zone=zone, leds=leds
+            ))
 
         @server.tool()
         async def discover_icue_devices(host: str, port: int = 6743):
@@ -254,7 +262,7 @@ class LumiaMCPTools:
 
         @server.tool()
         def list_schemes():
-            """List color schemes (solid and sequence), transitions, and what is playing per light.
+            """List color schemes (solid, sequence, and per-key "keys"), transitions, and what is playing per light.
 
             Each scheme's "weather_slots" lists the weather it plays for (e.g. "rain/night"),
             and "music_moods" the moods of music it plays for (e.g. "sleep").
@@ -283,6 +291,55 @@ class LumiaMCPTools:
             see list_schemes for transitions; omit for an instant change).
             """
             return scenes.add(SceneCreate(name=name, kind="sequence", steps=steps, loops=loops))
+
+        @server.tool()
+        async def list_light_leds(light_id: int):
+            """List a PC light's keys or LEDs for per-key and per-LED colors, with where each one is.
+
+            A keyboard (iCUE) lists its keys by name ("Escape", "F1", "W", "Space", "Keypad7",
+            "UpArrow") with x and y: the key's center in iCUE's layout units from the top left,
+            x to the right and y down (one key is about 10 units wide). "groups" names sets of
+            its keys (letters, numbers, function, wasd, arrows, numpad, modifiers, navigation,
+            media) that per-key colors also accept. An OpenRGB light (a motherboard header,
+            or a part of one such as a banner or the fans) lists "LED 1", "LED 2", ... in the
+            order they run along the chain; x is the LED's number. Use positions to design
+            patterns: a gradient or rainbow along x, rows by y, a ripple from a key, a chase
+            along a strip. Bulbs have no LEDs to list.
+            """
+            return await self.service.control.light_leds(light_id)
+
+        @server.tool()
+        async def set_light_leds(light_id: int, keys: dict[str, str], color: str = "#000000", brightness: int = 100):
+            """Color a PC light's keys or LEDs now, each its own color, without saving a scheme.
+
+            keys maps names from list_light_leds (keyboard keys in any case, group names such
+            as "wasd" or "arrows", or "LED 3" for an OpenRGB light) to "#RRGGBB"; a key named on
+            its own wins over its group. color is every key or LED not listed (black leaves
+            them dark); brightness 1-100 scales them all. Stops any scheme playing on the light.
+            To animate them, or keep a pattern to apply again or schedule, use create_key_scheme.
+            """
+            return await self.service.control.paint_leds(light_id, keys, color, brightness)
+
+        @server.tool()
+        def create_key_scheme(name: str, steps: list[dict[str, Any]], loops: bool = True):
+            """Save a per-key (or per-LED) scheme: 1-24 steps, each coloring keys or LEDs one by one.
+
+            Each step is a sequence step ({"color": "#RRGGBB"} or {"color_temp"}, "brightness"
+            1-100, "hold_ms", "transition_id") plus "keys": {name: "#RRGGBB"}, at most 200:
+            keyboard keys or groups ("W", "wasd"), or OpenRGB LEDs ("LED 3"). color is every
+            key or LED a step leaves out, and all of any light without those names (bulbs, a
+            mouse), so one scheme can color the keyboard key by key and the case LED by LED and
+            still play on a room or group. One step is a still pattern; several animate it,
+            fading each key over each step's transition (a wave: move a band of color across
+            columns, one step per position, with short holds and a quick transition). Find
+            names and positions with list_light_leds; apply with apply_scheme.
+            """
+            return scenes.add(SceneCreate(name=name, kind="keys", steps=steps, loops=loops))
+
+        @server.tool()
+        def update_key_scheme(scheme_id: int, name: str, steps: list[dict[str, Any]], loops: bool = True):
+            """Replace one of your per-key schemes; same fields as create_key_scheme. A playing one restarts."""
+            return scenes.update(scheme_id, SceneCreate(name=name, kind="keys", steps=steps, loops=loops))
 
         @server.tool()
         def update_solid_scheme(

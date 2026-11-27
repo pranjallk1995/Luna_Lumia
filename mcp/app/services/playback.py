@@ -76,6 +76,7 @@ class Step:
     hold_s: float
     fade_s: float
     curve: str
+    keys: dict[str, str] | None = None  # per-key colors; ``color`` is every other key
 
     @property
     def rgb(self) -> tuple[int, int, int]:
@@ -97,9 +98,27 @@ class Step:
                     hold_s=raw.get("hold_ms", 0) / 1000,
                     fade_s=transition.get("duration_ms", 0) / 1000,
                     curve=transition.get("curve", "linear"),
+                    keys=raw.get("keys") or None,
                 )
             )
         return steps
+
+    @property
+    def hex(self) -> str:
+        return ColorMath.preview_hex(self.color, self.color_temp)
+
+    def key_blend(self, previous: Step, t: float) -> dict[str, str]:
+        """Each key's color ``t`` of the way from ``previous``; a key one step leaves out has that step's default."""
+        names = {**(previous.keys or {}), **(self.keys or {})}
+        before, after = previous.hex, self.hex
+        return {
+            name: ColorMath.rgb_to_hex(tuple(
+                a + (b - a) * t
+                for a, b in zip(ColorMath.hex_to_rgb((previous.keys or {}).get(name, before)),
+                                ColorMath.hex_to_rgb((self.keys or {}).get(name, after)))
+            ))
+            for name in names
+        }
 
     @property
     def is_black(self) -> bool:
@@ -109,6 +128,10 @@ class Step:
     def blend(self, previous: Step, t: float) -> dict[str, Any]:
         """The light state ``t`` (0..1, already eased) of the way from ``previous``."""
         brightness = max(1, round(previous.brightness + (self.brightness - previous.brightness) * t))
+        if self.keys or previous.keys:
+            # Keyboards show black and dim colors faithfully, so keys fade straight through them.
+            rgb = tuple(a + (b - a) * t for a, b in zip(previous.rgb, self.rgb))
+            return {"brightness": brightness, "color": ColorMath.rgb_to_hex(rgb), "keys": self.key_blend(previous, t)}
         if previous.is_black or self.is_black:
             # Fading to/from black dims the lit color at full strength. Scaling its
             # RGB toward 0 instead gives very dark values that WiZ bulbs render as
@@ -126,6 +149,9 @@ class Step:
 
     @property
     def state(self) -> dict[str, Any]:
+        if self.keys is not None:
+            # Every key is sent, so one step's keys never linger into the next.
+            return {"brightness": self.brightness, "color": self.hex, "keys": dict(self.keys)}
         if self.color:
             return {"brightness": self.brightness, "color": self.color}
         return {"brightness": self.brightness, "color_temp": self.color_temp}

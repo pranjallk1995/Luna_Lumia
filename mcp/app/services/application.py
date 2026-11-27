@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 from app.core import tenancy
 from app.integrations.devices import WizDiscovery, WizLightAdapter
 from app.integrations import icue as icue_integration
-from app.integrations.icue import ICueAdapter
+from app.integrations.icue import KEY_GROUPS, ICueAdapter
 from app.integrations.openrgb import DEFAULT_PORT, OpenRGBAdapter
 from app.integrations.router import light_address
 from app.core.errors import NotFoundError
@@ -26,6 +26,7 @@ from app.core.models import (
     LightState,
     LocationUpdate,
     SceneCreate,
+    SceneStep,
     ScheduleCreate,
     TransitionCreate,
     Validators,
@@ -115,6 +116,32 @@ class LightControlService:
             return results
         by_id = {item["light"]["id"]: item for item in retried}
         return [by_id.get(item["light"]["id"], item) for item in results]
+
+    def _pc_light(self, light_id: int) -> Row:
+        light = self.lights.get(light_id)
+        if not light:
+            raise NotFoundError("Light not found")
+        if light.get("protocol") not in ("icue", "openrgb"):
+            raise ValueError(f"{light['name']} is a bulb; only PC lights (iCUE and OpenRGB devices) take colors per key or LED")
+        return light
+
+    async def light_leds(self, light_id: int) -> Row:
+        """A PC light's keys or LEDs by name, with positions, and (keyboards) which named groups it has."""
+        light = self._pc_light(light_id)
+        keys = await self.adapter.keys(light_address(light))
+        names = {key["key"] for key in keys}
+        groups = {group: [key for key in members if key in names] for group, members in KEY_GROUPS.items()}
+        return {"light_id": light["id"], "name": light["name"], "keys": keys,
+                "groups": {group: members for group, members in groups.items() if members}}
+
+    async def paint_leds(self, light_id: int, keys: dict[str, str], color: str, brightness: int) -> Row:
+        """Color a PC light's keys or LEDs now, each its own color and the rest ``color``; stops any scheme on it."""
+        light = self._pc_light(light_id)
+        step = SceneStep(color=color, brightness=brightness, keys=keys)
+        self.stop_sequences([light])
+        await self.adapter.apply(light_address(light), on=True, brightness=step.brightness, color=step.color, keys=step.keys)
+        saved = self.lights.update_state(light["id"], on=True, brightness=step.brightness, color=step.color, reachable=True)
+        return {"light": saved, "keys": step.keys, "color": step.color}
 
     async def _send(
         self, targets: list[Row], state: LightState, color: str | None, powered_on: bool | None
@@ -449,7 +476,15 @@ class LightService:
         IPv4Address(host)
         controllers = await self.openrgb.devices(host, port)
         found = [(controller.name, controller.led_count) for controller in controllers]
-        return self._pc_devices(host, "openrgb", found, port)
+        devices = self._pc_devices(host, "openrgb", found, port)
+        zones = {controller.name: controller.zones for controller in controllers}
+        for device in devices:
+            # A zone (an ARGB header) or a range of its LEDs can be added as a light of its own.
+            device["zones"] = [
+                {"zone": number, "name": name, "led_count": count}
+                for number, (name, count) in enumerate(zones.get(device["device"], []), start=1)
+            ]
+        return devices
 
     async def discover_icue(self, host: str, port: int = icue_integration.DEFAULT_PORT) -> list[dict]:
         """List the Corsair devices iCUE offers through the bridge on ``host``."""
@@ -772,6 +807,8 @@ class SceneService:
         scene["preview_colors"] = [
             ColorMath.preview_hex(step.get("color"), step.get("color_temp")) for step in steps
         ]
+        if scene["kind"] == "keys":
+            scene["keys_colored"] = len({name for step in steps for name in (step.get("keys") or {})})
         scene["cycle_ms"] = sum(
             step.get("hold_ms", 0)
             + (transitions.get(step.get("transition_id")) or {}).get("duration_ms", 0)
@@ -805,7 +842,7 @@ class SceneService:
         playing_ids = {light_id for light_id, playing in self.engine.playing().items() if playing == scene_id}
         if playing_ids:
             lights = [light for light in self.control.lights.targets("all", None) if light["id"] in playing_ids]
-            if updated["kind"] == "sequence":
+            if updated["kind"] in ("sequence", "keys"):
                 self.engine.play(scene_id, Step.from_scene(updated, known), updated["loops"], lights)
             else:
                 self.engine.stop(list(playing_ids))
@@ -862,7 +899,8 @@ class SceneService:
         # A stopped light stays on its last frame, so that is its state now.
         for light_id in stopped:
             if light_id in frames:
-                self.control.lights.update_state(light_id, **frames[light_id])
+                frame = {key: value for key, value in frames[light_id].items() if key != "keys"}
+                self.control.lights.update_state(light_id, **frame)
         return {"stopped_light_ids": stopped}
 
     def playing(self) -> dict[int, int]:

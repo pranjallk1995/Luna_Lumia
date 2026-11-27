@@ -1759,3 +1759,25 @@ a {
 .ll-light-picture .ll-meta { flex: 1; }
 .ll-light-picture .lv-button { display: inline-flex; align-items: center; gap: 0.35rem; }
 .ll-light-thumb { flex: none; width: 3.6rem; height: 2.4rem; border: 1px solid var(--lv-border); border-radius: 0.4rem; background-color: #1d1d1d; background-position: center; background-size: cover; }
+
+/* PC tab: a keyboard drawn by its keys' places, and case parts as rows of LEDs, painted with a brush */
+.ll-pc-list { display: grid; gap: 1rem; }
+.ll-pc-card { display: grid; gap: 0.8rem; }
+.ll-pc-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.3rem 1rem; }
+.ll-pc-head h3 { display: inline-flex; align-items: center; gap: 0.45rem; margin: 0; font-size: 0.95rem; }
+.ll-pc-surface { display: block; width: 100%; user-select: none; touch-action: none; border-radius: 0.6rem; background: #0b0b0b; }
+.ll-pc-keyboard { aspect-ratio: auto; max-height: 22rem; padding: 0.25rem; }
+.ll-pc-strip { height: 2.6rem; padding: 0.3rem 0.5rem; }
+.ll-pc-led { cursor: crosshair; }
+.ll-pc-led rect, .ll-pc-led circle { stroke: rgba(255, 255, 255, 0.28); stroke-width: 0.25; }
+.ll-pc-strip .ll-pc-led circle { stroke-width: 0.06; }
+.ll-pc-led:hover rect, .ll-pc-led:hover circle { stroke: #fff; stroke-width: 0.6; }
+.ll-pc-strip .ll-pc-led:hover circle { stroke-width: 0.12; }
+.ll-pc-label { fill: rgba(255, 255, 255, 0.85); font-size: 2.9px; pointer-events: none; paint-order: stroke; stroke: rgba(0, 0, 0, 0.75); stroke-width: 0.5px; }
+.ll-pc-tools { display: grid; gap: 0.6rem; }
+.ll-pc-brush, .ll-pc-groups, .ll-pc-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; }
+.ll-pc-brush .lv-button, .ll-pc-groups .lv-button, .ll-pc-row .lv-button { display: inline-flex; align-items: center; gap: 0.35rem; }
+.ll-pc-field { display: inline-flex; align-items: center; gap: 0.45rem; color: var(--lv-muted); font-size: var(--luna-text-small); }
+.ll-pc-on { border-color: var(--lv-strong); background: var(--lv-control-hover); }
+.ll-pc-scheme { display: inline-flex; align-items: center; gap: 0.2rem; }
+.ll-pc-row .lv-input { flex: 1 1 12rem; }

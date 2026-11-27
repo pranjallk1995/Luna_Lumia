@@ -5,6 +5,12 @@ when started with ``--server``. Each OpenRGB controller becomes one Lumia light
 whose whole surface shows a single color, so schemes, schedules, weather and
 music treat it like any bulb.
 
+A light can also be part of a device: one zone (a motherboard's ARGB header) or a
+range of LEDs within it, such as the LEDs of one banner in a chain of parts. Each
+device keeps the colors last sent to all of its LEDs, so painting one part leaves
+the others as they were, and each LED of a part can take its own color ("LED 1",
+"LED 2", ... counted within the part).
+
 The SDK protocol is spoken directly (no extra dependency). Lumia asks for
 protocol version 0, whose controller layout is stable across OpenRGB releases.
 Sockets are blocking and guarded by a thread lock because lights are driven from
@@ -12,10 +18,12 @@ two event loops (the HTTP server and the scene engine); calls run in a thread.
 """
 
 import asyncio
+import re
 import socket
 import struct
 import threading
 from dataclasses import dataclass, field
+from urllib.parse import parse_qs, urlencode
 
 from app.integrations.solid_color import SolidColors
 
@@ -31,26 +39,39 @@ DEFAULT_PORT = 6742
 SCHEME = "openrgb://"
 
 
+LED_RANGE = re.compile(r"(\d{1,4})(?:-(\d{1,4}))?")
+LED_NAME = re.compile(r"LED (\d{1,4})", re.IGNORECASE)
+
+
 @dataclass(frozen=True)
 class OpenRGBAddress:
-    """Where one OpenRGB device lives: the PC's IP, the SDK port, and the device name."""
+    """Where one OpenRGB device lives: the PC's IP, the SDK port, and the device name.
+
+    ``zone`` (a zone name, or its number counted from 1) and ``leds`` ("2-25", counted
+    from 1 within the zone, or within the device without a zone) narrow it to a part.
+    """
 
     host: str
     device: str
     port: int = DEFAULT_PORT
+    zone: str | None = None
+    leds: str | None = None
 
     def __str__(self) -> str:
-        return f"{SCHEME}{self.host}:{self.port}/{self.device}"
+        part = {key: value for key, value in (("zone", self.zone), ("leds", self.leds)) if value}
+        return f"{SCHEME}{self.host}:{self.port}/{self.device}" + (f"#{urlencode(part)}" if part else "")
 
     @classmethod
     def parse(cls, address: str) -> "OpenRGBAddress":
         if not address.startswith(SCHEME):
             raise ValueError(f"Not an OpenRGB address: {address}")
+        address, _, fragment = address.partition("#")
         location, _, device = address[len(SCHEME):].partition("/")
         host, _, port = location.partition(":")
         if not host or not device:
             raise ValueError(f"Incomplete OpenRGB address: {address}")
-        return cls(host, device, int(port or DEFAULT_PORT))
+        part = {key: values[0] for key, values in parse_qs(fragment).items()}
+        return cls(host, device, int(port or DEFAULT_PORT), part.get("zone"), part.get("leds"))
 
     @staticmethod
     def is_openrgb(address: str) -> bool:
@@ -63,6 +84,32 @@ class Controller:
     name: str
     led_count: int
     first_color: tuple[int, int, int] | None = None
+    zones: list[tuple[str, int]] = field(default_factory=list)  # (name, LED count), in LED order
+    colors: list[tuple[int, int, int]] = field(default_factory=list)
+
+    def part(self, zone: str | None, leds: str | None) -> list[int]:
+        """The device-wide LED indexes of a part: a zone (by name or number from 1), and a range within it."""
+        start, count = 0, self.led_count
+        if zone:
+            names = [name.casefold() for name, _ in self.zones]
+            if zone.isdigit() and 1 <= int(zone) <= len(self.zones):
+                index = int(zone) - 1
+            elif zone.casefold() in names:
+                index = names.index(zone.casefold())
+            else:
+                choices = ", ".join(f"{n} ({name})" for n, (name, _) in enumerate(self.zones, start=1))
+                raise LookupError(f"{self.name} has no zone {zone!r}; its zones are {choices}")
+            start = sum(size for _, size in self.zones[:index])
+            count = self.zones[index][1]
+        if leds:
+            match = LED_RANGE.fullmatch(leds.strip())
+            if not match:
+                raise ValueError(f"LEDs must be a number or a range such as 2-25, not {leds!r}")
+            first, last = int(match[1]), int(match[2] or match[1])
+            if not 1 <= first <= last <= count:
+                raise LookupError(f"LEDs {leds} do not fit: this part of {self.name} has {count} LEDs")
+            return list(range(start + first - 1, start + last))
+        return list(range(start, start + count))
 
 
 class ControllerParser:
@@ -99,18 +146,20 @@ class ControllerParser:
             (colors,) = self.take("H")
             self.skip(colors * 4)
         (zone_count,) = self.take("H")
+        zones = []
         for _ in range(zone_count):
-            self.string()
-            self.take("iIII")  # type, leds min/max/count
+            zone_name = self.string()
+            _, _, _, zone_leds = self.take("iIII")  # type, leds min/max/count
             (matrix_size,) = self.take("H")
             self.skip(matrix_size)
+            zones.append((zone_name, zone_leds))
         (led_count,) = self.take("H")
         for _ in range(led_count):
             self.string()
             self.take("I")
         (color_count,) = self.take("H")
-        first = self.take("BBBB")[:3] if color_count else None
-        return Controller(index, name, led_count, first)
+        colors = [self.take("BBBB")[:3] for _ in range(color_count)]
+        return Controller(index, name, led_count, colors[0] if colors else None, zones, colors)
 
 
 @dataclass
@@ -123,6 +172,8 @@ class OpenRGBConnection:
     sock: socket.socket | None = None
     controllers: dict[str, Controller] = field(default_factory=dict)
     direct: set[int] = field(default_factory=set)  # controllers already switched to Direct mode
+    # Each device's colors as Lumia last sent them, so painting one part keeps the others.
+    painted: dict[str, list[tuple[int, int, int]]] = field(default_factory=dict)
     stale: bool = False  # OpenRGB announced a device change, such as a resized zone
     lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -197,10 +248,24 @@ class OpenRGBConnection:
         return self.controllers[name]
 
     def fill(self, name: str, rgb: tuple[int, int, int]) -> None:
+        self.paint(name, None, None, rgb)
+
+    def paint(
+        self, name: str, zone: str | None, leds: str | None, rgb: tuple[int, int, int],
+        each: dict[int, tuple[int, int, int]] | None = None,
+    ) -> None:
+        """Color a device, or a part of it, ``rgb``; ``each`` colors single LEDs, counted from 1 within the part."""
         controller = self.controller(name)
         if not controller.led_count:
             raise LookupError(f"OpenRGB device {name!r} has no LEDs; size its zones in OpenRGB first")
-        colors = bytes((*rgb, 0)) * controller.led_count
+        current = self.painted.get(name)
+        if current is None or len(current) != controller.led_count:
+            known = len(controller.colors) == controller.led_count
+            current = list(controller.colors) if known else [(0, 0, 0)] * controller.led_count
+        for number, index in enumerate(controller.part(zone, leds), start=1):
+            current[index] = (each or {}).get(number, rgb)
+        self.painted[name] = current
+        colors = b"".join(bytes((*color, 0)) for color in current)
         payload = struct.pack("<H", controller.led_count) + colors
         if controller.index not in self.direct:  # Direct mode, so software colors show
             self._send(SET_CUSTOM_MODE, controller.index)
@@ -228,19 +293,37 @@ class OpenRGBAdapter:
             return self.connections[key]
 
     async def apply(
-        self, address: str, *, on=None, brightness=None, color=None, color_temp=None
+        self, address: str, *, on=None, brightness=None, color=None, color_temp=None, keys=None
     ) -> None:
-        if on is None and all(value is None for value in (brightness, color, color_temp)):
+        if on is None and keys is None and all(value is None for value in (brightness, color, color_temp)):
             return
         target = OpenRGBAddress.parse(address)
         rgb = self.colors.target(
             str(target), on=on, brightness=brightness, color=color, color_temp=color_temp
         )
+        each = None
+        if keys and on is not False:
+            scale = self.colors.remembered(str(target))["brightness"] / 100
+            each = {
+                int(match[1]): tuple(round(channel * scale) for channel in self.colors.rgb(value))
+                for name, value in keys.items()
+                if (match := LED_NAME.fullmatch(name.strip()))
+            }
         connection = self.connection(target)
         await asyncio.wait_for(
-            asyncio.to_thread(connection.run, lambda live: live.fill(target.device, rgb)),
+            asyncio.to_thread(connection.run, lambda live: live.paint(target.device, target.zone, target.leds, rgb, each)),
             self.timeout + 1,
         )
+
+    async def leds(self, address: str) -> list[dict]:
+        """A light's LEDs by name ("LED 1", ...), in chain order: x is the LED's number."""
+        target = OpenRGBAddress.parse(address)
+        connection = self.connection(target)
+        controller = await asyncio.wait_for(
+            asyncio.to_thread(connection.run, lambda live: live.controller(target.device)), self.timeout + 1
+        )
+        count = len(controller.part(target.zone, target.leds))
+        return [{"key": f"LED {number}", "x": number, "y": 0} for number in range(1, count + 1)]
 
     async def status(self, address: str) -> dict:
         """Confirm the device is served; its color stays as Lumia last set it."""
@@ -250,6 +333,7 @@ class OpenRGBAdapter:
             asyncio.to_thread(connection.run, lambda live: live.controller(target.device)),
             self.timeout + 1,
         )
+        controller.part(target.zone, target.leds)  # the zone or range must still exist
         remembered = self.colors.remembered(str(target))
         if controller.first_color and any(controller.first_color) and "seen" not in remembered:
             remembered.update(rgb=controller.first_color, seen=True)

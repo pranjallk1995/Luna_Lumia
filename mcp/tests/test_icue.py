@@ -21,6 +21,7 @@ class FakeBridge:
 
     def __init__(self):
         self.colors, self.auth, self.unavailable = [], [], False
+        self.keys, self.old_bridge = [], False
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -33,6 +34,10 @@ class FakeBridge:
 
             def do_GET(self):
                 outer.auth.append(self.headers["Authorization"])
+                if self.path.endswith("/keys"):
+                    if outer.old_bridge:
+                        return self.reply(404, {"error": "Not found"})
+                    return self.reply(200, [{"key": "W", "x": 40.0, "y": 45.0}, {"key": "UpArrow", "x": 380.0, "y": 120.0}])
                 self.reply(200, [{"device": KEYBOARD, "led_count": 123}])
 
             def do_PUT(self):
@@ -40,6 +45,11 @@ class FakeBridge:
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 if outer.unavailable:
                     return self.reply(503, {"error": "iCUE is not connected"})
+                if self.path == "/devices/K70%20RGB%20PRO/keys":
+                    if outer.old_bridge:
+                        return self.reply(404, {"error": "Not found"})
+                    outer.keys.append(body)
+                    return self.reply(200, {"ok": True, "painted": 3, "unknown": []})
                 if self.path != "/devices/K70%20RGB%20PRO/color":
                     return self.reply(404, {"error": "iCUE has no device named that"})
                 outer.colors.append(tuple(body["rgb"]))
@@ -63,6 +73,24 @@ class ICueAdapterTests(unittest.TestCase):
         self.addCleanup(self.bridge.close)
         self.adapter = ICueAdapter(TOKEN, timeout=2)
         self.keyboard = str(ICueAddress("127.0.0.1", KEYBOARD, self.bridge.port))
+
+    def test_keys_are_sent_scaled_with_groups_spread_and_the_rest_as_the_default(self):
+        asyncio.run(self.adapter.apply(self.keyboard, brightness=50, color="#000000", keys={"wasd": "#FF0000", "W": "#00FF00"}))
+        body = self.bridge.keys[-1]
+        self.assertEqual(body["default"], [0, 0, 0])
+        self.assertEqual(body["keys"], {"A": [128, 0, 0], "S": [128, 0, 0], "D": [128, 0, 0], "W": [0, 128, 0]})
+        self.assertEqual(self.bridge.colors, [])
+
+    def test_off_ignores_keys_and_darkens_the_device(self):
+        asyncio.run(self.adapter.apply(self.keyboard, on=False, keys={"W": "#FF0000"}))
+        self.assertEqual((self.bridge.colors, self.bridge.keys), ([(0, 0, 0)], []))
+
+    def test_keys_are_listed_and_an_old_bridge_says_to_update(self):
+        self.assertEqual(asyncio.run(self.adapter.keys(self.keyboard))[0]["key"], "W")
+        self.bridge.old_bridge = True
+        for call in (self.adapter.keys(self.keyboard), self.adapter.apply(self.keyboard, color="#FFFFFF", keys={"W": "#FF0000"})):
+            with self.subTest(call), self.assertRaisesRegex(LookupError, "install.ps1"):
+                asyncio.run(call)
 
     def test_address_round_trip(self):
         address = ICueAddress.parse("icue://192.168.1.20:6743/K70 RGB PRO")
@@ -144,8 +172,8 @@ class PcDiscoveryTests(unittest.TestCase):
 
         return LightService(Lights(), None, None, openrgb, icue)
 
-    def controller(self, name, led_count):
-        return types.SimpleNamespace(name=name, led_count=led_count)
+    def controller(self, name, led_count, zones=()):
+        return types.SimpleNamespace(name=name, led_count=led_count, zones=list(zones))
 
     def openrgb(self, *controllers):
         async def devices(host, port):
@@ -385,6 +413,24 @@ class RoutingTests(unittest.TestCase):
         for address in ("192.168.1.8", "openrgb://192.168.1.15:6742/Board", "icue://192.168.1.15:6743/K70"):
             asyncio.run(router.apply(address, color="#FFFFFF"))
         self.assertEqual(calls, ["wiz", "openrgb", "icue"])
+
+    def test_per_led_colors_reach_pc_lights_and_bulbs_get_the_default(self):
+        calls = []
+
+        def recorder(kind):
+            class Adapter:
+                async def apply(self, address, **state):
+                    calls.append((kind, sorted(state)))
+
+            return Adapter()
+
+        router = LightRouter(recorder("wiz"), recorder("openrgb"), recorder("icue"))
+        for address in ("192.168.1.8", "openrgb://192.168.1.15:6742/Board", "icue://192.168.1.15:6743/K70"):
+            asyncio.run(router.apply(address, color="#000000", brightness=50, keys={"W": "#FF0000"}))
+        self.assertEqual(calls, [("wiz", ["brightness", "color"]), ("openrgb", ["brightness", "color", "keys"]),
+                                 ("icue", ["brightness", "color", "keys"])])
+        with self.assertRaisesRegex(ValueError, "PC lights"):
+            asyncio.run(router.keys("192.168.1.8"))
 
     def test_light_address_for_icue(self):
         light = {"ip_address": "192.168.1.15", "protocol": "icue", "device": "K70"}

@@ -83,6 +83,12 @@ class ProxyTests(GatewayTestCase):
         self.assertEqual(self.backend_requests[0].url.path, "/api/control/light")
         self.assertIn(b"target_id", self.backend_requests[0].content)
 
+    def test_the_pc_tab_reads_and_paints_leds(self):
+        self.sign_in()
+        self.assertEqual(self.client.get("/api/lights/9/leds").status_code, 200)
+        self.assertEqual(self.client.put("/api/lights/9/leds", json={"color": "#000000", "keys": {"W": "#FF0000"}}).status_code, 200)
+        self.assertEqual([(r.method, r.url.path) for r in self.backend_requests[-2:]], [("GET", "/api/lights/9/leds"), ("PUT", "/api/lights/9/leds")])
+
     def test_pictures_may_be_larger_and_wait_for_visia(self):
         self.sign_in()
         picture = {"content_base64": "A" * (2 * 1024 * 1024)}

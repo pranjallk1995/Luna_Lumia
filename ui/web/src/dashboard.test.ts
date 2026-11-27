@@ -13,6 +13,7 @@ import {
   minutesOf,
   nextRun,
   schedulePayload,
+  schemeDetails,
   schemePayload,
   schemeSegments,
   isFinished,
@@ -206,5 +207,15 @@ describe("hasOwnPicture", () => {
     expect(hasOwnPicture(catalog, "https://visia/api/public/images/mine")).toBe(true);
     expect(hasOwnPicture(catalog, "https://visia/api/public/images/kitchen")).toBe(false);
     expect(hasOwnPicture(catalog, null)).toBe(false);
+  });
+});
+
+describe("per-key schemes", () => {
+  const keys = { id: 3, name: "WASD", kind: "keys", is_preset: false, brightness: 0, loops: false, keys_colored: 4, cycle_ms: 1000,
+    steps: [{ color: "#000000", brightness: 80, hold_ms: 1000, transition_id: null, keys: { wasd: "#FF0000" } }] } as Scheme;
+  it("describes the keys it colors and keeps them when saved again", () => {
+    expect(schemeDetails(keys)).toBe("4 keys · 80%");
+    expect(schemePayload(keys)).toEqual({ name: "WASD", kind: "keys", loops: false,
+      steps: [{ color: "#000000", brightness: 80, hold_ms: 1000, transition_id: null, keys: { wasd: "#FF0000" } }] });
   });
 });

@@ -12,7 +12,7 @@ from enum import Enum
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from icue_bridge import BridgeConfig, BridgeServer, ICueLights, ICueUnavailable, make_handler, parse_rgb
+from icue_bridge import BridgeConfig, BridgeServer, ICueLights, ICueUnavailable, led_name, make_handler, parse_keys, parse_rgb
 
 TOKEN = "t" * 32
 
@@ -249,6 +249,98 @@ class HttpTests(unittest.TestCase):
     def test_unknown_device_is_404_and_bad_body_is_400(self):
         self.assertEqual(self.call("PUT", "/devices/Nope/color", {"rgb": [1, 2, 3]})[0], 404)
         self.assertEqual(self.call("PUT", "/devices/K70/color", {"rgb": [1]})[0], 400)
+
+
+KEY_TYPES = types.SimpleNamespace(
+    **vars(FAKE_TYPES),
+    CorsairLedGroup=types.SimpleNamespace(_reverse_map_={0: "CLG_Keyboard", 4: "CLG_Mouse"}),
+    CorsairLedId_Keyboard=types.SimpleNamespace(_reverse_map_={1: "CLK_Escape", 30: "CLK_W", 71: "CLK_Space"}),
+)
+MOUSE_LED = (4 << 16) | 1
+
+
+class KeyboardSdk(FakeSdk):
+    """A keyboard whose LEDs are Escape, W and Space, and a one-LED mouse, with positions."""
+
+    def get_led_positions(self, device_id):
+        if device_id == "id-k":
+            return [types.SimpleNamespace(id=1, cx=10.0, cy=5.0), types.SimpleNamespace(id=30, cx=40.25, cy=45.0),
+                    types.SimpleNamespace(id=71, cx=120.0, cy=100.0)], Error.CE_Success
+        return [types.SimpleNamespace(id=MOUSE_LED, cx=0.0, cy=0.0)], Error.CE_Success
+
+
+class KeyTests(unittest.TestCase):
+    def setUp(self):
+        self.sdk = KeyboardSdk()
+        self.lights = ICueLights(self.sdk, KEY_TYPES)
+        self.lights.takeover_attempts, self.lights.takeover_delay_seconds = 3, 0
+        self.lights.sync(True)
+
+    def painted(self, device="id-k"):
+        return {(color.id): (color.r, color.g, color.b) for color in self.sdk.painted[device]}
+
+    def test_leds_are_named_after_their_keys_with_positions(self):
+        self.assertEqual(self.lights.keys("K70"), [
+            {"key": "Escape", "x": 10.0, "y": 5.0}, {"key": "W", "x": 40.2, "y": 45.0}, {"key": "Space", "x": 120.0, "y": 100.0},
+        ])
+        self.assertEqual(self.lights.keys("Harpoon"), [{"key": "Mouse 1", "x": 0.0, "y": 0.0}])
+        self.assertEqual(led_name(FAKE_TYPES, 7), "0 7")  # an SDK without key names still names every LED
+
+    def test_named_keys_take_their_colors_and_the_rest_the_default(self):
+        result = self.lights.set_keys("K70", (0, 0, 9), {"w": (255, 0, 0), "Numpad5": (1, 1, 1)})
+        self.assertEqual(self.painted(), {1: (0, 0, 9), 30: (255, 0, 0), 71: (0, 0, 9)})
+        self.assertEqual(result["unknown"], ["Numpad5"])
+
+    def test_keys_left_out_keep_their_color(self):
+        self.lights.set_color("K70", (5, 5, 5))
+        self.lights.set_keys("K70", None, {"Space": (9, 9, 9)})
+        self.assertEqual(self.painted(), {1: (5, 5, 5), 30: (5, 5, 5), 71: (9, 9, 9)})
+        self.lights.set_keys("K70", None, {"Escape": (1, 2, 3)})
+        self.assertEqual(self.painted(), {1: (1, 2, 3), 30: (5, 5, 5), 71: (9, 9, 9)})
+
+    def test_a_whole_device_color_replaces_a_pattern_and_reconnecting_repaints_the_pattern(self):
+        self.lights.set_keys("K70", (0, 0, 0), {"W": (255, 0, 0)})
+        self.lights.sync(False)
+        self.sdk.painted.clear()
+        self.sdk.controlled.clear()
+        self.lights.sync(True)
+        self.assertEqual(self.painted()[30], (255, 0, 0))
+        self.lights.set_color("K70", (7, 7, 7))
+        self.assertNotIn("K70", self.lights.key_colors)
+
+    def test_key_bodies_are_checked(self):
+        self.assertEqual(parse_keys(b'{"keys": {"W": [1, 2, 3]}}'), (None, {"W": (1, 2, 3)}))
+        for bad in (b'{"keys": {"W": [1, 2]}}', b'{"keys": ["W"]}', b'{"default": [300, 0, 0]}'):
+            with self.subTest(bad), self.assertRaises(ValueError):
+                parse_keys(bad)
+
+
+class KeyServerTests(unittest.TestCase):
+    def setUp(self):
+        self.sdk = KeyboardSdk()
+        lights = ICueLights(self.sdk, KEY_TYPES)
+        lights.takeover_attempts, lights.takeover_delay_seconds = 3, 0
+        lights.sync(True)
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(lights, TOKEN))
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+    def call(self, method, path, body=None):
+        request = urllib.request.Request(self.base + path, method=method, data=json.dumps(body).encode() if body is not None else None,
+                                         headers={"Authorization": f"Bearer {TOKEN}"})
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return json.load(response)
+
+    def test_keys_are_listed_and_painted_over_http(self):
+        self.assertEqual(self.call("GET", "/devices/K70/keys")[1]["key"], "W")
+        keys = {f"Key{n}": [n % 256, 0, 0] for n in range(200)}  # far over the plain color body limit
+        answer = self.call("PUT", "/devices/K70/keys", {"default": [0, 0, 0], "keys": {**keys, "W": [0, 255, 0]}})
+        self.assertEqual((answer["painted"], len(answer["unknown"])), (3, 200))
+        self.assertEqual(self.sdk.painted["id-k"][1], Color(30, 0, 255, 0, 255))
 
 
 if __name__ == "__main__":

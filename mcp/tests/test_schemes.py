@@ -63,6 +63,29 @@ class StepTests(unittest.TestCase):
         self.assertEqual(Step.from_scene(scene, {})[0].fade_s, 0)
 
 
+class KeySchemeTests(unittest.TestCase):
+    def test_a_key_scheme_needs_keys_and_takes_one_step(self):
+        scheme = SceneCreate(name="WASD", kind="keys", steps=[{"color": "#000000", "brightness": 80, "keys": {"wasd": "#ff0000"}}])
+        self.assertEqual(scheme.steps[0].keys, {"wasd": "#FF0000"})
+        for bad in (
+            {"kind": "keys", "steps": [{"color": "#000000", "brightness": 80}]},
+            {"kind": "keys", "steps": [{"color": "#000000", "brightness": 80, "keys": {"W/": "#FF0000"}}]},
+            {"kind": "keys", "steps": [{"color": "#000000", "brightness": 80, "keys": {"W": "red"}}]},
+            {"kind": "sequence", "steps": [{"color": "#000000", "brightness": 80, "keys": {"W": "#FF0000"}}] * 2},
+        ):
+            with self.subTest(bad), self.assertRaises(ValidationError):
+                SceneCreate(name="x", **bad)
+
+    def test_keys_fade_one_by_one_and_unlisted_keys_take_the_default(self):
+        dark = Step("#000000", None, 100, 0, 0, "linear", keys={"W": "#FF0000"})
+        lit = Step("#0000FF", None, 100, 0, 1, "linear", keys={"A": "#00FF00"})
+        halfway = lit.blend(dark, 0.5)
+        self.assertEqual(halfway["keys"], {"W": ColorMath.rgb_to_hex((127.5, 0, 127.5)), "A": ColorMath.rgb_to_hex((0, 127.5, 0))})
+        self.assertEqual(halfway["color"], ColorMath.rgb_to_hex((0, 0, 127.5)))
+        self.assertEqual(lit.state, {"brightness": 100, "color": "#0000FF", "keys": {"A": "#00FF00"}})
+        self.assertEqual(Step.from_scene({"steps": [{"color": "#000000", "brightness": 5, "keys": {"W": "#FFFFFF"}}]}, {})[0].keys, {"W": "#FFFFFF"})
+
+
 class EngineTests(unittest.TestCase):
     def setUp(self):
         self.frames = []

@@ -367,6 +367,8 @@ function LightCard({ light, dashboard, settings }: TabProps & { light: Light }) 
           <div className="ll-light-foot">
             <span className="ll-meta">
               {light.ip_address} · {light.device || light.mac_address || "MAC not discovered"}
+              {light.zone && ` · zone ${light.zone}`}
+              {light.leds && ` · LEDs ${light.leds}`}
             </span>
             <button className="lv-icon-button" type="button" aria-label={`Delete ${light.name}`} title="Delete" onClick={() => setDeleting(true)}>
               <Trash2 size={16} />

@@ -35,6 +35,8 @@ PROXIED_ROUTES = tuple(
         ("PUT", rf"/api/lights/{ID}(/background)?"),
         ("DELETE", rf"/api/lights/{ID}"),
         ("POST", rf"/api/(lights|rooms|groups)/{ID}/background-image"),
+        ("GET", rf"/api/lights/{ID}/leds"),
+        ("PUT", rf"/api/lights/{ID}/leds"),
         ("POST", r"/api/control/(light|group|all|on)"),
         ("POST", r"/api/(rooms|groups)"),
         ("PUT", rf"/api/(rooms|groups)/{ID}"),

@@ -97,6 +97,11 @@ export function schemeDetails(scheme: Scheme): string {
   if (scheme.kind === "solid") {
     return `${scheme.color_temp ? `${scheme.color_temp} K` : scheme.color} · ${scheme.brightness}%`;
   }
+  if (scheme.kind === "keys") {
+    const keys = `${scheme.keys_colored ?? 0} ${scheme.keys_colored === 1 ? "key" : "keys"}`;
+    if (scheme.steps.length === 1) return `${keys} · ${scheme.steps[0].brightness}%`;
+    return `${keys} · ${scheme.steps.length} steps · ${seconds(scheme.cycle_ms ?? 0)} · ${scheme.loops ? "loops" : "plays once"}`;
+  }
   return `${scheme.steps.length} steps · ${seconds(scheme.cycle_ms ?? 0)} · ${scheme.loops ? "loops" : "plays once"}`;
 }
 
@@ -134,13 +139,14 @@ export function schemePayload(scheme: Scheme) {
   }
   return {
     name: scheme.name,
-    kind: "sequence",
+    kind: scheme.kind,
     loops: scheme.loops,
-    steps: scheme.steps.map(({ color, color_temp, brightness, hold_ms, transition_id }) => ({
+    steps: scheme.steps.map(({ color, color_temp, brightness, hold_ms, transition_id, keys }) => ({
       ...(color ? { color } : { color_temp }),
       brightness,
       hold_ms: hold_ms ?? 0,
       transition_id: transition_id ?? null,
+      ...(keys ? { keys } : {}),
     })),
   };
 }

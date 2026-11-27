@@ -16,6 +16,35 @@ from app.integrations.solid_color import SolidColors
 
 DEFAULT_PORT = 6743
 SCHEME = "icue://"
+UPDATE_BRIDGE = "This iCUE bridge cannot color single keys yet: update it on the PC with bridge/install.ps1"
+
+# Names a per-key color may use for many keys at once, as iCUE names a full-size keyboard's keys.
+KEY_GROUPS: dict[str, tuple[str, ...]] = {
+    "letters": tuple("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+    "numbers": tuple("1234567890"),
+    "function": tuple(f"F{n}" for n in range(1, 13)),
+    "wasd": ("W", "A", "S", "D"),
+    "arrows": ("UpArrow", "LeftArrow", "DownArrow", "RightArrow"),
+    "numpad": (*(f"Keypad{n}" for n in range(10)), "NumLock", "KeypadSlash", "KeypadAsterisk",
+               "KeypadMinus", "KeypadPlus", "KeypadEnter", "KeypadPeriodAndDelete"),
+    "modifiers": ("LeftShift", "RightShift", "LeftCtrl", "RightCtrl", "LeftAlt", "RightAlt",
+                  "LeftGui", "RightGui", "Fn", "CapsLock", "Tab"),
+    "navigation": ("Insert", "Home", "PageUp", "Delete", "End", "PageDown", "PrintScreen", "ScrollLock", "PauseBreak"),
+    "media": ("Mute", "Stop", "ScanPreviousTrack", "PlayPause", "ScanNextTrack", "VolumeUp", "VolumeDown",
+              "Brightness", "WinLock"),
+}
+
+
+def expand_keys(keys: dict[str, str]) -> dict[str, str]:
+    """Spread group names over their keys; a key named on its own wins over its group."""
+    expanded: dict[str, str] = {}
+    for name, color in keys.items():
+        for key in KEY_GROUPS.get(name.casefold(), ()):
+            expanded[key] = color
+    for name, color in keys.items():
+        if name.casefold() not in KEY_GROUPS:
+            expanded[name] = color
+    return expanded
 
 
 @dataclass(frozen=True)
@@ -76,15 +105,30 @@ class ICueAdapter:
             raise ConnectionError(f"iCUE bridge on {host} is unreachable: {error}") from error
 
     async def apply(
-        self, address: str, *, on=None, brightness=None, color=None, color_temp=None
+        self, address: str, *, on=None, brightness=None, color=None, color_temp=None, keys=None
     ) -> None:
-        if on is None and all(value is None for value in (brightness, color, color_temp)):
+        if on is None and keys is None and all(value is None for value in (brightness, color, color_temp)):
             return
         target = ICueAddress.parse(address)
         rgb = self.colors.target(
             str(target), on=on, brightness=brightness, color=color, color_temp=color_temp
         )
-        path = f"/devices/{urllib.parse.quote(target.device, safe='')}/color"
+        device = urllib.parse.quote(target.device, safe="")
+        if keys is not None and on is not False:
+            scale = self.colors.remembered(str(target))["brightness"] / 100
+            painted = {
+                name: [round(channel * scale) for channel in self.colors.rgb(value)]
+                for name, value in expand_keys(keys).items()
+            }
+            body = {"default": list(rgb), "keys": painted}
+            try:
+                await asyncio.to_thread(self._request, target.host, target.port, "PUT", f"/devices/{device}/keys", body)
+            except LookupError as error:
+                if "Not found" not in str(error):
+                    raise
+                raise LookupError(UPDATE_BRIDGE) from error
+            return
+        path = f"/devices/{device}/color"
         await asyncio.to_thread(
             self._request, target.host, target.port, "PUT", path, {"rgb": list(rgb)}
         )
@@ -96,6 +140,15 @@ class ICueAdapter:
         if target.device not in {device["device"] for device in devices}:
             raise LookupError(f"iCUE has no device named {target.device!r} on {target.host}")
         return {"mac_address": None}
+
+    async def keys(self, address: str) -> list[dict]:
+        """Every LED of a device by name ("W", "Space", "Mouse 1"), with its center in iCUE's layout units."""
+        target = ICueAddress.parse(address)
+        path = f"/devices/{urllib.parse.quote(target.device, safe='')}/keys"
+        try:
+            return await asyncio.to_thread(self._request, target.host, target.port, "GET", path)
+        except LookupError as error:
+            raise LookupError(UPDATE_BRIDGE) if "Not found" in str(error) else error
 
     async def devices(self, host: str, port: int = DEFAULT_PORT) -> list[dict]:
         """The devices iCUE offers, as {"device": name, "led_count": n}."""
