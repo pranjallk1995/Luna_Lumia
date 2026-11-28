@@ -467,6 +467,131 @@ with `set_music_scheme`.
 
 ## Data model
 
+### Database diagram
+
+Each person's schema (`u_<id>` in the `lunalumia` database) holds these tables, drawn from the live database. Lines are foreign keys; a table without one is joined by value (a name, a date, an ID kept as text). `PK` marks primary keys, `FK` foreign keys, `UK` unique columns.
+
+```mermaid
+erDiagram
+    group_members {
+        int8 group_id PK, FK
+        int8 light_id PK, FK
+        text membership_kind
+    }
+    light_groups {
+        int8 id PK
+        text name UK
+        text background_image_url
+        text kind
+        timestamptz created_at
+    }
+    lights {
+        int8 id PK
+        text name
+        inet ip_address
+        text mac_address UK
+        text protocol
+        bool is_on
+        int2 brightness
+        bpchar color
+        bool reachable
+        timestamptz last_seen
+        timestamptz created_at
+        text background_image_url
+        int2 color_temp
+        text device
+        int4 port
+    }
+    location {
+        int2 id PK
+        text name
+        float8 latitude
+        float8 longitude
+        timestamptz updated_at
+    }
+    music_automation {
+        int2 id PK
+        bool enabled
+        text target_type
+        int8 target_id
+        text last_applied
+        timestamptz updated_at
+        bool beats
+        int4 beat_offset_ms
+        float4 beat_strength
+    }
+    music_schemes {
+        text mood PK
+        int8 scene_id FK
+    }
+    room_images {
+        text room_key PK
+        text image_url
+        timestamptz updated_at
+    }
+    scenes {
+        int8 id PK
+        text name UK
+        bpchar color
+        int2 brightness
+        text kind
+        int2 color_temp
+        jsonb steps
+        bool loops
+        bool is_preset
+    }
+    schedules {
+        int8 id PK
+        text name
+        text kind
+        text target_type
+        int8 target_id
+        text action
+        int8 scene_id FK
+        time run_time
+        int2_array weekdays
+        bool enabled
+        date last_run_date
+        timestamptz created_at
+        text time_mode
+        int2 offset_minutes
+        date run_date
+    }
+    transitions {
+        int8 id PK
+        text name UK
+        int4 duration_ms
+        text curve
+        bool is_preset
+    }
+    weather_automation {
+        int2 id PK
+        bool enabled
+        text target_type
+        int8 target_id
+        text last_applied
+        timestamptz updated_at
+    }
+    weather_days {
+        date day PK
+        text location
+        text summary
+        text source
+        jsonb periods
+        timestamptz updated_at
+    }
+    weather_schemes {
+        text condition PK
+        text daypart PK
+        int8 scene_id FK
+    }
+    lights ||--o{ group_members : "light_id"
+    light_groups ||--o{ group_members : "group_id"
+    scenes ||--o{ schedules : "scene_id"
+    scenes ||--o{ weather_schemes : "scene_id"
+    scenes ||--o{ music_schemes : "scene_id"
+```
+
 ### `lights`
 
 One row per discovered or manually added light. It stores the editable name,
