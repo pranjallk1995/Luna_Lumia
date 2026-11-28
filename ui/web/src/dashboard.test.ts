@@ -2,6 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import type { Dashboard, Light, Schedule, Scheme, Transition } from "./api";
 import {
+  everydaySchemes,
+  homeTiles,
+  parseTargetKey,
+  playingNow,
+  playingScheme,
+  selectedLights,
+  tileGlow,
+  tileStatus,
+  upcomingSchedule,
   hasOwnPicture,
   addableLights,
   curvePoints,
@@ -217,5 +226,59 @@ describe("per-key schemes", () => {
     expect(schemeDetails(keys)).toBe("4 keys · 80%");
     expect(schemePayload(keys)).toEqual({ name: "WASD", kind: "keys", loops: false,
       steps: [{ color: "#000000", brightness: 80, hold_ms: 1000, transition_id: null, keys: { wasd: "#FF0000" } }] });
+  });
+});
+
+describe("Home", () => {
+  const bulb = (id: number, change: Partial<Light> = {}) =>
+    ({ id, name: `B${id}`, ip_address: "", is_on: true, brightness: 50, color: "#FF0000", color_temp: null, reachable: true, ...change }) as Light;
+  const home = {
+    lights: [bulb(1), bulb(2, { is_on: false }), bulb(3, { reachable: false }), bulb(4, { brightness: 80 })],
+    rooms: [{ id: 10, name: "Den", kind: "room", light_ids: [1, 2, 3] }],
+    groups: [{ id: 20, name: "Movie", kind: "group", light_ids: [1, 4] }],
+    scenes: [{ id: 5, name: "Candle light", kind: "sequence", is_preset: true, brightness: 60, loops: true, steps: [] }],
+    playing: { "1": 5 },
+    live: { "1": { brightness: 62, color: "#FF8800" } },
+    schedules: [],
+  } as unknown as Dashboard;
+
+  it("shows every room, then each light in no room", () => {
+    expect(homeTiles(home).map((tile) => [tile.key, tile.name, tile.lights.length])).toEqual([
+      ["group:10", "Den", 3],
+      ["light:4", "B4", 1],
+    ]);
+  });
+
+  it("covers rooms and groups by their members, without repeats", () => {
+    expect(selectedLights(home, ["group:10", "group:20", "light:4"]).map((light) => light.id)).toEqual([1, 2, 3, 4]);
+    expect(parseTargetKey("light:4")).toEqual({ type: "light", id: 4 });
+  });
+
+  it("says what a tile's lights are doing, a playing frame first", () => {
+    expect(tileStatus(home, home.lights.slice(0, 3))).toBe("1 of 3 on · 62% · 1 offline");
+    expect(tileStatus(home, [bulb(9, { is_on: false })])).toBe("Off");
+    expect(tileStatus(home, [bulb(9, { reachable: false })])).toBe("Offline");
+  });
+
+  it("glows only in lit lights, in their shown color", () => {
+    expect(tileGlow(home, [bulb(2, { is_on: false })])).toBeUndefined();
+    expect(tileGlow(home, [home.lights[0]])).toContain("rgba(255,136,0,0.51)");
+  });
+
+  it("names what is playing and where", () => {
+    expect(playingScheme(home, [{ id: 1 }])?.name).toBe("Candle light");
+    expect(playingNow(home)).toEqual([{ scheme: home.scenes[0], places: ["Den"], lights: 1 }]);
+  });
+
+  it("offers everyday schemes, the playing one first", () => {
+    const scheme = (id: number, change: Partial<Scheme>) => ({ id, name: `S${id}`, is_preset: true, kind: "solid", ...change }) as Scheme;
+    const schemes = [scheme(1, { name: "B" }), scheme(2, { name: "A", weather_slots: ["rain/day"] }), scheme(3, { name: "C", kind: "keys" }), scheme(4, { name: "D" }), scheme(5, { name: "E", is_preset: false })];
+    expect(everydaySchemes(schemes, [4]).map((item) => item.id)).toEqual([4, 5, 1]);
+  });
+
+  it("finds the schedule that runs next", () => {
+    const at = (id: number, run_time: string) => ({ id, name: `At ${run_time}`, kind: "schedule", target_type: "group", target_id: 10, action: "on", weekdays: [0, 1, 2, 3, 4, 5, 6], run_time }) as Schedule;
+    const next = upcomingSchedule({ ...home, schedules: [at(1, "22:00"), at(2, "07:00")] }, new Date(2026, 10, 28, 12, 0));
+    expect([next?.schedule.id, next?.label, next?.where, next?.later]).toEqual([1, "today at 22:00", "Den", 1]);
   });
 });

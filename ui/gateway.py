@@ -39,7 +39,7 @@ PROXIED_ROUTES = tuple(
         ("PUT", rf"/api/lights/{ID}/leds"),
         ("POST", r"/api/control/(light|group|all|on)"),
         ("POST", r"/api/(rooms|groups)"),
-        ("PUT", rf"/api/(rooms|groups)/{ID}"),
+        ("PUT", rf"/api/(rooms|groups)/{ID}(/background)?"),
         ("DELETE", rf"/api/(rooms|groups)/{ID}"),
         ("POST", rf"/api/(rooms|groups)/{ID}/lights"),
         ("DELETE", rf"/api/(rooms|groups)/{ID}/lights/{ID}"),
@@ -56,6 +56,7 @@ PROXIED_ROUTES = tuple(
         ("PUT", rf"/api/(key-groups|hotkeys)/{ID}"),
         ("DELETE", rf"/api/(key-groups|hotkeys)/{ID}"),
         ("POST", rf"/api/hotkeys/{ID}/press"),
+        ("PUT", r"/api/automations/(weather|music)"),
     )
 )
 UNAVAILABLE = "Luna Lumia's backend is unavailable. Please try again."

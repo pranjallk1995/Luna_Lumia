@@ -25,10 +25,12 @@ from app.core.models import (
     LightState,
     LightUpdate,
     LocationUpdate,
+    MusicAutomationUpdate,
     RoomImageUpdate,
     SceneCreate,
     ScheduleCreate,
     TransitionCreate,
+    WeatherAutomationUpdate,
 )
 from app.services.application import LumiaService
 from app.core.config import AppConfig
@@ -151,6 +153,8 @@ class LumiaHTTPRoutes:
         self._register_shortcuts()
         self.route("PUT", "/api/room-image", self.update_room_image)
         self.route("POST", "/api/control/{target_type}", self.control)
+        self.route("PUT", "/api/automations/weather", self.set_weather_automation)
+        self.route("PUT", "/api/automations/music", self.set_music_automation)
 
     async def health(self, request: Request) -> dict:
         return {"status": "ok", "service": "luna-lumia"}
@@ -169,6 +173,12 @@ class LumiaHTTPRoutes:
     async def find_moved_pc_lights(self, request: Request) -> dict:
         body = await request.json()
         return await self.service.lights.find_moved_pc_lights(body.get("subnet") or None)
+
+    async def set_weather_automation(self, request: Request) -> Any:
+        return self.service.weather.set_automation(await self.payload(request, WeatherAutomationUpdate))
+
+    async def set_music_automation(self, request: Request) -> Any:
+        return self.service.music.set_automation(await self.payload(request, MusicAutomationUpdate))
 
     async def update_room_image(self, request: Request) -> Any:
         entry = await self.payload(request, RoomImageUpdate)

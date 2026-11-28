@@ -3,7 +3,7 @@ import { useState, type FormEvent } from "react";
 
 import { lumia, useAct, useControl, type Collection, type Dashboard, type Settings } from "../api";
 import { hasOwnPicture, imageStyle, isValidName, lightState, roomOf, shownColor } from "../dashboard";
-import { AddPicture } from "./AddPicture";
+import { PictureActions } from "./AddPicture";
 import { messageOf } from "../lib";
 import { Bulb, LightChoice, NameEditor, SectionHead, Slider, Toggle } from "./controls";
 import { Dialog } from "./Dialog";
@@ -57,7 +57,7 @@ function SchemePicker({ collection, dashboard, onClose }: { collection: Collecti
 }
 
 /** Choose which lights belong; a room cannot take a light that is already in another room. */
-function EditLights({ collection, dashboard, onClose }: { collection: Collection; dashboard: Dashboard; onClose: () => void }) {
+export function EditLights({ collection, dashboard, onClose }: { collection: Collection; dashboard: Dashboard; onClose: () => void }) {
   const act = useAct();
   const [chosen, setChosen] = useState(collection.light_ids);
   const available = dashboard.lights.filter((light) => {
@@ -133,7 +133,7 @@ function CollectionCard({ collection, dashboard, settings }: TabProps & { collec
           </span>
         </div>
         <Toggle label={`${collection.name} on`} hideLabel checked={allOn} disabled={!live.length} onChange={(on) => control(target, { on }, inside, `Could not update ${collection.name}.`)} />
-        <AddPicture kind={kind} id={id} name={collection.name} settings={settings} own={hasOwnPicture(dashboard, collection.effective_image_url)} className="ll-picture-button" />
+        <PictureActions kind={kind} id={id} name={collection.name} settings={settings} own={hasOwnPicture(dashboard, collection.effective_image_url)} />
       </div>
       <div className="ll-collection-body">
         <Slider label={`${collection.name} brightness`} icon={Sun} min={1} max={100} unit="%" value={brightness} disabled={!lit.length} onCommit={(value) => control(target, { brightness: value }, (light) => inside(light) && light.is_on, `Could not update ${collection.name}.`)} />
@@ -180,7 +180,7 @@ function CollectionCard({ collection, dashboard, settings }: TabProps & { collec
   );
 }
 
-function CreateDialog({ kind, dashboard, settings, onClose }: TabProps & { kind: "room" | "group"; onClose: () => void }) {
+export function CreateDialog({ kind, dashboard, settings, onClose }: TabProps & { kind: "room" | "group"; onClose: () => void }) {
   const [name, setName] = useState("");
   const [chosen, setChosen] = useState<number[]>([]);
   const [error, setError] = useState("");

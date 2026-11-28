@@ -1,5 +1,5 @@
-import { AlarmClock, Clock, MapPin, Pencil, Plus, Save, Sun, Sunrise, Sunset, Repeat, CalendarDays, Trash2, type LucideIcon } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { AlarmClock, Clock, MapPin, Plus, Save, Sun, Sunrise, Sunset, Repeat, CalendarDays, Trash2, type LucideIcon } from "lucide-react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { lumia, useAct, type Dashboard, type Schedule, type Settings } from "../api";
 import {
@@ -11,6 +11,7 @@ import {
   scheduleClock,
   scheduleDays,
   schedulePayload,
+  schemeSegments,
   shifted,
   targetKey,
   targetOptions,
@@ -25,11 +26,10 @@ type TabProps = { dashboard: Dashboard; settings: Settings };
 type When = keyof typeof WHEN;
 
 const WHEN_ICONS: Record<When, LucideIcon> = { time: Clock, sunrise: Sunrise, sunset: Sunset };
-const ACTIONS: Record<string, string> = { on: "On", off: "Off", scene: "Color scheme" };
 const MIN_OFFSET = -120;
 const MAX_OFFSET = 120;
 
-function LocationDialog({ dashboard, onClose }: { dashboard: Dashboard; onClose: () => void }) {
+export function LocationDialog({ dashboard, onClose }: { dashboard: Dashboard; onClose: () => void }) {
   const act = useAct();
   const place = dashboard.location;
   const [error, setError] = useState("");
@@ -165,11 +165,32 @@ function Today({ dashboard, onLocation }: { dashboard: Dashboard; onLocation: ()
   );
 }
 
-function ScheduleForm({ dashboard, settings, editing, onSaved }: TabProps & { editing?: Schedule; onSaved?: () => void }) {
+/** What a schedule does, as one choice: turn on, turn off, or play a scheme. */
+const doKey = (action: string, schemeId?: number | null) => (action === "scene" ? `scene:${schemeId}` : action);
+
+/** A scheme's colors as a short strip; on is amber, off is dark. */
+function DoStrip({ dashboard, schedule }: { dashboard: Dashboard; schedule: Pick<Schedule, "action" | "scene_id"> }) {
+  const scheme = schedule.action === "scene" ? dashboard.scenes.find(({ id }) => id === schedule.scene_id) : undefined;
+  return (
+    <span className="ll-do-strip" aria-hidden="true">
+      {scheme ? (
+        schemeSegments(scheme, dashboard.transitions).map((segment, index) => (
+          <i key={index} style={{ flexGrow: segment.weight, background: segment.color, opacity: segment.opacity }} />
+        ))
+      ) : (
+        <i style={{ flexGrow: 1, background: schedule.action === "on" ? "var(--ll-lit)" : "#2a2a2a" }} />
+      )}
+    </span>
+  );
+}
+
+/** The editor beside the list: a new schedule, or the one selected. */
+function ScheduleForm({ dashboard, settings, editing, onSaved, onDeleted }: TabProps & { editing?: Schedule; onSaved: (name: string) => void; onDeleted: () => void }) {
   const act = useAct();
+  const toast = useToast();
   const options = targetOptions(dashboard);
   const editingTarget = editing ? targetKey(editing.target_type, editing.target_id) : options[0].key;
-  const schemes = dashboard.scenes;
+  const schemes = [...dashboard.scenes].sort((a, b) => Number(a.is_preset) - Number(b.is_preset) || a.name.localeCompare(b.name));
 
   const [name, setName] = useState(editing?.name ?? "");
   const [kind, setKind] = useState(editing?.kind ?? "schedule");
@@ -177,10 +198,7 @@ function ScheduleForm({ dashboard, settings, editing, onSaved }: TabProps & { ed
   const [time, setTime] = useState((editing?.run_time ?? "07:00").slice(0, 5));
   const [offset, setOffset] = useState(editing?.offset_minutes ?? 0);
   const [target, setTarget] = useState(options.some((option) => option.key === editingTarget) ? editingTarget : options[0].key);
-  const [action, setAction] = useState(editing?.action ?? "on");
-  const [scheme, setScheme] = useState(
-    editing?.scene_id && schemes.some(({ id }) => id === editing.scene_id) ? editing.scene_id : (schemes[0]?.id ?? 0),
-  );
+  const [what, setWhat] = useState(editing ? doKey(editing.action, editing.scene_id) : "on");
   const [once, setOnce] = useState(Boolean(editing?.run_date));
   const [days, setDays] = useState<number[]>(editing && !editing.run_date ? editing.weekdays : [0, 1, 2, 3, 4, 5, 6]);
   const [runDate, setRunDate] = useState(editing?.run_date ?? todayIso());
@@ -190,12 +208,17 @@ function ScheduleForm({ dashboard, settings, editing, onSaved }: TabProps & { ed
     setDays((current) => (current.includes(day) ? current.filter((other) => other !== day) : [...current, day].sort()));
 
   const preview = when === "time" ? null : shifted(dashboard.location?.[when], offset);
+  // Rooms, groups, and every light: the places a schedule can act on, as chips; single lights in a menu.
+  const places = options.filter((option) => option.type !== "light");
+  const lights = options.filter((option) => option.type === "light");
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!name.trim()) return setError("Give the schedule a name.");
+    if (!once && !days.length) return setError("Choose at least one day.");
     setError("");
     const chosen = options.find((option) => option.key === target)!;
+    const [action, schemeId] = what.startsWith("scene:") ? ["scene", Number(what.slice(6))] : [what, null];
     // Saving a one-time schedule that has run arms it again for its (new) date.
     const enabled = editing ? (editing.enabled ?? true) || (once && isFinished(editing)) : true;
     const payload = {
@@ -204,7 +227,7 @@ function ScheduleForm({ dashboard, settings, editing, onSaved }: TabProps & { ed
       target_type: chosen.type,
       target_id: chosen.id,
       action,
-      scene_id: action === "scene" ? scheme : null,
+      scene_id: schemeId,
       time_mode: when,
       run_time: when === "time" ? `${time}:00` : null,
       offset_minutes: when === "time" ? 0 : offset,
@@ -215,154 +238,156 @@ function ScheduleForm({ dashboard, settings, editing, onSaved }: TabProps & { ed
     await act(async () => {
       try {
         await (editing ? lumia.update("schedules", editing.id, payload) : lumia.create("schedules", payload));
-        if (onSaved) onSaved();
-        else setName("");
+        onSaved(name);
       } catch (failure) {
         setError(messageOf(failure, "That could not be saved."));
       }
     });
   };
 
+  const remove = async () => {
+    if (!editing) return;
+    const removed = await act(() => lumia.delete("schedules", editing.id), `Could not delete ${editing.name}.`);
+    if (removed) {
+      onDeleted();
+      toast(`${editing.name} deleted`, { label: "Undo", run: () => act(() => lumia.create("schedules", schedulePayload(editing)), `Could not restore ${editing.name}.`) });
+    }
+  };
+
   return (
-    <form className="lv-form" onSubmit={submit}>
-      <div className="ll-form-2-1">
-        <label className="lv-field">
-          Name
-          <input className="lv-input" placeholder="Wake up" maxLength={100} value={name} onChange={(event) => setName(event.target.value)} />
-        </label>
-        <label className="lv-field">
-          Type
-          <select className="lv-select" value={kind} onChange={(event) => setKind(event.target.value)}>
-            <option value="schedule">Schedule</option>
-            <option value="alarm">Alarm</option>
-          </select>
-        </label>
+    <form className="lv-form ll-schedule-form" onSubmit={submit}>
+      <label className="lv-field">
+        Name
+        <input className="lv-input" placeholder="Wake up" maxLength={100} value={name} onChange={(event) => setName(event.target.value)} />
+      </label>
+      <div className="ll-segments ll-segments-wide" role="group" aria-label="Type">
+        <button className={kind === "schedule" ? "ll-segment ll-segment-active" : "ll-segment"} type="button" aria-pressed={kind === "schedule"} onClick={() => setKind("schedule")}>
+          <Clock size={15} />
+          Schedule
+        </button>
+        <button className={kind === "alarm" ? "ll-segment ll-segment-active" : "ll-segment"} type="button" aria-pressed={kind === "alarm"} onClick={() => setKind("alarm")}>
+          <AlarmClock size={15} />
+          Alarm
+        </button>
       </div>
-      <div className="lv-form-row ll-align-end">
-        <div className="lv-field">
-          When
-          <div className="ll-segments ll-segments-wide" role="group" aria-label="When">
-            {(Object.keys(WHEN) as When[]).map((id) => {
-              const Icon = WHEN_ICONS[id];
-              return (
-                <button className={when === id ? "ll-segment ll-segment-active" : "ll-segment"} type="button" aria-pressed={when === id} key={id} onClick={() => setWhen(id)}>
-                  <Icon size={15} />
-                  {WHEN[id]}
-                </button>
-              );
-            })}
-          </div>
+      <div className="lv-field">
+        When
+        <div className="ll-segments ll-segments-wide" role="group" aria-label="When">
+          {(Object.keys(WHEN) as When[]).map((id) => {
+            const Icon = WHEN_ICONS[id];
+            return (
+              <button className={when === id ? "ll-segment ll-segment-active" : "ll-segment"} type="button" aria-pressed={when === id} key={id} onClick={() => setWhen(id)}>
+                <Icon size={15} />
+                {WHEN[id]}
+              </button>
+            );
+          })}
         </div>
-        {when === "time" ? (
-          <label className="lv-field">
-            Time
-            <input className="lv-input" type="time" value={time} required onChange={(event) => setTime(event.target.value)} />
-          </label>
-        ) : (
-          <label className="lv-field">
-            Offset from {when}: {offset} min
-            <input type="range" min={MIN_OFFSET} max={MAX_OFFSET} step={5} value={offset} onChange={(event) => setOffset(Number(event.target.value))} />
-          </label>
+      </div>
+      {when === "time" ? (
+        <label className="lv-field">
+          Time
+          <input className="lv-input" type="time" value={time} required onChange={(event) => setTime(event.target.value)} />
+        </label>
+      ) : (
+        <label className="lv-field">
+          {offset ? `${Math.abs(offset)} min ${offset < 0 ? "before" : "after"} ${when}` : `At ${when}`}
+          {preview ? ` · ${preview} today` : ""}
+          <input type="range" min={MIN_OFFSET} max={MAX_OFFSET} step={5} value={offset} onChange={(event) => setOffset(Number(event.target.value))} />
+        </label>
+      )}
+      {when !== "time" && !dashboard.location && <p className="lv-alert">Set your location above to schedule at sunrise or sunset.</p>}
+      <label className="lv-field">
+        Do
+        <select className="lv-select" value={what} onChange={(event) => setWhat(event.target.value)}>
+          <option value="on">Turn on</option>
+          <option value="off">Turn off</option>
+          <optgroup label="Play a scheme">
+            {schemes.map(({ id, name: schemeName }) => (
+              <option value={doKey("scene", id)} key={id}>
+                Play {schemeName}
+              </option>
+            ))}
+          </optgroup>
+        </select>
+      </label>
+      <div className="lv-field">
+        On
+        <div className="ll-chips" role="group" aria-label="On">
+          {places.map((option) => (
+            <button className={target === option.key ? "ll-choice ll-choice-active" : "ll-choice"} type="button" aria-pressed={target === option.key} key={option.key} onClick={() => setTarget(option.key)}>
+              {option.label.replace(/^(Room|Group) · /, "")}
+            </button>
+          ))}
+        </div>
+        {lights.length > 0 && (
+          <select className="lv-select" aria-label="Or one light" value={lights.some((option) => option.key === target) ? target : ""} onChange={(event) => event.target.value && setTarget(event.target.value)}>
+            <option value="">Or one light…</option>
+            {lights.map((option) => (
+              <option value={option.key} key={option.key}>
+                {option.label.replace(/^Light · /, "")}
+              </option>
+            ))}
+          </select>
         )}
       </div>
-      {preview && when !== "time" && (
-        <p className="lv-caption">
-          Runs {offset ? `${Math.abs(offset)} min ${offset < 0 ? "before" : "after"} ${when}` : `at ${when}`} — {preview} today, adjusting daily with the sun.
-        </p>
-      )}
-      {when !== "time" && !dashboard.location && <p className="lv-alert">Set your location on the Today panel to schedule at sunrise or sunset.</p>}
-      <div className="lv-form-row">
-        <label className="lv-field">
-          Target
-          <select className="lv-select" value={target} onChange={(event) => setTarget(event.target.value)}>
-            {options.map((option) => (
-              <option value={option.key} key={`${option.label}-${option.key}`}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="lv-field">
-          Action
-          <select className="lv-select" value={action} onChange={(event) => setAction(event.target.value)}>
-            {Object.entries(ACTIONS).map(([id, label]) => (
-              <option value={id} key={id}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      {action === "scene" && (
-        <label className="lv-field">
-          Color scheme
-          <select className="lv-select" value={scheme} onChange={(event) => setScheme(Number(event.target.value))}>
-            {schemes.map(({ id, name: schemeName }) => (
-              <option value={id} key={id}>
-                {schemeName}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      <div className="ll-form-1-2 ll-align-end">
-        <div className="lv-field">
-          Repeat
-          <div className="ll-segments ll-segments-wide" role="group" aria-label="Repeat">
-            <button className={once ? "ll-segment" : "ll-segment ll-segment-active"} type="button" aria-pressed={!once} onClick={() => setOnce(false)}>
-              <Repeat size={15} />
-              Repeat
-            </button>
-            <button className={once ? "ll-segment ll-segment-active" : "ll-segment"} type="button" aria-pressed={once} onClick={() => setOnce(true)}>
-              <CalendarDays size={15} />
-              Once
-            </button>
-          </div>
+      <div className="lv-field">
+        Repeat
+        <div className="ll-segments ll-segments-wide" role="group" aria-label="Repeat">
+          <button className={once ? "ll-segment" : "ll-segment ll-segment-active"} type="button" aria-pressed={!once} onClick={() => setOnce(false)}>
+            <Repeat size={15} />
+            Repeat
+          </button>
+          <button className={once ? "ll-segment ll-segment-active" : "ll-segment"} type="button" aria-pressed={once} onClick={() => setOnce(true)}>
+            <CalendarDays size={15} />
+            Once
+          </button>
         </div>
         {once ? (
-          <label className="lv-field">
-            Date
-            <input
-              className="lv-input"
-              type="date"
-              value={runDate}
-              min={runDate < todayIso() ? runDate : todayIso()}
-              required
-              onChange={(event) => setRunDate(event.target.value)}
-            />
-          </label>
+          <input
+            className="lv-input"
+            type="date"
+            aria-label="Date"
+            value={runDate}
+            min={runDate < todayIso() ? runDate : todayIso()}
+            required
+            onChange={(event) => setRunDate(event.target.value)}
+          />
         ) : (
-          <div className="lv-field">
-            Repeat on
-            <div className="ll-chips" role="group" aria-label="Repeat on">
-              {settings.weekday_names.map((label, day) => (
-                <button className={days.includes(day) ? "ll-choice ll-choice-active" : "ll-choice"} type="button" aria-pressed={days.includes(day)} key={label} onClick={() => toggleDay(day)}>
-                  {label}
-                </button>
-              ))}
-            </div>
+          <div className="ll-days" role="group" aria-label="Repeat on">
+            {settings.weekday_names.map((label, day) => (
+              <button className={days.includes(day) ? "ll-day-pick ll-day-pick-on" : "ll-day-pick"} type="button" aria-pressed={days.includes(day)} aria-label={label} title={label} key={label} onClick={() => toggleDay(day)}>
+                {label.charAt(0)}
+              </button>
+            ))}
           </div>
         )}
       </div>
       {once && <p className="lv-caption">Runs once on this day, then switches itself off.</p>}
       {error && <p className="lv-alert lv-alert-error">{error}</p>}
-      <button className="lv-button" type="submit">
-        <Save size={17} />
-        {editing ? "Save changes" : "Save schedule"}
-      </button>
+      <div className="ll-form-actions">
+        <button className="lv-button lv-button-primary ll-grow" type="submit">
+          <Save size={17} />
+          {editing ? "Save changes" : "Save schedule"}
+        </button>
+        {editing && (
+          <button className="lv-button" type="button" aria-label={`Delete ${editing.name}`} title="Delete" onClick={remove}>
+            <Trash2 size={16} />
+          </button>
+        )}
+      </div>
     </form>
   );
 }
 
-function ScheduleRow({ schedule, dashboard, settings, onEdit }: TabProps & { schedule: Schedule; onEdit: () => void }) {
+function ScheduleRow({ schedule, dashboard, settings, selected, onSelect }: TabProps & { schedule: Schedule; selected: boolean; onSelect: () => void }) {
   const act = useAct();
   const toast = useToast();
   const now = useNow();
   const options = targetOptions(dashboard);
-  const Icon = schedule.kind === "alarm" ? AlarmClock : Clock;
-  const target = options.find((option) => option.key === targetKey(schedule.target_type, schedule.target_id))?.label ?? "Deleted target";
+  const target = (options.find((option) => option.key === targetKey(schedule.target_type, schedule.target_id))?.label ?? "Deleted target").replace(/^(Room|Group|Light) · /, "");
   const action =
-    schedule.action === "scene" ? `plays ${dashboard.scenes.find(({ id }) => id === schedule.scene_id)?.name ?? "a deleted scheme"}` : `turns ${schedule.action}`;
+    schedule.action === "scene" ? `Play ${dashboard.scenes.find(({ id }) => id === schedule.scene_id)?.name ?? "a deleted scheme"}` : `Turn ${schedule.action}`;
   const finished = isFinished(schedule);
   const active = schedule.enabled !== false && !finished;
   const run = nextRun(schedule, now);
@@ -372,71 +397,100 @@ function ScheduleRow({ schedule, dashboard, settings, onEdit }: TabProps & { sch
       (done) => done && toast(`${schedule.name} ${on ? "resumed" : "paused"}`),
     );
 
-  const remove = async () => {
-    const removed = await act(() => lumia.delete("schedules", schedule.id), `Could not delete ${schedule.name}.`);
-    if (removed) toast(`${schedule.name} deleted`, { label: "Undo", run: () => act(() => lumia.create("schedules", schedulePayload(schedule)), `Could not restore ${schedule.name}.`) });
-  };
-
   return (
-    <article className={active ? "ll-panel ll-schedule" : "ll-panel ll-schedule ll-schedule-paused"}>
-      <div className="ll-clock">
-        {scheduleClock(schedule)}
-        <small>{scheduleAnchor(schedule, Boolean(dashboard.location))}</small>
-      </div>
-      <div className="ll-schedule-main">
-        <strong>
-          <Icon size={15} />
-          <span title={schedule.name}>{schedule.name}</span>
-          {schedule.kind === "alarm" && <span className="ll-tag">Alarm</span>}
-          {finished ? <span className="ll-tag">Done</span> : schedule.enabled === false && <span className="ll-tag">Paused</span>}
-        </strong>
-        <p>
-          {scheduleDays(schedule, settings.weekday_names)} · {target} · {action}
-        </p>
-        <p>{finished ? "Ran on its date. Edit it to set a new one." : run ? `Next: ${run.label}` : active ? "No upcoming run" : "Paused"}</p>
-      </div>
-      <div className="ll-schedule-side">
+    <li className={`ll-schedule${active ? "" : " ll-schedule-paused"}${selected ? " ll-schedule-selected" : ""}`}>
+      <button className="ll-schedule-select" type="button" aria-pressed={selected} onClick={onSelect}>
+        <span className="ll-clock">
+          {scheduleClock(schedule)}
+          <small>{scheduleAnchor(schedule, Boolean(dashboard.location))}</small>
+        </span>
+        <span className="ll-schedule-main">
+          <strong>
+            <span className="ll-truncate" title={schedule.name}>
+              {schedule.name}
+            </span>
+            {schedule.kind === "alarm" && <span className="ll-tag ll-tag-alarm">Alarm</span>}
+            {finished ? <span className="ll-tag">Done</span> : schedule.enabled === false && <span className="ll-tag">Paused</span>}
+          </strong>
+          <span className="ll-schedule-what">
+            <DoStrip dashboard={dashboard} schedule={schedule} />
+            <span className="ll-truncate">
+              {action} · {target}
+            </span>
+          </span>
+          <span className="ll-now-label">{finished ? "Ran on its date. Edit it to set a new one." : run ? `Next ${run.label}` : active ? "No upcoming run" : "Paused"}</span>
+        </span>
+        <span className="ll-week" aria-label={scheduleDays(schedule, settings.weekday_names)}>
+          {settings.weekday_names.map((label, day) => (
+            <span className={!schedule.run_date && schedule.weekdays.includes(day) ? "ll-week-on" : undefined} aria-hidden="true" key={label}>
+              {label.charAt(0)}
+            </span>
+          ))}
+        </span>
+      </button>
+      <span className="ll-schedule-switch">
         <Toggle label={`${schedule.name} active`} hideLabel checked={active} disabled={finished} onChange={setActive} />
-        <button className="lv-icon-button" type="button" aria-label={`Edit ${schedule.name}`} title="Edit" onClick={onEdit}>
-          <Pencil size={15} />
-        </button>
-        <button className="lv-icon-button" type="button" aria-label={`Delete ${schedule.name}`} title="Delete" onClick={remove}>
-          <Trash2 size={15} />
-        </button>
-      </div>
-    </article>
+      </span>
+    </li>
   );
 }
 
 export function SchedulesTab({ dashboard, settings }: TabProps) {
-  const [editing, setEditing] = useState<Schedule | "new" | null>(null);
+  const [selected, setSelected] = useState<number | "new">(() => dashboard.schedules[0]?.id ?? "new");
   const [locating, setLocating] = useState(false);
+  const panel = useRef<HTMLElement>(null);
   const sorted = [...dashboard.schedules].sort((a, b) => (minutesOf(scheduleClock(a)) ?? 1440) - (minutesOf(scheduleClock(b)) ?? 1440));
+  const editing = selected === "new" ? undefined : dashboard.schedules.find((schedule) => schedule.id === selected);
+
+  // On a phone the editor sits below the list, so bring it into view.
+  const choose = (next: number | "new") => {
+    setSelected(next);
+    if (window.matchMedia("(max-width: 960px)").matches) window.setTimeout(() => panel.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
+  const afterSave = (name: string) => {
+    if (selected === "new") {
+      const created = dashboard.schedules.find((schedule) => schedule.name === name);
+      if (created) setSelected(created.id);
+    }
+  };
+
   return (
     <>
       <Today dashboard={dashboard} onLocation={() => setLocating(true)} />
-      <section className="ll-block" aria-labelledby="schedules-title">
-        <SectionHead title="Schedules and alarms" count={dashboard.schedules.length} id="schedules-title">
-          <button className="lv-button lv-button-primary" type="button" onClick={() => setEditing("new")}>
-            <Plus size={17} />
-            New schedule
-          </button>
-        </SectionHead>
-        {sorted.length ? (
-          <div className="ll-schedules">
-            {sorted.map((schedule) => (
-              <ScheduleRow schedule={schedule} dashboard={dashboard} settings={settings} onEdit={() => setEditing(schedule)} key={schedule.id} />
-            ))}
+      <div className="ll-split">
+        <section className="ll-split-main" aria-labelledby="schedules-title">
+          <SectionHead title="Schedules and alarms" count={dashboard.schedules.length} id="schedules-title">
+            <button className="lv-button lv-button-primary" type="button" onClick={() => choose("new")}>
+              <Plus size={17} />
+              New schedule
+            </button>
+          </SectionHead>
+          {sorted.length ? (
+            <ul className="ll-schedules">
+              {sorted.map((schedule) => (
+                <ScheduleRow schedule={schedule} dashboard={dashboard} settings={settings} selected={schedule.id === selected} onSelect={() => choose(schedule.id)} key={schedule.id} />
+              ))}
+            </ul>
+          ) : (
+            <p className="lv-alert">No schedules yet. A schedule turns lights on or off, or plays a scheme, at a time or with the sun.</p>
+          )}
+        </section>
+        <aside className="ll-split-panel" ref={panel} aria-label={editing ? `Edit ${editing.name}` : "New schedule"}>
+          <div className="ll-panel-head">
+            <span className="ll-now-label">{editing ? (editing.kind === "alarm" ? "Editing alarm" : "Editing schedule") : "New schedule or alarm"}</span>
+            <strong>{editing?.name ?? "Untitled"}</strong>
           </div>
-        ) : (
-          <p className="lv-alert">No schedules yet. A schedule turns lights on or off, or plays a scheme, at a time or with the sun.</p>
-        )}
-      </section>
-      {editing && (
-        <Dialog title={editing === "new" ? "New schedule or alarm" : `Edit ${editing.kind === "alarm" ? "alarm" : "schedule"}`} size="large" onClose={() => setEditing(null)}>
-          <ScheduleForm dashboard={dashboard} settings={settings} editing={editing === "new" ? undefined : editing} onSaved={() => setEditing(null)} />
-        </Dialog>
-      )}
+          <ScheduleForm
+            dashboard={dashboard}
+            settings={settings}
+            editing={editing}
+            key={editing?.id ?? "new"}
+            onSaved={afterSave}
+            onDeleted={() => setSelected("new")}
+          />
+          <p className="lv-caption">Sunrise and sunset follow your location{dashboard.location ? `, ${dashboard.location.name}` : ""}. An alarm fades the lights up over its scheme's length.</p>
+        </aside>
+      </div>
       {locating && <LocationDialog dashboard={dashboard} onClose={() => setLocating(false)} />}
     </>
   );

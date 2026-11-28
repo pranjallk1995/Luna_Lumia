@@ -1,34 +1,31 @@
-import { Clock, DoorOpen, Keyboard, Lightbulb, LogOut, Palette, Power, RefreshCw, type LucideIcon } from "lucide-react";
+import { Clock, House, Keyboard, LogOut, Palette, RefreshCw, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import { useState } from "react";
 
-import { lumia, useAct, useControl, useDashboard, type Dashboard, type Settings } from "./api";
+import { lumia, useAct, useDashboard, type Settings } from "./api";
 import { Brand, ForbiddenPage, SignInPage, UnreachablePage } from "./components/Gate";
-import { LightsTab } from "./components/LightsTab";
+import { DevicesTab } from "./components/DevicesTab";
+import { HomeTab } from "./components/HomeTab";
 import { PcTab } from "./components/PcTab";
-import { RoomsTab } from "./components/RoomsTab";
 import { SchedulesTab } from "./components/SchedulesTab";
-import { SchemesTab } from "./components/SchemesTab";
+import { SchemesLibrary } from "./components/SchemesLibrary";
 import { useSession } from "./http";
 import { messageOf, remember, remembered } from "./lib";
 
-const SECTIONS = ["lights", "rooms", "pc", "schemes", "schedules"] as const;
+const SECTIONS = ["home", "schemes", "schedules", "pc", "devices"] as const;
 type Section = (typeof SECTIONS)[number];
 
 const NAV: { id: Section; label: string; icon: LucideIcon }[] = [
-  { id: "lights", label: "Lights", icon: Lightbulb },
-  { id: "rooms", label: "Rooms", icon: DoorOpen },
-  { id: "pc", label: "PC", icon: Keyboard },
+  { id: "home", label: "Home", icon: House },
   { id: "schemes", label: "Schemes", icon: Palette },
   { id: "schedules", label: "Schedules", icon: Clock },
+  { id: "pc", label: "PC", icon: Keyboard },
+  { id: "devices", label: "Devices", icon: SlidersHorizontal },
 ];
 
-function HeaderActions({ dashboard, logoutUrl }: { dashboard?: Dashboard; logoutUrl: string }) {
+/** Checking the lights and signing out; switching every light is on Home's Now bar. */
+function HeaderActions({ logoutUrl }: { logoutUrl: string }) {
   const act = useAct();
-  const control = useControl();
   const [checking, setChecking] = useState(false);
-  // An offline light cannot be switched, so it does not hold "Turn all on" back.
-  const live = dashboard?.lights.filter((light) => light.reachable !== false) ?? [];
-  const allOn = live.length > 0 && live.every((light) => light.is_on);
 
   const check = async () => {
     setChecking(true);
@@ -39,17 +36,8 @@ function HeaderActions({ dashboard, logoutUrl }: { dashboard?: Dashboard; logout
 
   return (
     <div className="lv-header-actions">
-      <button className="lv-button" type="button" aria-label="Check lights" disabled={checking} onClick={check}>
+      <button className="lv-button" type="button" aria-label="Check lights" title="Check lights" disabled={checking} onClick={check}>
         <RefreshCw size={17} className={checking ? "ll-spin" : undefined} />
-      </button>
-      <button
-        className="lv-button lv-button-primary lv-header-main"
-        type="button"
-        disabled={!dashboard}
-        onClick={() => control({ type: "all", id: null }, { on: !allOn }, () => true, "Could not update all lights.")}
-      >
-        <Power size={17} />
-        {allOn ? "Turn all off" : "Turn all on"}
       </button>
       <a className="lv-button lv-sign-out" href={logoutUrl}>
         <LogOut size={16} />
@@ -60,8 +48,10 @@ function HeaderActions({ dashboard, logoutUrl }: { dashboard?: Dashboard; logout
 }
 
 function Workspace({ logoutUrl, settings }: { logoutUrl: string; settings: Settings }) {
-  const [section, setSection] = useState<Section>(() => remembered("ll-section", SECTIONS, "lights"));
+  const [section, setSection] = useState<Section>(() => remembered("ll-section", SECTIONS, "home"));
   const dashboard = useDashboard();
+  // Rooms, groups, and lights chosen on Home; Schemes plays on the same ones.
+  const [selection, setSelection] = useState<string[]>([]);
   const data = dashboard.data;
 
   const choose = (id: Section) => {
@@ -73,7 +63,7 @@ function Workspace({ logoutUrl, settings }: { logoutUrl: string; settings: Setti
     <main className="lv-page">
       <div className="lv-header-row">
         <Brand />
-        <HeaderActions dashboard={data} logoutUrl={logoutUrl} />
+        <HeaderActions logoutUrl={logoutUrl} />
       </div>
 
       <nav className="lv-nav" aria-label="Section">
@@ -95,11 +85,11 @@ function Workspace({ logoutUrl, settings }: { logoutUrl: string; settings: Setti
       {dashboard.error && !data && (
         <p className="lv-alert lv-alert-error">{messageOf(dashboard.error, "Luna Lumia's backend is unavailable.")}</p>
       )}
-      {data && section === "lights" && <LightsTab dashboard={data} settings={settings} />}
-      {data && section === "rooms" && <RoomsTab dashboard={data} settings={settings} />}
+      {data && section === "home" && <HomeTab dashboard={data} settings={settings} selection={selection} onSelection={setSelection} />}
       {data && section === "pc" && <PcTab dashboard={data} settings={settings} />}
-      {data && section === "schemes" && <SchemesTab dashboard={data} settings={settings} />}
+      {data && section === "schemes" && <SchemesLibrary dashboard={data} settings={settings} selection={selection} onSelection={setSelection} />}
       {data && section === "schedules" && <SchedulesTab dashboard={data} settings={settings} />}
+      {data && section === "devices" && <DevicesTab dashboard={data} settings={settings} />}
       <footer className="lv-footer">Luna Lumia{settings.version && ` · v${settings.version}`}</footer>
     </main>
   );

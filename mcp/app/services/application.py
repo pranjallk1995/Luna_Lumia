@@ -1376,4 +1376,11 @@ class LumiaService:
             "live": {str(light_id): frame for light_id, frame in self.scenes.live().items()},
             "schedules": self.schedules.list(),
             "room_images": self.images.list_room_images(),
+            "automations": {"weather": self._automation(self.weather), "music": self._automation(self.music)},
         }
+
+    @staticmethod
+    def _automation(service: Any) -> dict[str, Any]:
+        """Whether an automation is on and which lights it acts on, for the page's Now bar."""
+        setting = service.automation()
+        return {key: setting.get(key) for key in ("enabled", "target_type", "target_id")}

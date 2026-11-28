@@ -1,4 +1,4 @@
-import { ImagePlus } from "lucide-react";
+import { ImagePlus, RotateCcw } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { lumia, useAct, type Settings } from "../api";
@@ -53,5 +53,35 @@ export function AddPicture({ kind, id, name, settings, own, className }: Props) 
       <input ref={input} type="file" hidden accept={settings.picture_types.map((type) => `.${type}`).join(",")}
         onChange={(event) => { store(event.target.files?.[0]); event.target.value = ""; }} />
     </>
+  );
+}
+
+/** "Default image": drops the card's own picture, back to the one Lumia picks from its name. */
+export function RestorePicture({ kind, id, name, className }: Pick<Props, "kind" | "id" | "name" | "className">) {
+  const act = useAct();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const restore = async () => {
+    setBusy(true);
+    const done = await act(() => lumia.restorePicture(kind, id), `The default picture of ${name} could not be restored.`);
+    setBusy(false);
+    if (done) toast(`${name} shows its default picture again`);
+  };
+  return (
+    <button className={className} type="button" disabled={busy} aria-busy={busy}
+      aria-label={`Restore the default picture of ${name}`} title="Back to the picture Lumia picks from its name" onClick={restore}>
+      <RotateCcw size={15} />
+      {busy ? "Restoring…" : "Default image"}
+    </button>
+  );
+}
+
+/** A card's picture buttons, over the top right of its picture: add or change it, and restore the default. */
+export function PictureActions(props: Omit<Props, "className">) {
+  return (
+    <div className="ll-picture-actions">
+      {props.own && <RestorePicture {...props} className="ll-picture-button" />}
+      <AddPicture {...props} className="ll-picture-button" />
+    </div>
   );
 }

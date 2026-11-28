@@ -121,6 +121,9 @@ export type Schedule = {
 
 export type Place = { name: string; latitude: number; longitude: number; sunrise?: string | null; sunset?: string | null };
 
+/** Whether Lumia follows the weather or the music, and which lights it changes. */
+export type Automation = { enabled: boolean; target_type: string; target_id?: number | null };
+
 export type Dashboard = {
   lights: Light[];
   rooms: Collection[];
@@ -133,6 +136,7 @@ export type Dashboard = {
   live: Record<string, Frame>;
   /** The room-image catalog: the picture each kind of room borrows when it has none of its own. */
   room_images: { room_key: string; image_url: string }[];
+  automations?: { weather: Automation; music: Automation };
 };
 
 export type Discovered = { ip_address: string; mac_address?: string | null; suggested_name: string; moved_from?: string };
@@ -166,12 +170,15 @@ export const lumia = {
   applyScheme: (schemeId: number, { type, id }: Target) =>
     post<{ scene?: string; light_ids?: number[] }>(`/api/scenes/${schemeId}/apply`, { target_type: type, target_id: id }),
   stopSchemes: ({ type, id }: Target) => post("/api/scenes/stop", { target_type: type, target_id: id }),
+  setAutomation: (kind: "weather" | "music", setting: Automation) => put(`/api/automations/${kind}`, setting),
   saveLocation: (place: Pick<Place, "name" | "latitude" | "longitude">) => put("/api/location", place),
   /** Rename a light, then re-infer its background from the new name, unless it has a picture of its own. */
   renameLight: async (id: number, name: string, keepPicture = false) => {
     await put(`/api/lights/${id}`, { name });
     if (!keepPicture) await put(`/api/lights/${id}/background`, { image_url: null });
   },
+  /** Drop a light's, room's, or group's own picture: it goes back to the one Lumia picks from its name. */
+  restorePicture: (kind: "light" | "room" | "group", id: number) => put(`/api/${kind}s/${id}/background`, { image_url: null }),
   /** Store a picture in Luna Visia and show it on a light, room, or group. */
   storePicture: (kind: "light" | "room" | "group", id: number, dataUrl: string) =>
     post(`/api/${kind}s/${id}/background-image`, { content_base64: dataUrl.slice(dataUrl.indexOf(",") + 1) }),

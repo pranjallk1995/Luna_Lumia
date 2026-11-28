@@ -1,10 +1,10 @@
-import { CirclePlus, DoorOpen, House, Monitor, Palette, Radar, RefreshCw, Sun, Thermometer, Trash2 } from "lucide-react";
+import { CirclePlus, DoorOpen, Monitor, Palette, Radar, RefreshCw, Sun, Thermometer, Trash2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { lumia, useAct, useControl, type Dashboard, type Discovered, type Light, type PcDevice, type PcDiscovery, type PcSource, type Settings } from "../api";
-import { hasOwnPicture, imageStyle, isValidName, lightState, mostCommon, movedSummary, roomOf, shownColor, temperatureSchemes } from "../dashboard";
-import { AddPicture } from "./AddPicture";
+import { hasOwnPicture, imageStyle, isValidName, lightState, movedSummary, roomOf, shownColor, temperatureSchemes } from "../dashboard";
+import { PictureActions } from "./AddPicture";
 import { messageOf } from "../lib";
 import { Bulb, ColorChips, ColorInput, ModeToggle, NameEditor, SectionHead, Slider, TemperatureChips, Toggle, type Mode } from "./controls";
 import { Dialog } from "./Dialog";
@@ -12,7 +12,7 @@ import { useToast } from "./Toasts";
 
 type TabProps = { dashboard: Dashboard; settings: Settings };
 
-const lastSeen = (light: Light) =>
+export const lastSeen = (light: Light) =>
   light.last_seen
     ? new Date(light.last_seen).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })
     : null;
@@ -110,7 +110,7 @@ function AddPc({ dashboard, settings }: TabProps) {
 }
 
 /** The network scan and manual entry, together, out of the way once the lights are set up. */
-function AddLights({ dashboard, settings, onClose }: TabProps & { onClose: () => void }) {
+export function AddLights({ dashboard, settings, onClose }: TabProps & { onClose: () => void }) {
   const client = useQueryClient();
   const toast = useToast();
   const act = useAct();
@@ -188,82 +188,7 @@ function AddLights({ dashboard, settings, onClose }: TabProps & { onClose: () =>
   );
 }
 
-/** Every light that is on, at once, with a count of the whole house. */
-function HouseSummary({ dashboard, settings }: TabProps) {
-  const control = useControl();
-  const act = useAct();
-  const lights = dashboard.lights;
-  const on = lights.filter((light) => lightState(light) === "on");
-  const offline = lights.filter((light) => lightState(light) === "offline");
-  const none = !on.length;
-  const isOn = (light: Light) => light.is_on;
-  const target = { type: "on", id: null };
-  const fallback = "Could not update the lights that are on.";
-  const schemes = temperatureSchemes(dashboard.scenes, settings.temperature_presets);
-
-  return (
-    <section className="ll-house" aria-label="Whole house">
-      <div className="ll-panel ll-house-count">
-        <span className="ll-label">
-          <House size={15} />
-          Whole house
-        </span>
-        <strong>
-          {on.length} <small>of {lights.length} on</small>
-        </strong>
-        <span className="ll-label">
-          {offline.length > 0 && <span className="ll-bad">{offline.length} offline · </span>}
-          {lights.length - offline.length} online
-        </span>
-        <span className="ll-dots" aria-hidden="true">
-          {lights.map((light) => (
-            <Bulb color={shownColor(dashboard, light)} state={lightState(light)} small key={light.id} />
-          ))}
-        </span>
-      </div>
-      <div className="ll-panel ll-house-controls">
-        <div className="ll-row">
-          <span>Brightness</span>
-          <Slider
-            label="Brightness of every light that is on"
-            icon={Sun}
-            min={1}
-            max={100}
-            unit="%"
-            value={mostCommon(on.map((light) => light.brightness), 100)}
-            disabled={none}
-            onCommit={(brightness) => control(target, { brightness }, isOn, fallback)}
-          />
-        </div>
-        <div className="ll-row">
-          <span>Temperature</span>
-          <Slider
-            label="Temperature of every light that is on"
-            icon={Thermometer}
-            min={settings.min_color_temp}
-            max={settings.max_color_temp}
-            step={100}
-            unit="K"
-            value={mostCommon(on.map((light) => light.color_temp), settings.default_color_temp)}
-            disabled={none}
-            onCommit={(color_temp) => control(target, { color_temp }, isOn, fallback)}
-          />
-        </div>
-        <div className="ll-row">
-          <span>Presets</span>
-          <TemperatureChips schemes={schemes} disabled={none} onPick={(scheme) => act(() => lumia.applyScheme(scheme.id, target), fallback)} />
-        </div>
-        <div className="ll-row">
-          <span>Colors</span>
-          <ColorChips settings={settings} disabled={none} onPick={(color) => control(target, { color }, isOn, fallback)} />
-        </div>
-        <p className="lv-caption">{none ? "Turn a light on to adjust it." : "Changes every light that is on."}</p>
-      </div>
-    </section>
-  );
-}
-
-function DeleteLight({ light, room, onClose }: { light: Light; room?: string; onClose: () => void }) {
+export function DeleteLight({ light, room, onClose }: { light: Light; room?: string; onClose: () => void }) {
   const act = useAct();
   return (
     <Dialog title={`Delete ${light.name}?`} onClose={onClose}>
@@ -300,89 +225,94 @@ function LightCard({ light, dashboard, settings }: TabProps & { light: Light }) 
   const frame = dashboard.live[light.id];
   const playing = dashboard.scenes.find((scheme) => scheme.id === dashboard.playing[light.id]);
   const ownPicture = hasOwnPicture(dashboard, light.effective_image_url);
+  const color = shownColor(dashboard, light);
+  // Its picture, as on the room cards; without one, its color while it is on.
+  const band = light.effective_image_url
+    ? imageStyle(light.effective_image_url)
+    : { background: state === "on" ? `linear-gradient(135deg, ${color}66, ${color}22)` : undefined };
 
   return (
-    <article className={offline ? "ll-panel ll-light ll-light-offline" : "ll-panel ll-light"}>
-      <div className="ll-light-top">
-        <Bulb color={shownColor(dashboard, light)} state={state} />
-        <div className="ll-light-name">
-          <span className="ll-room-tag">
-            <DoorOpen size={12} />
-            {room ?? "Not in a room"}
-          </span>
-          <NameEditor name={light.name} entity="Light" maxChars={settings.name_max_chars} onRename={(name) => act(() => lumia.renameLight(light.id, name, ownPicture))} />
-          {offline ? (
-            <span className="ll-bad">Offline{seen ? ` · last seen ${seen}` : ""}</span>
-          ) : frame ? (
-            <span>
-              Playing {playing?.name ?? "a scheme"} · {frame.brightness}%
+    <article className={offline ? "ll-panel ll-collection ll-light-offline" : "ll-panel ll-collection"}>
+      <div className="ll-band" style={band}>
+        <div className="ll-band-title">
+          <Bulb color={color} state={state} />
+          <div className="ll-light-name">
+            <span className="ll-room-tag">
+              <DoorOpen size={12} />
+              {room ?? "Not in a room"}
             </span>
-          ) : (
-            <span>{light.is_on ? `On · ${light.brightness}% · ${light.color_temp ? `${light.color_temp} K` : light.color}` : "Off"}</span>
-          )}
+            <NameEditor name={light.name} entity="Light" maxChars={settings.name_max_chars} onRename={(name) => act(() => lumia.renameLight(light.id, name, ownPicture))} />
+            {offline ? (
+              <span className="ll-bad">Offline{seen ? ` · last seen ${seen}` : ""}</span>
+            ) : frame ? (
+              <span>
+                Playing {playing?.name ?? "a scheme"} · {frame.brightness}%
+              </span>
+            ) : (
+              <span>{light.is_on ? `On · ${light.brightness}% · ${light.color_temp ? `${light.color_temp} K` : light.color}` : "Off"}</span>
+            )}
+          </div>
         </div>
         <Toggle label={`${light.name} on`} hideLabel checked={light.is_on && !offline} disabled={offline} onChange={(on) => send({ on })} />
+        <PictureActions kind="light" id={light.id} name={light.name} settings={settings} own={ownPicture} />
       </div>
-      {offline ? (
-        <button className="lv-button ll-small-button" type="button" onClick={() => act(lumia.refreshLights, "The lights could not be checked.")}>
-          <RefreshCw size={15} />
-          Check again
+      <div className="ll-collection-body">
+        {offline ? (
+          <button className="lv-button ll-small-button" type="button" onClick={() => act(lumia.refreshLights, "The lights could not be checked.")}>
+            <RefreshCw size={15} />
+            Check again
+          </button>
+        ) : (
+          <Slider label={`${light.name} brightness`} icon={Sun} min={1} max={100} unit="%" value={light.brightness} disabled={!light.is_on} onCommit={(brightness) => send({ brightness })} />
+        )}
+        <button className="ll-link-button" type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? "Done" : "Adjust"}
         </button>
-      ) : (
-        <Slider label={`${light.name} brightness`} icon={Sun} min={1} max={100} unit="%" value={light.brightness} disabled={!light.is_on} onCommit={(brightness) => send({ brightness })} />
-      )}
-      <button className="ll-link-button" type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
-        {open ? "Done" : "Adjust"}
-      </button>
-      {open && (
-        <div className="ll-light-more">
-          <ModeToggle mode={mode} onChange={setMode} />
-          {mode === "temperature" ? (
-            <>
-              <Slider
-                label={`${light.name} temperature`}
-                icon={Thermometer}
-                min={settings.min_color_temp}
-                max={settings.max_color_temp}
-                step={100}
-                unit="K"
-                value={light.color_temp || settings.default_color_temp}
-                disabled={offline}
-                onCommit={(color_temp) => send({ color_temp })}
-              />
-              <TemperatureChips schemes={schemes} disabled={offline} onPick={(scheme) => act(() => lumia.applyScheme(scheme.id, target), fallback)} />
-            </>
-          ) : (
-            <div className="ll-color-row">
-              <Palette size={17} aria-hidden="true" />
-              <ColorInput label={`${light.name} color`} value={light.color} disabled={offline} onCommit={(color) => send({ color })} />
-              <ColorChips settings={settings} disabled={offline} onPick={(color) => send({ color })} />
+        {open && (
+          <div className="ll-light-more">
+            <ModeToggle mode={mode} onChange={setMode} />
+            {mode === "temperature" ? (
+              <>
+                <Slider
+                  label={`${light.name} temperature`}
+                  icon={Thermometer}
+                  min={settings.min_color_temp}
+                  max={settings.max_color_temp}
+                  step={100}
+                  unit="K"
+                  value={light.color_temp || settings.default_color_temp}
+                  disabled={offline}
+                  onCommit={(color_temp) => send({ color_temp })}
+                />
+                <TemperatureChips schemes={schemes} disabled={offline} onPick={(scheme) => act(() => lumia.applyScheme(scheme.id, target), fallback)} />
+              </>
+            ) : (
+              <div className="ll-color-row">
+                <Palette size={17} aria-hidden="true" />
+                <ColorInput label={`${light.name} color`} value={light.color} disabled={offline} onCommit={(color) => send({ color })} />
+                <ColorChips settings={settings} disabled={offline} onPick={(color) => send({ color })} />
+              </div>
+            )}
+            <div className="ll-light-foot">
+              <span className="ll-meta">
+                {light.ip_address} · {light.device || light.mac_address || "MAC not discovered"}
+                {light.zone && ` · zone ${light.zone}`}
+                {light.leds && ` · LEDs ${light.leds}`}
+              </span>
+              <button className="lv-icon-button" type="button" aria-label={`Delete ${light.name}`} title="Delete" onClick={() => setDeleting(true)}>
+                <Trash2 size={16} />
+              </button>
             </div>
-          )}
-          <div className="ll-light-picture">
-            <span className="ll-light-thumb" style={imageStyle(light.effective_image_url)} aria-hidden="true" />
-            <span className="ll-meta">{ownPicture ? "Its own picture" : light.effective_image_url ? "The room's picture" : "No picture"}</span>
-            <AddPicture kind="light" id={light.id} name={light.name} settings={settings} own={ownPicture} className="lv-button ll-small-button" />
           </div>
-          <div className="ll-light-foot">
-            <span className="ll-meta">
-              {light.ip_address} · {light.device || light.mac_address || "MAC not discovered"}
-              {light.zone && ` · zone ${light.zone}`}
-              {light.leds && ` · LEDs ${light.leds}`}
-            </span>
-            <button className="lv-icon-button" type="button" aria-label={`Delete ${light.name}`} title="Delete" onClick={() => setDeleting(true)}>
-              <Trash2 size={16} />
-            </button>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
       {deleting && <DeleteLight light={light} room={room} onClose={() => setDeleting(false)} />}
     </article>
   );
 }
 
 /** Follows lights the router gave new addresses: bulbs by MAC, PCs by the devices they offer. */
-function FindMoved({ dashboard, settings }: TabProps) {
+export function FindMoved({ dashboard, settings }: TabProps) {
   const client = useQueryClient();
   const toast = useToast();
   const [scanning, setScanning] = useState(false);
@@ -417,7 +347,6 @@ export function LightsTab({ dashboard, settings }: TabProps) {
   const lights = [...dashboard.lights].sort((a, b) => roomName(a).localeCompare(roomName(b)) || a.name.localeCompare(b.name));
   return (
     <>
-      <HouseSummary dashboard={dashboard} settings={settings} />
       <section className="ll-block" aria-labelledby="lights-title">
         <SectionHead title="Lights" count={lights.length} id="lights-title">
           {lights.length > 0 && <FindMoved dashboard={dashboard} settings={settings} />}

@@ -291,3 +291,127 @@ export function movedSummary(dashboard: Dashboard, bulbs: Discovered[], pcs: Mov
   if (pcs?.ambiguous.length) parts.push(`${pcs.ambiguous.map((item) => item.name).join(", ")} answered on several PCs, so they stayed put.`);
   return parts.join(" ");
 }
+
+// Home
+
+/** A room tile, or a light in no room, on the Home tab; ``key`` is its target key. */
+export type Tile = { key: string; target: Target; name: string; lights: Light[] };
+
+export const parseTargetKey = (key: string): Target => {
+  const [type, id] = key.split(":");
+  return { type, id: id ? Number(id) : null };
+};
+
+/** Every room, then each light that is in no room, so no light goes missing from Home. */
+export function homeTiles({ lights, rooms }: Pick<Dashboard, "lights" | "rooms">): Tile[] {
+  const byId = new Map(lights.map((light) => [light.id, light]));
+  const roomed = new Set(rooms.flatMap((room) => room.light_ids));
+  return [
+    ...rooms.map((room) => ({
+      key: targetKey("group", room.id),
+      target: { type: "group", id: room.id },
+      name: room.name,
+      lights: room.light_ids.flatMap((id) => byId.get(id) ?? []),
+    })),
+    ...lights
+      .filter((light) => !roomed.has(light.id))
+      .map((light) => ({ key: targetKey("light", light.id), target: { type: "light", id: light.id }, name: light.name, lights: [light] })),
+  ];
+}
+
+/** The lights a selection covers: rooms and groups by their members, lights by themselves. */
+export function selectedLights({ lights, rooms, groups }: Pick<Dashboard, "lights" | "rooms" | "groups">, keys: string[]): Light[] {
+  const ids = new Set<number>();
+  for (const key of keys) {
+    const { type, id } = parseTargetKey(key);
+    if (type === "light" && id !== null) ids.add(id);
+    else [...rooms, ...groups].find((collection) => collection.id === id)?.light_ids.forEach((member) => ids.add(member));
+  }
+  return lights.filter((light) => ids.has(light.id));
+}
+
+/** A light's brightness this moment: a playing scheme's frame, else its saved state. */
+export const shownBrightness = ({ live }: Pick<Dashboard, "live">, light: Pick<Light, "id" | "brightness">) =>
+  live[light.id]?.brightness ?? light.brightness;
+
+/** Relative luminance of a "#RRGGBB" color, 0 for black to 1 for white. */
+export const luminance = (hex: string) => {
+  const [r, g, b] = rgb(hex).split(",").map((value) => Number(value) / 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+
+/** A tile's light: each lit light glows in its color, stronger the brighter it is; none when all are off. */
+export function tileGlow(dashboard: Pick<Dashboard, "live">, lights: Light[]): string | undefined {
+  const lit = lights.filter((light) => lightState(light) === "on").slice(0, 4);
+  if (!lit.length) return undefined;
+  return lit
+    .map((light, index) => {
+      // A light showing black (a keyboard between per-key frames) still reads as on: a faint white glow.
+      const shown = shownColor(dashboard, light);
+      const tint = luminance(shown) < 0.04 ? "255,255,255" : rgb(shown);
+      const alpha = (0.2 + 0.5 * (shownBrightness(dashboard, light) / 100)).toFixed(2);
+      const x = Math.round(((index + 0.5) / lit.length) * 100);
+      return `radial-gradient(120% 95% at ${x}% 0%, rgba(${tint},${alpha}), rgba(${tint},0.04) 72%)`;
+    })
+    .join(", ");
+}
+
+/** "On · 62%", "2 of 3 on · 80% · 1 offline", "Off", or "Offline". */
+export function tileStatus(dashboard: Pick<Dashboard, "live">, lights: Light[]): string {
+  if (!lights.length) return "No lights";
+  const on = lights.filter((light) => lightState(light) === "on");
+  const offline = lights.filter((light) => lightState(light) === "offline").length;
+  const parts = on.length
+    ? [lights.length > 1 ? `${on.length} of ${lights.length} on` : "On", `${mostCommon(on.map((light) => shownBrightness(dashboard, light)), 100)}%`]
+    : [offline === lights.length ? "Offline" : "Off"];
+  if (offline && offline < lights.length) parts.push(`${offline} offline`);
+  return parts.join(" · ");
+}
+
+/** The scheme playing on most of these lights, if any. */
+export function playingScheme({ playing, scenes }: Pick<Dashboard, "playing" | "scenes">, lights: Pick<Light, "id">[]): Scheme | undefined {
+  const id = mostCommon(lights.map((light) => playing[light.id]), 0);
+  return scenes.find((scheme) => scheme.id === id);
+}
+
+/** Each playing scheme with where it plays: its rooms, and lights in no room by name. */
+export function playingNow(dashboard: Pick<Dashboard, "playing" | "scenes" | "lights" | "rooms">): { scheme?: Scheme; places: string[]; lights: number }[] {
+  const byScheme = new Map<number, number[]>();
+  for (const [lightId, schemeId] of Object.entries(dashboard.playing)) byScheme.set(schemeId, [...(byScheme.get(schemeId) ?? []), Number(lightId)]);
+  return [...byScheme].map(([schemeId, ids]) => {
+    const places = ids.map((id) => roomOf(dashboard, id)?.name ?? dashboard.lights.find((light) => light.id === id)?.name ?? "a light");
+    return { scheme: dashboard.scenes.find((scheme) => scheme.id === schemeId), places: [...new Set(places)], lights: ids.length };
+  });
+}
+
+/** The schedule that runs next, within a week, and what it acts on. */
+export function upcomingSchedule(dashboard: Pick<Dashboard, "schedules" | "lights" | "rooms" | "groups">, now: Date) {
+  const runs = dashboard.schedules
+    .map((schedule) => ({ schedule, run: nextRun(schedule, now) }))
+    .filter((item): item is { schedule: Schedule; run: { inMinutes: number; label: string } } => item.run !== null)
+    .sort((a, b) => a.run.inMinutes - b.run.inMinutes);
+  if (!runs.length) return null;
+  const { schedule, run } = runs[0];
+  const id = schedule.target_id;
+  const where =
+    schedule.target_type === "light"
+      ? dashboard.lights.find((light) => light.id === id)?.name
+      : schedule.target_type === "group"
+        ? [...dashboard.rooms, ...dashboard.groups].find((collection) => collection.id === id)?.name
+        : schedule.target_type === "on"
+          ? "Lights that are on"
+          : "All lights";
+  return { schedule, label: run.label, where: where ?? "A deleted target", later: runs.length - 1 };
+}
+
+/** Schemes for everyday use on Home, the ones playing here first, then your own: weather, music and per-key ones stay on Schemes. */
+export function everydaySchemes(schemes: Scheme[], playingIds: number[]): Scheme[] {
+  return schemes
+    .filter((scheme) => scheme.kind !== "keys" && !scheme.weather_slots?.length && !scheme.music_moods?.length)
+    .sort(
+      (a, b) =>
+        Number(playingIds.includes(b.id)) - Number(playingIds.includes(a.id)) ||
+        Number(a.is_preset) - Number(b.is_preset) ||
+        a.name.localeCompare(b.name),
+    );
+}

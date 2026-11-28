@@ -126,6 +126,8 @@ class ProxyTests(GatewayTestCase):
             ("POST", "/api/lights/refresh"),
             ("PUT", "/api/lights/3"),
             ("PUT", "/api/lights/3/background"),
+            ("PUT", "/api/rooms/2/background"),
+            ("PUT", "/api/groups/2/background"),
             ("DELETE", "/api/lights/3"),
             ("POST", "/api/control/on"),
             ("POST", "/api/rooms/2/lights"),
@@ -135,6 +137,13 @@ class ProxyTests(GatewayTestCase):
             ("PUT", "/api/transitions/5"),
             ("DELETE", "/api/schedules/6"),
             ("PUT", "/api/location"),
+            ("PUT", "/api/automations/weather"),
+            ("PUT", "/api/automations/music"),
+            ("GET", "/api/shortcuts"),
+            ("POST", "/api/key-groups"),
+            ("PUT", "/api/hotkeys/4"),
+            ("DELETE", "/api/key-groups/4"),
+            ("POST", "/api/hotkeys/4/press"),
         ):
             self.assertEqual(self.client.request(method, path).status_code, 200, path)
 

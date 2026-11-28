@@ -223,6 +223,20 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class AutomationSummaryTests(unittest.TestCase):
+    def test_dashboard_shows_only_whether_and_where_an_automation_acts(self):
+        from app.services.application import LumiaService
+
+        class Weather:
+            def automation(self):
+                return {"enabled": True, "target_type": "group", "target_id": 4, "last_applied": "rain/day", "updated_at": object()}
+
+        self.assertEqual(
+            LumiaService._automation(Weather()),
+            {"enabled": True, "target_type": "group", "target_id": 4},
+        )
+
+
 class RefreshTests(unittest.TestCase):
     def test_subnet_broadcast_uses_the_lights_network(self):
         lights = FakeLights([
