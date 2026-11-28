@@ -82,7 +82,8 @@ class ICueAdapter:
     host_tokens: dict[str, str] = field(default_factory=dict)
     colors: SolidColors = field(default_factory=SolidColors)
 
-    def _request(self, host: str, port: int, method: str, path: str, body: dict | None = None):
+    def _request(self, host: str, port: int, method: str, path: str, body: dict | None = None,
+                 timeout: float | None = None):
         token = self.host_tokens.get(host, self.token)
         if not token:
             raise ConnectionError(f"No iCUE bridge token for {host}: set LUNALUMIA_ICUE_TOKENS")
@@ -93,7 +94,7 @@ class ICueAdapter:
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         )
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            with urllib.request.urlopen(request, timeout=timeout or self.timeout) as response:
                 return json.load(response)
         except urllib.error.HTTPError as error:
             with error:
@@ -153,3 +154,25 @@ class ICueAdapter:
     async def devices(self, host: str, port: int = DEFAULT_PORT) -> list[dict]:
         """The devices iCUE offers, as {"device": name, "led_count": n}."""
         return await asyncio.to_thread(self._request, host, port, "GET", "/devices")
+
+    def set_hotkeys(self, host: str, port: int, combos: list[str], opens: dict[str, str] | None = None) -> dict:
+        """Have the bridge listen for these key combinations; it answers which Windows refused (taken by an app).
+
+        ``opens`` maps combinations to apps the bridge opens itself when they are pressed.
+        """
+        try:
+            return self._request(host, port, "PUT", "/hotkeys", {"combos": combos, "open": opens or {}})
+        except LookupError as error:
+            raise LookupError("This iCUE bridge has no hotkeys yet") if "Not found" in str(error) else error
+
+    def hotkey_presses(self, host: str, port: int, after: int | None, wait: float) -> dict:
+        """Presses after number ``after``, waiting up to ``wait`` seconds for one; no ``after`` answers at once."""
+        query = f"?after={after}&wait={wait:g}" if after is not None else ""
+        return self._request(host, port, "GET", f"/hotkeys/presses{query}", timeout=wait + self.timeout)
+
+    def apps(self, host: str, port: int) -> list[dict]:
+        """The apps the bridge's PC lets a hotkey open, as {"app", "label"}."""
+        return self._request(host, port, "GET", "/apps")
+
+    def open_app(self, host: str, port: int, app: str) -> dict:
+        return self._request(host, port, "POST", f"/apps/{urllib.parse.quote(app, safe='')}/open", {})

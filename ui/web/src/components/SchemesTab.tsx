@@ -1,11 +1,12 @@
-import { Circle, Pencil, Play, Plus, Save, Search, Square, Sun, Timer, Trash2 } from "lucide-react";
+import { Circle, Pencil, Play, Plus, Save, Search, Sparkles, Square, Sun, Timer, Trash2 } from "lucide-react";
 import { useRef, useState, type FormEvent } from "react";
 
-import { lumia, useAct, type Dashboard, type Scheme, type Settings, type Step, type Transition } from "../api";
+import { lumia, useAct, type Dashboard, type Effect, type Scheme, type Settings, type Step, type Transition } from "../api";
 import { SCHEME_FILTERS, curvePoints, filterSchemes, schemeDetails, schemePayload, schemeSegments, seconds, targetOptions, temperatureSchemes, type SchemeFilter } from "../dashboard";
 import { messageOf, remember, remembered } from "../lib";
 import { ColorChips, ColorInput, ModeToggle, SectionHead, Slider, TemperatureChips, Toggle, type Mode } from "./controls";
 import { Dialog } from "./Dialog";
+import { EffectBuilder, EffectPicker, isEffectScheme } from "./Effects";
 import { useToast } from "./Toasts";
 
 type TabProps = { dashboard: Dashboard; settings: Settings };
@@ -110,7 +111,8 @@ function SolidBuilder({ dashboard, settings, editing, onSaved }: TabProps & { ed
   );
 }
 
-type DraftStep = { uid: number; value: LightValue; brightness: number; hold: number; transition: number };
+/** ``effects``: the first is edited here; any more (an assistant can add up to 8) are kept as they are. */
+type DraftStep = { uid: number; value: LightValue; brightness: number; hold: number; transition: number; effects: Effect[] };
 
 function SequenceBuilder({ dashboard, settings, editing, onSaved }: TabProps & { editing?: Scheme; onSaved?: () => void }) {
   const nextUid = useRef(0);
@@ -123,7 +125,7 @@ function SequenceBuilder({ dashboard, settings, editing, onSaved }: TabProps & {
   const known = new Set(options.map(({ id }) => id));
   const fallbackTransition = dashboard.transitions.find((item) => item.name === DEFAULT_TRANSITION)?.id ?? INSTANT;
 
-  const blank = (): DraftStep => ({ uid: nextUid.current++, value: lightValue(null, null), brightness: 80, hold: 1, transition: fallbackTransition });
+  const blank = (): DraftStep => ({ uid: nextUid.current++, value: lightValue(null, null), brightness: 80, hold: 1, transition: fallbackTransition, effects: [] });
   const loaded = (step: Step): DraftStep => ({
     uid: nextUid.current++,
     value: lightValue(step.color, step.color_temp),
@@ -131,6 +133,7 @@ function SequenceBuilder({ dashboard, settings, editing, onSaved }: TabProps & {
     hold: (step.hold_ms ?? 0) / 1000,
     // Built-in "Instant" (or a deleted transition) is the form's Instant option.
     transition: step.transition_id && known.has(step.transition_id) ? step.transition_id : INSTANT,
+    effects: step.effects ?? [],
   });
 
   const [name, setName] = useState(editing?.name ?? "");
@@ -151,11 +154,12 @@ function SequenceBuilder({ dashboard, settings, editing, onSaved }: TabProps & {
       name,
       kind: "sequence",
       loops,
-      steps: steps.map(({ value, brightness, hold, transition }) => ({
+      steps: steps.map(({ value, brightness, hold, transition, effects }) => ({
         ...valuePayload(value),
         brightness,
         hold_ms: Math.round(hold * 1000),
         transition_id: transition || null,
+        effects: effects.length ? effects : null,
       })),
     });
   };
@@ -173,7 +177,7 @@ function SequenceBuilder({ dashboard, settings, editing, onSaved }: TabProps & {
             className="lv-icon-button ll-step-remove"
             type="button"
             aria-label={`Remove step ${index + 1}`}
-            disabled={steps.length <= 2}
+            disabled={steps.length <= (steps.some((item) => item.effects.length) ? 1 : 2)}
             onClick={() => setSteps((current) => current.filter(({ uid }) => uid !== step.uid))}
           >
             <Trash2 size={15} />
@@ -206,6 +210,12 @@ function SequenceBuilder({ dashboard, settings, editing, onSaved }: TabProps & {
               />
             </label>
           </div>
+          <EffectPicker
+            label="While it holds"
+            effect={step.effects[0] ?? null}
+            base={step.value.mode === "color" ? step.value.color : "#FFD9A8"}
+            onChange={(effect) => patch(step.uid, { effects: effect ? [effect, ...step.effects.slice(1)] : step.effects.slice(1) })}
+          />
         </section>
       ))}
       <div className="ll-sequence-row">
@@ -239,7 +249,10 @@ function SchemeCard({ scheme, dashboard, target, onEdit }: { scheme: Scheme; das
   const act = useAct();
   const toast = useToast();
   const playingOn = Object.entries(dashboard.playing).filter(([, id]) => id === scheme.id).map(([lightId]) => Number(lightId));
-  const details = `${{ solid: "Solid · ", sequence: "", keys: "Per key · " }[scheme.kind]}${schemeDetails(scheme)}`;
+  const moving = scheme.effects?.length ? ` · ${scheme.effects.join(", ")}` : "";
+  const details = isEffectScheme(scheme)
+    ? `Effect · ${scheme.effects?.join(", ")} · ${scheme.steps[0].brightness}%`
+    : `${{ solid: "Solid · ", sequence: "", keys: "Per key · " }[scheme.kind]}${schemeDetails(scheme)}${moving}`;
 
   const stop = () =>
     act(async () => {
@@ -333,9 +346,9 @@ function Playing({ dashboard }: { dashboard: Dashboard }) {
   );
 }
 
-function NewScheme({ dashboard, settings, onClose }: TabProps & { onClose: () => void }) {
-  const [kind, setKind] = useState<"solid" | "sequence">(() => remembered("ll-new-scheme", ["solid", "sequence"] as const, "solid"));
-  const choose = (next: "solid" | "sequence") => {
+export function NewScheme({ dashboard, settings, onClose }: TabProps & { onClose: () => void }) {
+  const [kind, setKind] = useState<"solid" | "sequence" | "effect">(() => remembered("ll-new-scheme", ["solid", "sequence", "effect"] as const, "solid"));
+  const choose = (next: "solid" | "sequence" | "effect") => {
     setKind(next);
     remember("ll-new-scheme", next);
   };
@@ -351,8 +364,18 @@ function NewScheme({ dashboard, settings, onClose }: TabProps & { onClose: () =>
             <Timer size={15} />
             Sequence
           </button>
+          <button className={kind === "effect" ? "ll-segment ll-segment-active" : "ll-segment"} type="button" aria-pressed={kind === "effect"} onClick={() => choose("effect")}>
+            <Sparkles size={15} />
+            Effect
+          </button>
         </div>
-        {kind === "solid" ? <SolidBuilder dashboard={dashboard} settings={settings} onSaved={onClose} /> : <SequenceBuilder dashboard={dashboard} settings={settings} onSaved={onClose} />}
+        {kind === "solid" ? (
+          <SolidBuilder dashboard={dashboard} settings={settings} onSaved={onClose} />
+        ) : kind === "effect" ? (
+          <EffectBuilder settings={settings} onSaved={onClose} />
+        ) : (
+          <SequenceBuilder dashboard={dashboard} settings={settings} onSaved={onClose} />
+        )}
       </div>
     </Dialog>
   );
@@ -412,20 +435,31 @@ function Library({ dashboard, settings }: TabProps) {
       {creating && <NewScheme dashboard={dashboard} settings={settings} onClose={() => setCreating(false)} />}
       {editing && (
         <Dialog title={`Edit ${editing.name}`} size="large" onClose={() => setEditing(null)}>
-          {editing.kind === "keys" ? (
-            <p className="lv-caption">
-              {editing.name} colors {editing.keys_colored ?? 0} keyboard keys one by one. Ask your assistant to change it: it lists the
-              keyboard's keys and saves the new pattern with update_key_scheme. Apply it here like any scheme; lights without keys show
-              its background color.
-            </p>
-          ) : editing.kind === "sequence" ? (
-            <SequenceBuilder dashboard={dashboard} settings={settings} editing={editing} onSaved={() => setEditing(null)} />
-          ) : (
-            <SolidBuilder dashboard={dashboard} settings={settings} editing={editing} onSaved={() => setEditing(null)} />
-          )}
+          <SchemeEditor scheme={editing} dashboard={dashboard} settings={settings} onDone={() => setEditing(null)} />
         </Dialog>
       )}
     </section>
+  );
+}
+
+/** The editor for a saved scheme, by its kind; a per-key scheme is edited in the PC tab. */
+export function SchemeEditor({ scheme, dashboard, settings, onDone }: TabProps & { scheme: Scheme; onDone: () => void }) {
+  return (
+    <>
+    {scheme.kind === "keys" ? (
+      <p className="lv-caption">
+        {scheme.name} colors {scheme.keys_colored ?? 0} keyboard keys one by one{scheme.effects?.length ? `, with ${scheme.effects.join(", ")}` : ""}. Edit
+        it in the PC tab (its edit link under Per-key schemes), or ask your assistant: it lists the keyboard's keys and saves the new
+        pattern with update_key_scheme. Apply it here like any scheme; lights without keys show its background color.
+      </p>
+    ) : isEffectScheme(scheme) ? (
+      <EffectBuilder settings={settings} editing={scheme} onSaved={onDone} />
+    ) : scheme.kind === "sequence" ? (
+      <SequenceBuilder dashboard={dashboard} settings={settings} editing={scheme} onSaved={onDone} />
+    ) : (
+      <SolidBuilder dashboard={dashboard} settings={settings} editing={scheme} onSaved={onDone} />
+    )}
+    </>
   );
 }
 
@@ -461,7 +495,7 @@ const transitionPayload = (form: HTMLFormElement) => {
   };
 };
 
-function Transitions({ dashboard }: { dashboard: Dashboard }) {
+export function Transitions({ dashboard }: { dashboard: Dashboard }) {
   const act = useAct();
   const toast = useToast();
   const [editing, setEditing] = useState<Transition | "new" | null>(null);

@@ -17,6 +17,8 @@ from app.services.playback import OwnerScenes, SceneEngine
 from app.services.presets import PresetCatalog
 from app.data.repositories import (
     CollectionRepository,
+    HotkeyRepository,
+    KeyGroupRepository,
     LightRepository,
     LocationRepository,
     MusicAutomationRepository,
@@ -42,6 +44,7 @@ from app.services.application import (
     WeatherService,
 )
 from app.services.music import MusicService
+from app.services.shortcuts import HotkeyWorker, ShortcutService
 from app.services.workers import MusicWorker, ScheduleWorker, WeatherWorker
 
 
@@ -69,6 +72,11 @@ class LunaLumiaApplication:
         self.engine.start()
         self.scenes = OwnerScenes(self.engine)
         self.service = self._build_service()
+        self.shortcuts = ShortcutService(
+            KeyGroupRepository(self.database), HotkeyRepository(self.database), self.service.scenes, self.icue
+        )
+        self.service.shortcuts = self.shortcuts
+        self.service.control.key_groups = self.shortcuts.key_groups
         self.branding = ServerBranding(config.mcp_public_url)
         self.mcp = LunaMCP(
             "LunaLumia",
@@ -92,6 +100,7 @@ class LunaLumiaApplication:
                 self.service.weather, config.timezone, config.schedule_interval_seconds, self.service.music
             ),
             MusicWorker(self.service.music, config.music_interval_seconds),
+            HotkeyWorker(self.shortcuts),
         ]
         for worker in self.workers:
             worker.start()

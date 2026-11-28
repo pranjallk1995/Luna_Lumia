@@ -12,6 +12,7 @@ from enum import Enum
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
+from icue_bridge import WM_APP, WM_HOTKEY, AppLauncher, HotkeyListener, parse_combo
 from icue_bridge import BridgeConfig, BridgeServer, ICueLights, ICueUnavailable, led_name, make_handler, parse_keys, parse_rgb
 
 TOKEN = "t" * 32
@@ -341,6 +342,109 @@ class KeyServerTests(unittest.TestCase):
         answer = self.call("PUT", "/devices/K70/keys", {"default": [0, 0, 0], "keys": {**keys, "W": [0, 255, 0]}})
         self.assertEqual((answer["painted"], len(answer["unknown"])), (3, 200))
         self.assertEqual(self.sdk.painted["id-k"][1], Color(30, 0, 255, 0, 255))
+
+
+class FakeWindows:
+    """RegisterHotKey's stand-in: a message queue, and combinations another program holds."""
+
+    def __init__(self, taken=()):
+        import queue
+        self.queue, self.taken, self.held = queue.Queue(), set(taken), {}
+
+    def register(self, ident, flags, key):
+        if (flags, key) in self.taken:
+            return "another program already uses it"
+        self.held[ident] = (flags, key)
+
+    def unregister(self, ident):
+        self.held.pop(ident, None)
+
+    def thread_id(self):
+        return 1
+
+    def wake(self, thread_id):
+        self.queue.put((WM_APP, 0))
+
+    def press(self, ident):
+        self.queue.put((WM_HOTKEY, ident))
+
+    def messages(self):
+        while True:
+            yield self.queue.get()
+
+
+class HotkeyTests(unittest.TestCase):
+    def setUp(self):
+        self.windows = FakeWindows(taken={parse_combo("Ctrl+Alt+2")})
+        self.hotkeys = HotkeyListener(self.windows)
+        self.hotkeys.start()
+
+    def test_combos_become_windows_flags_and_keys(self):
+        self.assertEqual(parse_combo("Ctrl+Alt+1"), (0x4003, 0x31))
+        self.assertEqual(parse_combo("Win+F12"), (0x4008, 0x7B))
+        with self.assertRaises(ValueError):
+            parse_combo("Hyper+1")
+
+    def test_registers_what_it_can_and_says_what_was_refused(self):
+        reply = self.hotkeys.set(["Ctrl+Alt+1", "Ctrl+Alt+2", "Ctrl+Alt+1"])
+        self.assertEqual(reply["registered"], ["Ctrl+Alt+1"])
+        self.assertEqual(reply["refused"], {"Ctrl+Alt+2": "another program already uses it"})
+        self.assertEqual(self.hotkeys.set([])["registered"], [])
+        self.assertEqual(self.windows.held, {})
+
+    def test_presses_wait_for_lumia_and_come_once(self):
+        self.hotkeys.set(["Ctrl+Alt+1"])
+        start = self.hotkeys.wait_presses(None, 0)
+        self.assertEqual((start["seq"], start["presses"]), (0, []))
+        threading.Timer(0.1, self.windows.press, args=(1,)).start()
+        reply = self.hotkeys.wait_presses(0, 5)
+        self.assertEqual([press["combo"] for press in reply["presses"]], ["Ctrl+Alt+1"])
+        self.assertEqual(self.hotkeys.wait_presses(reply["seq"], 0.05)["presses"], [])
+
+    def test_a_hotkey_for_an_app_opens_it_here_at_once(self):
+        opened = []
+        self.hotkeys.launcher = AppLauncher((("game", {"run": "C:/Games/game.exe", "label": "Game"}),),
+                                            shell=lambda run, args, admin: opened.append((run, args, admin)))
+        self.hotkeys.set([], {"Ctrl+Alt+P": "powershell-admin", "Ctrl+Alt+G": "game"})
+        self.windows.press(1)
+        self.windows.press(2)
+        reply = self.hotkeys.wait_presses(0, 5)
+        while len(reply["presses"]) < 2:
+            reply = self.hotkeys.wait_presses(0, 5)
+        self.assertEqual([press.get("opened") for press in reply["presses"]], ["powershell-admin", "game"])
+        self.assertEqual(opened, [("powershell.exe", "", True), ("C:/Games/game.exe", "", False)])
+
+    def test_only_listed_apps_open(self):
+        launcher = AppLauncher(shell=lambda *args: None)
+        with self.assertRaises(LookupError):
+            launcher.open("cmd /c del")
+        self.assertIn({"app": "sticky-notes", "label": "Sticky Notes"}, launcher.list())
+
+    def test_apps_in_the_settings_file_are_checked(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "icue_bridge.json"
+            path.write_text(json.dumps({"apps": {"steam": {"run": "steam.exe"}}}))
+            self.assertEqual(BridgeConfig.load(path).apps, (("steam", {"run": "steam.exe"}),))
+            path.write_text(json.dumps({"apps": {"Bad Name": {"run": "x.exe"}}}))
+            with self.assertRaises(ValueError):
+                BridgeConfig.load(path)
+
+    def test_the_http_routes_need_the_token(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(None, TOKEN, self.hotkeys))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+
+        def call(method, path, body=None, token=TOKEN):
+            request = urllib.request.Request(base + path, method=method, data=json.dumps(body).encode() if body else None,
+                                             headers={"Authorization": f"Bearer {token}"})
+            with urllib.request.urlopen(request, timeout=5) as response:
+                return json.load(response)
+
+        self.assertEqual(call("PUT", "/hotkeys", {"combos": ["Ctrl+Alt+1"]})["registered"], ["Ctrl+Alt+1"])
+        self.assertEqual(call("GET", "/hotkeys/presses")["presses"], [])
+        with self.assertRaises(urllib.error.HTTPError):
+            call("GET", "/hotkeys/presses", token="wrong" * 8)
 
 
 if __name__ == "__main__":

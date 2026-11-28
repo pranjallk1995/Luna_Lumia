@@ -1781,3 +1781,111 @@ a {
 .ll-pc-on { border-color: var(--lv-strong); background: var(--lv-control-hover); }
 .ll-pc-scheme { display: inline-flex; align-items: center; gap: 0.2rem; }
 .ll-pc-row .lv-input { flex: 1 1 12rem; }
+
+/* Shortcuts & effects: the PC tab's device row, surface and Brush panel, effects, shortcut keys and hotkeys */
+.ll-pc { display: grid; gap: 1.1rem; }
+.ll-pc-devices { display: grid; grid-template-columns: repeat(auto-fit, minmax(13.5rem, 1fr)); gap: 0.6rem; }
+.ll-pc-device {
+  display: flex; align-items: center; gap: 0.75rem; min-height: 4rem; padding: 0.6rem 0.85rem; text-align: left;
+  border: 1px solid var(--lv-border); border-radius: 0.75rem; background: #161616; color: var(--lv-text); cursor: pointer;
+}
+.ll-pc-device:hover { background: var(--lv-control-hover); }
+.ll-pc-device-on { border: 2px solid var(--lv-text); background: rgba(255, 255, 255, 0.08); }
+.ll-pc-device > span:last-child { display: grid; min-width: 0; }
+.ll-pc-device strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ll-pc-device-swatch {
+  display: inline-flex; align-items: center; justify-content: center; flex: none; width: 2.25rem; height: 2.25rem;
+  border-radius: 0.5rem; color: #111; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+.ll-pc-layout { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1.1rem; }
+.ll-pc-main { flex: 999 1 34rem; min-width: 0; display: grid; gap: 0.75rem; }
+.ll-pc-title { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+.ll-pc-title h2 { margin: 0; font-size: 1.1rem; font-weight: 600; }
+.ll-pc-main .ll-pc-surface { border: 1px solid rgba(255, 255, 255, 0.1); }
+.ll-pc-chip {
+  display: inline-flex; align-items: center; gap: 0.4rem; min-height: 2.25rem; padding: 0 0.75rem; border-radius: 999px;
+  border: 1px solid var(--lv-border); background: var(--lv-surface); color: var(--lv-text); cursor: pointer;
+}
+.ll-pc-chip:hover { background: var(--lv-control-hover); }
+.ll-pc-chip-mine { border: 1px dashed rgba(255, 255, 255, 0.45); }
+.ll-pc-panel {
+  flex: 1 1 19rem; max-width: 25rem; box-sizing: border-box; display: grid; gap: 0.95rem; padding: 1.1rem;
+  position: sticky; top: 1rem;
+}
+.ll-pc-brush-head { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
+.ll-pc-brush-head > div { display: grid; }
+.ll-pc-brush-head strong { font-size: 1.05rem; font-weight: 600; }
+.ll-pc-panel .ll-segments { display: grid; grid-template-columns: 1fr 1fr; }
+.ll-pc-panel .ll-segment { justify-content: center; }
+.ll-pc-swatches { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.5rem; }
+.ll-pc-swatch { aspect-ratio: 1; min-height: 2.5rem; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; }
+.ll-pc-swatch-on { border-color: var(--lv-text); box-shadow: 0 0 0 2px #111 inset; }
+.ll-pc-wide { display: flex; justify-content: space-between; color: var(--lv-text); font-size: var(--luna-text-body); }
+.ll-pc-wide .lv-select { flex: 1; max-width: 14rem; }
+.ll-pc-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; }
+.ll-pc-actions .lv-button { justify-content: center; min-height: 2.75rem; }
+.ll-pc-section { display: grid; gap: 0.6rem; padding-top: 0.9rem; border-top: 1px solid rgba(255, 255, 255, 0.1); }
+.ll-lit-button { border-color: var(--ll-lit); background: rgba(255, 190, 85, 0.18); }
+.ll-lit-button:hover:not(:disabled) { background: rgba(255, 190, 85, 0.28); }
+
+.ll-effect { display: grid; gap: 0.55rem; }
+.ll-effect-head { display: flex; align-items: center; gap: 0.6rem; font-size: var(--luna-text-body); }
+.ll-effect-head .ll-meta { margin-left: auto; text-align: right; }
+.ll-effect-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.4rem; }
+.ll-effect-choice {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; min-height: 2.5rem; padding: 0 0.4rem;
+  border: 1px solid var(--lv-border); border-radius: 0.5rem; background: var(--lv-surface); color: var(--lv-text); cursor: pointer;
+}
+.ll-effect-choice:hover { background: var(--lv-control-hover); }
+.ll-effect-active { border-color: var(--lv-text); background: var(--lv-control-hover); }
+.ll-wave { flex: none; opacity: 0.85; }
+.ll-effect-body { display: grid; gap: 0.55rem; }
+.ll-effect-row { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
+.ll-effect-label { display: grid; font-size: var(--luna-text-body); }
+.ll-effect-label small { color: var(--lv-muted); font-size: var(--luna-text-small); }
+.ll-effect-swatch { flex: none; width: 1.4rem; height: 1.4rem; border-radius: 0.35rem; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3); }
+.ll-step .ll-effect { padding-top: 0.6rem; border-top: 1px dashed rgba(255, 255, 255, 0.1); }
+
+.ll-shortcuts { display: grid; gap: 0.75rem; }
+.ll-shortcuts-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+.ll-shortcuts-head h2 { margin: 0; font-size: 1.1rem; font-weight: 600; }
+.ll-bridge { display: inline-flex; align-items: center; gap: 0.4rem; }
+.ll-bridge-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--ll-bad); }
+.ll-bridge-on { background: #4ade80; }
+.ll-shortcut-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 0.9rem; }
+.ll-pc-main .ll-shortcuts { margin-top: 0.6rem; }
+.ll-shortcut-card { display: grid; align-content: start; gap: 0.65rem; padding: 1rem; }
+.ll-shortcut-card > header { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
+.ll-shortcut-card > header > div { display: grid; }
+.ll-shortcut-card > header strong { font-size: 0.95rem; font-weight: 600; }
+.ll-shortcut-card > header .lv-button { white-space: nowrap; }
+.ll-shortcut-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.4rem; }
+.ll-shortcut-list > li {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; min-height: 2.9rem; padding: 0.25rem 0.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 0.5rem;
+}
+.ll-shortcut-list > li > strong { min-width: 6rem; font-weight: 600; }
+.ll-shortcut-off { opacity: 0.55; }
+.ll-shortcut-dot { flex: none; width: 0.6rem; height: 0.6rem; border-radius: 50%; }
+.ll-keycaps { flex: 1 1 auto; display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
+.ll-keycaps kbd {
+  padding: 0.05rem 0.45rem; border-radius: 0.3rem; border: 1px solid rgba(255, 255, 255, 0.25); background: #1f1f1f;
+  font: inherit; font-size: var(--luna-text-small);
+}
+.ll-combo-keys { flex: 0 0 8.5rem; }
+.ll-hotkey-what { flex: 1 1 10rem; min-width: 0; display: flex; align-items: center; gap: 0.5rem; font-size: var(--luna-text-body); }
+.ll-hotkey-strip { flex: none; width: 1.6rem; height: 0.5rem; border-radius: 999px; }
+.ll-hotkey-problem { color: var(--ll-bad); }
+.ll-shortcut-form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; width: 100%; padding: 0.4rem 0; }
+.ll-shortcut-form .lv-input, .ll-shortcut-form .lv-select { flex: 1 1 10rem; }
+.ll-shortcut-buttons { display: inline-flex; gap: 0.4rem; margin-left: auto; }
+.ll-combo { font-variant-numeric: tabular-nums; }
+
+@media (max-width: 960px) {
+  .ll-pc-panel { position: static; max-width: none; }
+}
+@media (max-width: 700px) {
+  .ll-pc-devices { grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); }
+  .ll-pc-actions, .ll-effect-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ll-combo-keys { flex-basis: auto; }
+}

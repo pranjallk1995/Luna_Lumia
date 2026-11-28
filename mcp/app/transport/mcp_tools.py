@@ -9,6 +9,8 @@ from app.core.models import (
     GroupCreate,
     GroupMembersUpdate,
     GroupUpdate,
+    HotkeyCreate,
+    KeyGroupCreate,
     LightImageUpdate,
     LightState,
     LocationUpdate,
@@ -40,6 +42,7 @@ class LumiaMCPTools:
         self._register_schedule_tools()
         self._register_weather_tools()
         self._register_music_tools()
+        self._register_shortcut_tools()
 
     def _register_inventory_tools(self) -> None:
         server, lights, collections = self.server, self.service.lights, self.service.collections
@@ -289,8 +292,33 @@ class LumiaMCPTools:
             Each step: {"color": "#RRGGBB"} or {"color_temp": 2200-6500}, "brightness" 1-100,
             "hold_ms" (time to stay on the step), and "transition_id" (the fade into the step;
             see list_schemes for transitions; omit for an instant change).
+
+            Any step may also have "effects" (up to 8), played while it holds (a step with effects and hold_ms 0 plays
+            them until stopped): {"type": "blink" | "strobe" | "breathe" | "glow" | "rainbow", "period_ms": 200-60000
+            (one cycle; default 1000), "color" (default: the step's color), "to" (default: black, i.e. off/dim)}.
+            blink switches color/to each half period, strobe flashes color briefly, breathe swells smoothly between
+            them, glow swells gently (never below a third), rainbow cycles every hue.
+            With an effect, one step is enough. For one effect on its own, create_effect_scheme is simpler.
             """
             return scenes.add(SceneCreate(name=name, kind="sequence", steps=steps, loops=loops))
+
+        @server.tool()
+        def create_effect_scheme(
+            name: str, effect: str, brightness: int = 100, color: str | None = None, color_temp: int | None = None,
+            period_ms: int = 1000, to: str | None = None,
+        ):
+            """Save a scheme that moves on its own until stopped: effect "blink", "strobe", "breathe", "glow", or "rainbow".
+
+            color (#RRGGBB) or color_temp is the light's color; to is the other color for blink, strobe, and
+            breathe (default black: off, or dim). period_ms is one cycle (200-60000). Plays on any light,
+            bulbs too; for keys of their own (a blinking Escape, a rainbow wave), use create_key_scheme with
+            effects per key.
+            """
+            if color is None and color_temp is None:
+                color = "#FFFFFF"
+            step = {"color": color, "color_temp": color_temp, "brightness": brightness, "hold_ms": 0,
+                    "effects": [{"type": effect, "period_ms": period_ms, "to": to}]}
+            return scenes.add(SceneCreate(name=name, kind="sequence", steps=[step], loops=True))
 
         @server.tool()
         async def list_light_leds(light_id: int):
@@ -333,6 +361,16 @@ class LumiaMCPTools:
             fading each key over each step's transition (a wave: move a band of color across
             columns, one step per position, with short holds and a quick transition). Find
             names and positions with list_light_leds; apply with apply_scheme.
+
+            Any step may also have "effects" (up to 8), played while it holds (a step with effects and hold_ms 0 plays
+            them until stopped): {"type": "blink" | "strobe" | "breathe" | "glow" | "rainbow", "period_ms": 200-60000
+            (one cycle; default 1000), "color" (default: the step's color), "to" (default: black, i.e. off/dim)}.
+            blink switches color/to each half period, strobe flashes color briefly, breathe swells smoothly between
+            them, glow swells gently (never below a third), rainbow cycles every hue.
+            An effect with "keys": [names] moves only those keys (groups and your shortcut keys too), others
+            keep the step's colors; "stagger_ms" starts each listed key that much after the one before, so a
+            row chases or waves (a rainbow with stagger_ms over a row's keys in order is a rainbow wave). Key
+            names also take your shortcut keys (list_shortcut_keys).
             """
             return scenes.add(SceneCreate(name=name, kind="keys", steps=steps, loops=loops))
 
@@ -375,7 +413,7 @@ class LumiaMCPTools:
         async def apply_scheme(
             scheme_id: int, target_type: str = "all", target_id: int | None = None
         ):
-            """Apply a scheme to all lights, one light, or a room/group.
+            """Apply a scheme to all lights, one light, or a room/group (sequences and effects play until stopped).
 
             Use target_type "all", "light", or "group". Rooms and groups both use
             "group" with their collection id.
@@ -755,3 +793,69 @@ class LumiaMCPTools:
             Settings not given stay as they are.
             """
             return music().set_beats(MusicBeatsUpdate(enabled=enabled, offset_ms=offset_ms, strength=strength))
+
+    def _register_shortcut_tools(self) -> None:
+        server = self.server
+
+        def shortcuts():
+            return self.service.shortcuts
+
+        @server.tool()
+        def list_shortcuts():
+            """List your shortcut keys (named sets of keyboard keys), your hotkeys, and each PC bridge's hotkey status.
+
+            "built_in_groups" are the groups every keyboard has (wasd, arrows, letters, ...). "apps" are what a
+            hotkey can open on the PC (set_hotkey with action "open" and one of their "app" names; more are
+            added in icue_bridge.json on the PC). A hotkey's "problem" says why its PC could not take it
+            (another program holds that combination).
+            """
+            return shortcuts().status()
+
+        @server.tool()
+        def save_shortcut_keys(name: str, keys: list[str], color: str | None = None, shortcut_id: int | None = None):
+            """Save a named set of keyboard keys, such as "Copy" = ["LeftCtrl", "C"] or "Photoshop" = ["B", "V", "M"].
+
+            Key names come from list_light_leds ("LeftCtrl", "C", "F5", "Space"); groups such as "wasd" work too.
+            The name then works anywhere a key or group name does: in set_light_leds, in create_key_scheme's
+            "keys" and in effects' "keys". color (#RRGGBB) is how it is shown when painted from the PC tab.
+            Pass shortcut_id to replace one you saved.
+            """
+            entry = KeyGroupCreate(name=name, keys=keys, color=color)
+            return shortcuts().update_group(shortcut_id, entry) if shortcut_id else shortcuts().add_group(entry)
+
+        @server.tool()
+        def delete_shortcut_keys(shortcut_id: int):
+            """Delete one of your shortcut keys sets (schemes naming it then leave those keys out)."""
+            shortcuts().delete_group(shortcut_id)
+            return {"deleted": True, "shortcut_id": shortcut_id}
+
+        @server.tool()
+        def set_hotkey(
+            combo: str, action: str = "scene", scheme_id: int | None = None, target_type: str = "all",
+            target_id: int | None = None, enabled: bool = True, hotkey_id: int | None = None, app: str | None = None,
+        ):
+            """Make a key combination on the PC open an app, play a scheme, stop schemes, or turn lights off, wherever it is pressed.
+
+            combo: modifiers (Ctrl, Alt, Shift, Win) and one key, e.g. "Ctrl+Alt+1", "Win+Shift+L", "Ctrl+F9";
+            F-keys and media keys may stand alone. Windows gives the combination to Lumia rather than the app in
+            front, so pick one no app needs; the keyboard's Fn key never reaches Windows, so it cannot be part of
+            one. action: "open" (app: a name from list_shortcuts' "apps", e.g. "vscode", "edge",
+            "powershell-admin"; the PC opens it at once), "scene" (play scheme_id; pressing it again while that
+            scheme plays on all its lights stops it), "stop", or "off". target_type "all", "on", "light", or "group"
+            (rooms too) with target_id. Pass hotkey_id to change one. Needs the iCUE bridge on that PC (see
+            list_shortcuts for whether it listens).
+            """
+            entry = HotkeyCreate(combo=combo, action=action, scene_id=scheme_id, target_type=target_type,
+                                 target_id=target_id, enabled=enabled, app=app)
+            return shortcuts().update_hotkey(hotkey_id, entry) if hotkey_id else shortcuts().add_hotkey(entry)
+
+        @server.tool()
+        def delete_hotkey(hotkey_id: int):
+            """Delete a hotkey; its combination goes back to the PC's apps."""
+            shortcuts().delete_hotkey(hotkey_id)
+            return {"deleted": True, "hotkey_id": hotkey_id}
+
+        @server.tool()
+        async def press_hotkey(hotkey_id: int):
+            """Do what a hotkey does, as if it was pressed on the PC (to try it)."""
+            return await shortcuts().press_id(hotkey_id)

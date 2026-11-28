@@ -51,6 +51,11 @@ PROXIED_ROUTES = tuple(
         ("PUT", rf"/api/(transitions|schedules)/{ID}"),
         ("DELETE", rf"/api/(transitions|schedules)/{ID}"),
         ("PUT", r"/api/location"),
+        ("GET", r"/api/shortcuts"),
+        ("POST", r"/api/(key-groups|hotkeys)"),
+        ("PUT", rf"/api/(key-groups|hotkeys)/{ID}"),
+        ("DELETE", rf"/api/(key-groups|hotkeys)/{ID}"),
+        ("POST", rf"/api/hotkeys/{ID}/press"),
     )
 )
 UNAVAILABLE = "Luna Lumia's backend is unavailable. Please try again."

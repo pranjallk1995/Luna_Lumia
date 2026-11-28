@@ -17,6 +17,8 @@ from app.core.models import (
     GroupCreate,
     GroupMembersUpdate,
     GroupUpdate,
+    HotkeyCreate,
+    KeyGroupCreate,
     LightCreate,
     LedPaint,
     LightImageUpdate,
@@ -146,6 +148,7 @@ class LumiaHTTPRoutes:
         self._register_collections("group")
         self._register_scenes()
         self._register_schedules()
+        self._register_shortcuts()
         self.route("PUT", "/api/room-image", self.update_room_image)
         self.route("POST", "/api/control/{target_type}", self.control)
 
@@ -335,3 +338,42 @@ class LumiaHTTPRoutes:
         self.route("POST", "/api/schedules", create, 201)
         self.route("DELETE", "/api/schedules/{item_id}", delete, NO_CONTENT)
         self.route("PUT", "/api/schedules/{item_id}", update)
+
+    def _register_shortcuts(self) -> None:
+        """Shortcut keys (named sets of keys) and hotkeys (key combinations on the PC that play schemes)."""
+
+        def shortcuts():
+            return self.service.shortcuts
+
+        async def status(request: Request):
+            return shortcuts().status()
+
+        async def add_group(request: Request):
+            return shortcuts().add_group(await self.payload(request, KeyGroupCreate))
+
+        async def update_group(request: Request):
+            return shortcuts().update_group(self.path_id(request), await self.payload(request, KeyGroupCreate))
+
+        async def delete_group(request: Request):
+            shortcuts().delete_group(self.path_id(request))
+
+        async def add_hotkey(request: Request):
+            return shortcuts().add_hotkey(await self.payload(request, HotkeyCreate))
+
+        async def update_hotkey(request: Request):
+            return shortcuts().update_hotkey(self.path_id(request), await self.payload(request, HotkeyCreate))
+
+        async def delete_hotkey(request: Request):
+            shortcuts().delete_hotkey(self.path_id(request))
+
+        async def press(request: Request):
+            return await shortcuts().press_id(self.path_id(request))
+
+        self.route("GET", "/api/shortcuts", status)
+        self.route("POST", "/api/key-groups", add_group, 201)
+        self.route("PUT", "/api/key-groups/{item_id}", update_group)
+        self.route("DELETE", "/api/key-groups/{item_id}", delete_group, NO_CONTENT)
+        self.route("POST", "/api/hotkeys", add_hotkey, 201)
+        self.route("PUT", "/api/hotkeys/{item_id}", update_hotkey)
+        self.route("DELETE", "/api/hotkeys/{item_id}", delete_hotkey, NO_CONTENT)
+        self.route("POST", "/api/hotkeys/{item_id}/press", press)

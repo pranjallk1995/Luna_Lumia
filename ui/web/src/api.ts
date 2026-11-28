@@ -61,6 +61,22 @@ export type Step = {
   transition_id?: number | null;
   /** Per-key schemes: keyboard keys (or groups such as "wasd") and their colors; color is every other key. */
   keys?: Record<string, string> | null;
+  /** Motion while the step holds: blinking, breathing, a rainbow; see Effect. */
+  effects?: Effect[] | null;
+};
+
+export type EffectType = "blink" | "strobe" | "breathe" | "glow" | "rainbow";
+
+/** Keys (or the whole light, with no keys) blink, strobe, breathe, glow, or cycle hues once a period. */
+export type Effect = {
+  type: EffectType;
+  keys?: string[] | null;
+  color?: string | null;
+  /** The other color of a blink, strobe, or breathe; none is black (off, or dim). */
+  to?: string | null;
+  period_ms?: number;
+  /** Each listed key starts this much after the one before: a chase, or a wave. */
+  stagger_ms?: number;
 };
 
 export type Scheme = {
@@ -77,6 +93,8 @@ export type Scheme = {
   preview_colors?: string[];
   /** How many keys a per-key scheme colors across its steps. */
   keys_colored?: number;
+  /** The kinds of effect its steps play. */
+  effects?: EffectType[];
   weather_slots?: string[];
   music_moods?: string[];
 };
@@ -212,6 +230,65 @@ export function useControl() {
           throw failure;
         }
       }, fallback);
+    },
+    [act, client],
+  );
+}
+
+/** Your own named set of keys ("Copy" = LeftCtrl, C), used like the built-in groups. */
+export type KeyGroup = { id: number; name: string; keys: string[]; color?: string | null };
+
+/** A key combination on the PC that opens an app there, plays a scheme, stops schemes, or turns lights off. */
+export type Hotkey = {
+  id: number;
+  combo: string;
+  action: "open" | "scene" | "stop" | "off";
+  /** The app it opens, by the name the PC's bridge lists it under. */
+  app?: string | null;
+  app_label?: string | null;
+  scene_id?: number | null;
+  scene_name?: string | null;
+  target_type: string;
+  target_id?: number | null;
+  enabled: boolean;
+  last_pressed?: string | null;
+  /** Why the PC could not take it: another program holds that combination. */
+  problem?: string | null;
+};
+
+export type HotkeyPayload = Omit<Hotkey, "id" | "scene_name" | "app_label" | "last_pressed" | "problem">;
+
+/** An app a hotkey can open on the PC. */
+export type PcApp = { app: string; label: string };
+
+/** Whether a PC's iCUE bridge is listening for the hotkeys. */
+export type HotkeyBridge = { host: string; port: number; listening: boolean; error?: string | null };
+
+export type Shortcuts = { key_groups: KeyGroup[]; hotkeys: Hotkey[]; bridges: HotkeyBridge[]; apps: PcApp[]; built_in_groups: Record<string, string[]> };
+
+const SHORTCUTS = ["shortcuts"];
+
+export const useShortcuts = () =>
+  useQuery({ queryKey: SHORTCUTS, queryFn: () => request<Shortcuts>("/api/shortcuts"), refetchInterval: 15_000 });
+
+export const shortcuts = {
+  saveKeys: (group: Omit<KeyGroup, "id">, id?: number) => (id ? put(`/api/key-groups/${id}`, group) : post("/api/key-groups", group)),
+  deleteKeys: (id: number) => remove(`/api/key-groups/${id}`),
+  saveHotkey: (hotkey: HotkeyPayload, id?: number) => (id ? put(`/api/hotkeys/${id}`, hotkey) : post("/api/hotkeys", hotkey)),
+  deleteHotkey: (id: number) => remove(`/api/hotkeys/${id}`),
+  press: (id: number) => post(`/api/hotkeys/${id}/press`),
+};
+
+/** Like useAct, also refreshing the shortcuts (and each PC's key list, which shows your shortcut keys). */
+export function useShortcutAct() {
+  const client = useQueryClient();
+  const act = useAct();
+  return useCallback(
+    async (action: () => Promise<unknown>, fallback?: string) => {
+      const done = await act(action, fallback);
+      client.invalidateQueries({ queryKey: SHORTCUTS });
+      client.invalidateQueries({ queryKey: ["leds"] });
+      return done;
     },
     [act, client],
   );

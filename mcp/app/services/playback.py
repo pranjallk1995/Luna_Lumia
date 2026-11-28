@@ -61,9 +61,99 @@ class ColorMath:
     def preview_hex(cls, color: str | None, color_temp: int | None) -> str:
         return color.upper() if color else cls.rgb_to_hex(cls.kelvin_to_rgb(color_temp))
 
+    @staticmethod
+    def hue_hex(hue: float) -> str:
+        """A fully saturated color at ``hue`` degrees (0 red, 120 green, 240 blue)."""
+        def channel(n: float) -> float:
+            k = (n + hue / 30) % 12
+            return 255 * (0.5 - 0.5 * max(-1, min(k - 3, 9 - k, 1)))
+        return ColorMath.rgb_to_hex((channel(0), channel(8), channel(4)))
+
     @classmethod
     def ease(cls, curve: str, t: float) -> float:
         return cls.CURVES.get(curve, cls.CURVES["linear"])(max(0.0, min(1.0, t)))
+
+
+def expand_groups(keys: dict[str, str] | None, groups: dict[str, tuple[str, ...]]) -> dict[str, str] | None:
+    """Spread your shortcut keys' names over their keys; a key named on its own wins over a group."""
+    if not keys or not groups:
+        return keys
+    expanded = {key: color for name, color in keys.items() for key in groups.get(name.casefold(), ())}
+    expanded.update({name: color for name, color in keys.items() if name.casefold() not in groups})
+    return expanded
+
+
+def key_list(names: list[str], groups: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
+    """Key names with every group (built-in or yours) spread out in order, each key once."""
+    out: list[str] = []
+    for name in names:
+        for key in groups.get(name.casefold()) or (name,):
+            if key not in out:
+                out.append(key)
+    return tuple(out)
+
+
+@dataclass(frozen=True)
+class Motion:
+    """An effect while a step holds (see models.Effect), timed from when the scheme started playing."""
+
+    type: str
+    keys: tuple[str, ...] | None  # None: the whole light
+    color: str | None
+    to: str | None
+    period_s: float
+    stagger_s: float = 0.0
+
+    GLOW_LOW = 0.33
+    DISCRETE = ("blink", "strobe")
+
+    @classmethod
+    def from_raw(cls, raw: dict[str, Any], groups: dict[str, tuple[str, ...]]) -> "Motion":
+        keys = raw.get("keys")
+        return cls(raw["type"], key_list(keys, groups) if keys else None, raw.get("color"), raw.get("to"),
+                   raw.get("period_ms", 1000) / 1000, raw.get("stagger_ms", 0) / 1000)
+
+    @property
+    def flash_s(self) -> float:
+        """How long a strobe's flash lasts: an eighth of the period, at least long enough to be seen."""
+        return min(self.period_s / 2, max(AppConfig.PLAYBACK_FRAME_SECONDS, self.period_s / 8))
+
+    def phase(self, t: float, index: int = 0) -> float:
+        return ((t - index * self.stagger_s) / self.period_s) % 1.0
+
+    def level(self, t: float, index: int = 0) -> float:
+        """1 when showing ``color``, 0 when showing ``to``, in between while swelling."""
+        phase = self.phase(t, index)
+        if self.type == "blink":
+            return 1.0 if phase < 0.5 else 0.0
+        if self.type == "strobe":
+            return 1.0 if phase * self.period_s < self.flash_s else 0.0
+        return 0.5 + 0.5 * math.cos(2 * math.pi * phase)
+
+    def hue(self, t: float, index: int = 0) -> str:
+        return ColorMath.hue_hex(self.phase(t, index) * 360)
+
+    def until_change(self, t: float) -> float:
+        """Seconds until a blink or strobe next switches some key; smooth effects change every frame."""
+        if self.type not in self.DISCRETE:
+            return AppConfig.PLAYBACK_FRAME_SECONDS
+        edges = (0.0, 0.5 * self.period_s if self.type == "blink" else self.flash_s)
+        soonest = math.inf
+        for index in range(len(self.keys or (None,)) if self.stagger_s else 1):
+            into = self.phase(t, index) * self.period_s
+            ahead = [edge - into for edge in edges if edge > into + 1e-6] or [self.period_s - into]
+            soonest = min(soonest, min(ahead))
+        return soonest
+
+    def toward(self, base: str, t: float, index: int = 0) -> str:
+        """What a key whose own color is ``base`` shows now."""
+        if self.type == "rainbow":
+            return self.hue(t, index)
+        start = ColorMath.hex_to_rgb(self.color or base)
+        end = ColorMath.hex_to_rgb(self.to) if self.to else (
+            tuple(channel * self.GLOW_LOW for channel in start) if self.type == "glow" else (0, 0, 0))
+        level = self.level(t, index)
+        return ColorMath.rgb_to_hex(tuple(b + (a - b) * level for a, b in zip(start, end)))
 
 
 @dataclass(frozen=True)
@@ -77,6 +167,7 @@ class Step:
     fade_s: float
     curve: str
     keys: dict[str, str] | None = None  # per-key colors; ``color`` is every other key
+    effects: tuple[Motion, ...] = ()
 
     @property
     def rgb(self) -> tuple[int, int, int]:
@@ -85,8 +176,14 @@ class Step:
         return ColorMath.kelvin_to_rgb(self.color_temp)
 
     @classmethod
-    def from_scene(cls, scene: Row, transitions: dict[int, Row]) -> list[Step]:
-        """Resolve stored steps; an unknown transition plays as an instant change."""
+    def from_scene(
+        cls, scene: Row, transitions: dict[int, Row], groups: dict[str, tuple[str, ...]] | None = None
+    ) -> list[Step]:
+        """Resolve stored steps; an unknown transition plays as an instant change.
+
+        ``groups`` maps lower-case group names (built-in and your shortcut keys) to their keys.
+        """
+        groups = groups or {}
         steps = []
         for raw in scene["steps"]:
             transition = transitions.get(raw.get("transition_id")) or {}
@@ -98,7 +195,8 @@ class Step:
                     hold_s=raw.get("hold_ms", 0) / 1000,
                     fade_s=transition.get("duration_ms", 0) / 1000,
                     curve=transition.get("curve", "linear"),
-                    keys=raw.get("keys") or None,
+                    keys=expand_groups(raw.get("keys") or None, groups),
+                    effects=tuple(Motion.from_raw(effect, groups) for effect in raw.get("effects") or ()),
                 )
             )
         return steps
@@ -146,6 +244,48 @@ class Step:
         start, end = previous.rgb, self.rgb
         rgb = tuple(a + (b - a) * t for a, b in zip(start, end))
         return {"brightness": brightness, "color": ColorMath.rgb_to_hex(rgb)}
+
+    def render(self, t: float) -> dict[str, Any]:
+        """The state ``t`` seconds into the playback, with this step's effects on top of its colors."""
+        state = dict(self.state)
+        if not self.effects:
+            return state
+        keys = dict(state.get("keys") or {})
+        if any(effect.keys for effect in self.effects):
+            state["keys"] = keys
+        for effect in self.effects:
+            if effect.keys:
+                for index, name in enumerate(effect.keys):
+                    keys[name] = effect.toward(keys.get(name, self.hex), t, index)
+                continue
+            # The whole light.
+            if effect.type == "rainbow" or effect.to:
+                color = effect.toward(state.get("color") or self.hex, t)
+                state.pop("color_temp", None)
+                state["color"] = color
+                for name in keys:
+                    keys[name] = effect.toward(keys[name], t) if effect.type != "rainbow" else color
+                continue
+            # Toward dark: dim the brightness (bulbs cannot show dim colors); a blink's off half is off.
+            if effect.color:
+                state.pop("color_temp", None)
+                state["color"] = effect.color
+                for name in keys:
+                    keys[name] = effect.color
+            level = effect.level(t)
+            if effect.type in Motion.DISCRETE and level == 0:
+                state.pop("color_temp", None)
+                state["color"] = "#000000"
+                for name in keys:
+                    keys[name] = "#000000"
+                continue
+            low = Motion.GLOW_LOW if effect.type == "glow" else 0.0
+            state["brightness"] = max(1, round(self.brightness * (low + (1 - low) * level)))
+        return state
+
+    def until_change(self, t: float) -> float:
+        """How long the frame ``render(t)`` stays right."""
+        return min((effect.until_change(t) for effect in self.effects), default=math.inf)
 
     @property
     def state(self) -> dict[str, Any]:
@@ -229,6 +369,7 @@ class Playback:
     task: asyncio.Task | None = field(default=None, repr=False)
     clock: BeatClock | None = None
     frame: dict[str, Any] | None = None  # the state last sent, for showing what the lights show
+    started: float = field(default_factory=time.monotonic)  # effects keep time from here, across steps and loops
 
 
 class SceneEngine:
@@ -326,6 +467,22 @@ class SceneEngine:
             # Anchor to the start time so slow sends do not stretch the fade.
             await asyncio.sleep(max(0.0, started + step.fade_s * frame / frames - time.monotonic()))
 
+    async def _animate(self, playback: Playback, step: Step) -> None:
+        """Play a step's effects for its hold (forever when it has none), sending a frame only when it changes."""
+        end = time.monotonic() + step.hold_s if step.hold_s > 0 else math.inf
+        sent = None
+        while playback.lights:
+            now = time.monotonic()
+            if now >= end:
+                return
+            t = now - playback.started
+            state = step.render(t)
+            if state != sent:
+                await self._frame(playback, state)
+                sent = state
+            wait = min(AppConfig.PLAYBACK_FRAME_SECONDS, step.until_change(time.monotonic() - playback.started))
+            await asyncio.sleep(max(0.01, min(wait, end - time.monotonic())))
+
     async def _run_beats(self, playback: Playback) -> None:
         """Send each light the state for the track's position, each light on its own.
 
@@ -366,8 +523,11 @@ class SceneEngine:
             while playback.lights:
                 step = playback.steps[index]
                 await self._fade(playback, previous, step)
-                # A zero-length step still yields so a looping sequence cannot spin.
-                await asyncio.sleep(max(step.hold_s, 0 if step.fade_s else AppConfig.PLAYBACK_FRAME_SECONDS))
+                if step.effects:
+                    await self._animate(playback, step)
+                else:
+                    # A zero-length step still yields so a looping sequence cannot spin.
+                    await asyncio.sleep(max(step.hold_s, 0 if step.fade_s else AppConfig.PLAYBACK_FRAME_SECONDS))
                 previous, index = step, index + 1
                 if index == len(playback.steps):
                     if not playback.loops:

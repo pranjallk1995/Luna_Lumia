@@ -34,7 +34,7 @@ from app.core.models import (
     WeatherPeriod,
     WeatherReport,
 )
-from app.services.playback import BeatClock, ColorMath, SceneEngine, Step
+from app.services.playback import BeatClock, ColorMath, SceneEngine, Step, expand_groups
 from app.data.repositories import (
     CollectionRepository,
     LightRepository,
@@ -75,6 +75,8 @@ class LightControlService:
         self.lights = lights
         self.adapter = adapter or WizLightAdapter()
         self.engine = engine
+        # Lower-case group name -> keys, the built-in ones and your shortcut keys (set by ShortcutService's owner).
+        self.key_groups: Callable[[], dict[str, tuple[str, ...]]] = lambda: dict(KEY_GROUPS)
         # Set by LumiaService: finds lights that went silent on the LAN (see follow_moved_lights).
         self.follow_moved: Callable[..., Awaitable[list[dict[str, Any]] | None]] | None = None
 
@@ -130,7 +132,8 @@ class LightControlService:
         light = self._pc_light(light_id)
         keys = await self.adapter.keys(light_address(light))
         names = {key["key"] for key in keys}
-        groups = {group: [key for key in members if key in names] for group, members in KEY_GROUPS.items()}
+        mine = {group: members for group, members in self.key_groups().items() if group not in KEY_GROUPS}
+        groups = {group: [key for key in members if key in names] for group, members in {**KEY_GROUPS, **mine}.items()}
         return {"light_id": light["id"], "name": light["name"], "keys": keys,
                 "groups": {group: members for group, members in groups.items() if members}}
 
@@ -138,6 +141,7 @@ class LightControlService:
         """Color a PC light's keys or LEDs now, each its own color and the rest ``color``; stops any scheme on it."""
         light = self._pc_light(light_id)
         step = SceneStep(color=color, brightness=brightness, keys=keys)
+        step.keys = expand_groups(step.keys, self.key_groups())
         self.stop_sequences([light])
         await self.adapter.apply(light_address(light), on=True, brightness=step.brightness, color=step.color, keys=step.keys)
         saved = self.lights.update_state(light["id"], on=True, brightness=step.brightness, color=step.color, reachable=True)
@@ -807,6 +811,7 @@ class SceneService:
         scene["preview_colors"] = [
             ColorMath.preview_hex(step.get("color"), step.get("color_temp")) for step in steps
         ]
+        scene["effects"] = sorted({effect["type"] for step in steps for effect in step.get("effects") or []})
         if scene["kind"] == "keys":
             scene["keys_colored"] = len({name for step in steps for name in (step.get("keys") or {})})
         scene["cycle_ms"] = sum(
@@ -819,6 +824,11 @@ class SceneService:
     def list(self) -> list[Row]:
         transitions = self.transitions.by_id()
         return [self.describe(scene, transitions) for scene in self.scenes.list()]
+
+    def _key_groups(self) -> dict[str, tuple[str, ...]]:
+        """Group names a scheme's keys may use: the built-in ones and your shortcut keys."""
+        groups = getattr(self.control, "key_groups", None)
+        return groups() if callable(groups) else {}
 
     def _known_transitions(self, entry: SceneCreate) -> dict[int, Row]:
         known = self.transitions.by_id()
@@ -843,7 +853,7 @@ class SceneService:
         if playing_ids:
             lights = [light for light in self.control.lights.targets("all", None) if light["id"] in playing_ids]
             if updated["kind"] in ("sequence", "keys"):
-                self.engine.play(scene_id, Step.from_scene(updated, known), updated["loops"], lights)
+                self.engine.play(scene_id, Step.from_scene(updated, known, self._key_groups()), updated["loops"], lights)
             else:
                 self.engine.stop(list(playing_ids))
         return self.describe(updated, known)
@@ -884,7 +894,7 @@ class SceneService:
             )
             results = await self.control.control(target_type, target_id, state)
             return {**summary, "playing": False, "results": results}
-        steps = Step.from_scene(scene, self.transitions.by_id())
+        steps = Step.from_scene(scene, self.transitions.by_id(), self._key_groups())
         self.engine.play(scene["id"], steps, scene["loops"], lights)
         for light in lights:
             self.control.lights.update_state(light["id"], on=True)
@@ -916,7 +926,7 @@ class SceneService:
         if scene["kind"] == "solid":
             palette = [Step(scene["color"], scene["color_temp"], scene["brightness"], 0, 0, "linear")]
         else:
-            palette = Step.from_scene(scene, self.transitions.by_id())
+            palette = Step.from_scene(scene, self.transitions.by_id(), self._key_groups())
         LOG.info("Pulsing scheme %r on the beats: lights %s", scene["name"], [light["id"] for light in lights])
         self.engine.play_beats(scene["id"], palette, clock, lights)
         for light in lights:

@@ -164,6 +164,23 @@ CREATE TABLE IF NOT EXISTS music_automation (
 ALTER TABLE music_automation ADD COLUMN IF NOT EXISTS beats BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE music_automation ADD COLUMN IF NOT EXISTS beat_offset_ms INTEGER NOT NULL DEFAULT 300;
 ALTER TABLE music_automation ADD COLUMN IF NOT EXISTS beat_strength REAL NOT NULL DEFAULT 1;
+-- Your own named sets of keyboard keys ("Copy" = LeftCtrl, C), used like the built-in groups.
+CREATE TABLE IF NOT EXISTS key_groups (
+ id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, keys JSONB NOT NULL DEFAULT '[]',
+ color CHAR(7), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+-- Key combinations on the PC that play a scheme, or stop or turn off lights, when pressed.
+CREATE TABLE IF NOT EXISTS hotkeys (
+ id BIGSERIAL PRIMARY KEY, combo TEXT NOT NULL UNIQUE,
+ action TEXT NOT NULL DEFAULT 'scene',
+ scene_id BIGINT REFERENCES scenes(id) ON DELETE CASCADE,
+ target_type TEXT NOT NULL DEFAULT 'all', target_id BIGINT,
+ enabled BOOLEAN NOT NULL DEFAULT TRUE, last_pressed TIMESTAMPTZ,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+-- A hotkey may open an app on its PC, by the name the bridge lists it under.
+ALTER TABLE hotkeys DROP CONSTRAINT IF EXISTS hotkeys_action_check;
+ALTER TABLE hotkeys ADD COLUMN IF NOT EXISTS app TEXT;
 """
 
 

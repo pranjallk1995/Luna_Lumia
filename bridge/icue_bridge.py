@@ -18,6 +18,20 @@ anything another program drives; iCUE also lists ASUS boards, which OpenRGB usua
     PUT /devices/<name>/color       {"rgb": [r, g, b]}
     GET /devices/<name>/keys        -> [{"key": "W", "x": x, "y": y}, ...]  every LED, by name
     PUT /devices/<name>/keys        {"default": [r, g, b] or null, "keys": {"W": [r, g, b], ...}}
+    PUT /hotkeys                    {"combos": ["Ctrl+Alt+1", ...], "open": {"Ctrl+Alt+U": "ubuntu"}}
+                                    -> {"boot", "registered", "refused": {combo: why}}
+    GET /hotkeys/presses?after=n&wait=s -> {"boot", "seq", "presses": [{"seq", "combo", "at", "opened"?}, ...]}
+    GET /apps                       -> [{"app": "vscode", "label": "Visual Studio Code"}, ...]
+    POST /apps/<app>/open           -> {"ok": true}
+
+A hotkey in "open" opens that app here, at once, without waiting for Lumia. Apps come only from this
+PC's own list (APPS below, plus "apps" in icue_bridge.json), so Lumia names an app and never sends a
+command: whoever holds the token can open these apps and nothing else.
+
+Hotkeys are key combinations Windows hands to the bridge (RegisterHotKey) wherever they are pressed;
+Lumia waits on /hotkeys/presses for them and plays the scheme each one is for. A combination another
+program already holds is refused, and said so. ``boot`` changes when the bridge restarts, so Lumia
+knows to send its hotkeys again.
 
 A keyboard's LEDs are named after their keys (``Escape``, ``W``, ``Space``, ``Keypad7``), from
 iCUE's key IDs; other LEDs are named by their group and number (``Mouse 1``). ``x`` and ``y``
@@ -28,14 +42,17 @@ columns, or distance. Keys left out keep their color, or take ``default`` when i
 import hmac
 import json
 import logging
+import re
+import sys
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from functools import reduce
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from operator import or_
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote, urlsplit
 
 ALPHA = 255
 MAX_BODY_BYTES = 1024
@@ -75,6 +92,8 @@ class BridgeConfig:
     bind: str = "0.0.0.0"
     port: int = 6743
     device_types: tuple[str, ...] = ("keyboard", "mouse")
+    # More apps a hotkey may open, or changes to the built-in ones: {"name": {"label", "run", "args", "admin"}}.
+    apps: tuple[tuple[str, dict], ...] = ()
 
     @classmethod
     def load(cls, path: Path) -> "BridgeConfig":
@@ -82,14 +101,19 @@ class BridgeConfig:
         if not path.exists():
             return cls()
         settings = json.loads(path.read_text())
-        unknown = set(settings) - {"bind", "port", "device_types"}
+        unknown = set(settings) - {"bind", "port", "device_types", "apps"}
         if unknown:
             raise ValueError(f"Unknown settings in {path.name}: {sorted(unknown)}")
         config = cls(
             settings.get("bind", cls.bind),
             settings.get("port", cls.port),
             tuple(settings.get("device_types", cls.device_types)),
+            tuple((settings.get("apps") or {}).items()),
         )
+        for name, app in config.apps:
+            if not APP_NAME.fullmatch(name) or not isinstance(app, dict) or not isinstance(app.get("run"), str) \
+                    or set(app) - {"label", "run", "args", "admin", "fallback"}:
+                raise ValueError(f"apps.{name} must be {{\"run\": program, \"args\", \"label\", \"admin\"}}, named a-z 0-9 _ -")
         bad_types = set(config.device_types) - set(DEVICE_TYPES)
         if bad_types or not config.device_types:
             raise ValueError(f"device_types must come from {sorted(DEVICE_TYPES)}")
@@ -256,6 +280,220 @@ class ICueLights:
             self.key_colors.pop(name, None)
 
 
+# Windows virtual-key codes for the keys a hotkey may end with (the names Lumia's models.HOTKEY_KEYS uses).
+MODIFIER_FLAGS = {"Alt": 0x1, "Ctrl": 0x2, "Shift": 0x4, "Win": 0x8}
+MOD_NOREPEAT = 0x4000
+VIRTUAL_KEYS = {
+    **{chr(code): code for code in range(ord("A"), ord("Z") + 1)},
+    **{str(digit): 0x30 + digit for digit in range(10)},
+    **{f"F{n}": 0x6F + n for n in range(1, 25)},
+    **{f"Num{n}": 0x60 + n for n in range(10)},
+    "Space": 0x20, "Enter": 0x0D, "Tab": 0x09, "Escape": 0x1B, "Backspace": 0x08, "Insert": 0x2D,
+    "Delete": 0x2E, "Home": 0x24, "End": 0x23, "PageUp": 0x21, "PageDown": 0x22, "Up": 0x26, "Down": 0x28,
+    "Left": 0x25, "Right": 0x27, "PrintScreen": 0x2C, "Pause": 0x13, "NumMultiply": 0x6A, "NumAdd": 0x6B,
+    "NumSubtract": 0x6D, "NumDivide": 0x6F, "NumDecimal": 0x6E, "VolumeUp": 0xAF, "VolumeDown": 0xAE,
+    "VolumeMute": 0xAD, "MediaPlayPause": 0xB3, "MediaNext": 0xB0, "MediaPrevious": 0xB1, "MediaStop": 0xB2,
+}
+MAX_HOTKEYS = 64
+APP_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,39}")
+# What a hotkey may open. "run" goes to ShellExecute, so a program on PATH or in App Paths works, as do
+# shell: and URL targets; "admin" asks Windows to run it elevated (it shows the UAC prompt).
+APPS: dict[str, dict] = {
+    "ubuntu": {"label": "Ubuntu (WSL)", "run": "wsl.exe", "args": "~"},
+    "vscode": {"label": "Visual Studio Code", "run": "%LOCALAPPDATA%\\Programs\\Microsoft VS Code\\Code.exe",
+               "fallback": "code"},
+    "edge": {"label": "Microsoft Edge", "run": "msedge.exe"},
+    "explorer": {"label": "File Explorer", "run": "explorer.exe"},
+    "powershell-admin": {"label": "PowerShell (admin)", "run": "powershell.exe", "admin": True},
+    "powershell": {"label": "PowerShell", "run": "powershell.exe"},
+    "terminal": {"label": "Windows Terminal", "run": "wt.exe"},
+    "calculator": {"label": "Calculator", "run": "calc.exe"},
+    "sticky-notes": {"label": "Sticky Notes", "run": "explorer.exe", "args": "shell:AppsFolder\\Microsoft.MicrosoftStickyNotes_8wekyb3d8bbwe!App"},
+    "notepad": {"label": "Notepad", "run": "notepad.exe"},
+    "task-manager": {"label": "Task Manager", "run": "taskmgr.exe"},
+    "settings": {"label": "Settings", "run": "ms-settings:"},
+}
+
+
+class AppLauncher:
+    """Open this PC's listed apps by name."""
+
+    def __init__(self, extra: tuple[tuple[str, dict], ...] = (), shell=None) -> None:
+        self.apps = {**APPS, **dict(extra)}
+        self.shell = shell
+
+    def list(self) -> list[dict]:
+        return [{"app": name, "label": app.get("label", name)} for name, app in self.apps.items()]
+
+    def open(self, name: str) -> dict:
+        app = self.apps.get(name)
+        if app is None:
+            raise LookupError(f"This PC has no app named {name!r}; add it under apps in icue_bridge.json")
+        import os
+        run = os.path.expandvars(app["run"])
+        if app.get("fallback") and ("\\" in run or "/" in run) and not os.path.exists(run):
+            run = app["fallback"]  # installed somewhere else: let Windows find it on PATH
+        if self.shell is not None:
+            self.shell(run, app.get("args", ""), bool(app.get("admin")))
+            return {"ok": True}
+        import ctypes
+        verb = "runas" if app.get("admin") else "open"
+        # Above 32 means it started; the UAC prompt for an admin app counts as started.
+        result = ctypes.windll.shell32.ShellExecuteW(None, verb, run, app.get("args") or None, os.path.expanduser("~"), 1)
+        if result <= 32:
+            raise ValueError(f"Windows could not open {app.get('label', name)} ({run}): error {result}")
+        log.info("Opened %s", name)
+        return {"ok": True}
+MAX_PRESSES = 100
+WM_HOTKEY, WM_APP = 0x0312, 0x8000
+
+
+def parse_combo(combo: str) -> tuple[int, int]:
+    """"Ctrl+Alt+1" -> (modifier flags, virtual-key code)."""
+    *modifiers, key = combo.split("+")
+    if key not in VIRTUAL_KEYS or any(name not in MODIFIER_FLAGS for name in modifiers):
+        raise ValueError(f"{combo!r} is not a hotkey this bridge knows")
+    flags = MOD_NOREPEAT
+    for name in modifiers:
+        flags |= MODIFIER_FLAGS[name]
+    return flags, VIRTUAL_KEYS[key]
+
+
+class Win32Hotkeys:
+    """RegisterHotKey on a thread of its own: Windows posts each press to the thread that registered it."""
+
+    def __init__(self) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        self.ctypes, self.wintypes = ctypes, wintypes
+        self.user32 = ctypes.WinDLL("user32", use_last_error=True)
+        self.kernel32 = ctypes.WinDLL("kernel32")
+
+    def register(self, ident: int, flags: int, key: int) -> str | None:
+        """None when Windows took it, else why not."""
+        if self.user32.RegisterHotKey(None, ident, flags, key):
+            return None
+        code = self.ctypes.get_last_error()
+        return "another program already uses it" if code == 1409 else f"Windows refused it (error {code})"
+
+    def unregister(self, ident: int) -> None:
+        self.user32.UnregisterHotKey(None, ident)
+
+    def thread_id(self) -> int:
+        return self.kernel32.GetCurrentThreadId()
+
+    def wake(self, thread_id: int) -> None:
+        self.user32.PostThreadMessageW(thread_id, WM_APP, 0, 0)
+
+    def messages(self):
+        """Yield (message, wParam) until the queue is told to quit."""
+        message = self.wintypes.MSG()
+        while self.user32.GetMessageW(self.ctypes.byref(message), None, 0, 0) > 0:
+            yield message.message, message.wParam
+
+
+class HotkeyListener:
+    """Hold the hotkeys Lumia asks for, and keep their presses for it to collect."""
+
+    def __init__(self, api=None, launcher: AppLauncher | None = None) -> None:
+        self.api = api
+        self.launcher = launcher or AppLauncher()
+        self.opens: dict[str, str] = {}  # combo -> app it opens here
+        self.boot = uuid.uuid4().hex[:12]
+        self.lock = threading.Condition()
+        self.wanted: list[str] = []
+        self.registered: dict[int, str] = {}  # id -> combo
+        self.refused: dict[str, str] = {}
+        self.presses: list[dict] = []
+        self.seq = 0
+        self.applied = threading.Event()
+        self.thread_id: int | None = None
+
+    def start(self) -> None:
+        if self.api is None:
+            if sys.platform != "win32":
+                return
+            self.api = Win32Hotkeys()
+        ready = threading.Event()
+        threading.Thread(target=self._loop, args=(ready,), daemon=True, name="hotkeys").start()
+        ready.wait(5)
+
+    def _loop(self, ready: threading.Event) -> None:
+        self.thread_id = self.api.thread_id()
+        ready.set()
+        for message, ident in self.api.messages():
+            if message == WM_APP:
+                self._apply()
+            elif message == WM_HOTKEY:
+                self.pressed(ident)
+
+    def _apply(self) -> None:
+        """On the hotkey thread: register what is wanted and drop the rest."""
+        with self.lock:
+            wanted = list(self.wanted)
+        for ident in list(self.registered):
+            self.api.unregister(ident)
+        registered, refused = {}, {}
+        for ident, combo in enumerate(wanted, start=1):
+            try:
+                why = self.api.register(ident, *parse_combo(combo))
+            except ValueError as error:
+                why = str(error)
+            if why:
+                refused[combo] = why
+            else:
+                registered[ident] = combo
+        with self.lock:
+            self.registered, self.refused = registered, refused
+        log.info("Hotkeys: %s registered, refused %s", sorted(registered.values()), refused)
+        self.applied.set()
+
+    def set(self, combos: list[str], opens: dict[str, str] | None = None) -> dict:
+        if not isinstance(combos, list) or len(combos) > MAX_HOTKEYS or not all(isinstance(c, str) for c in combos):
+            raise ValueError(f"combos must be a list of at most {MAX_HOTKEYS} key combinations")
+        opens = opens or {}
+        if not isinstance(opens, dict) or not all(isinstance(app, str) for app in opens.values()):
+            raise ValueError("open must map key combinations to app names")
+        if self.api is None:
+            raise ValueError("Hotkeys need Windows")
+        with self.lock:
+            self.wanted = list(dict.fromkeys([*combos, *opens]))
+            self.opens = dict(opens)
+        self.applied.clear()
+        self.api.wake(self.thread_id)
+        self.applied.wait(5)
+        with self.lock:
+            return {"boot": self.boot, "registered": sorted(self.registered.values()), "refused": dict(self.refused)}
+
+    def pressed(self, ident: int) -> None:
+        with self.lock:
+            combo = self.registered.get(ident)
+            if combo is None:
+                return
+            app = self.opens.get(combo)
+        press = {"combo": combo, "at": time.time()}
+        if app:
+            try:
+                self.launcher.open(app)
+                press["opened"] = app
+            except (LookupError, ValueError, OSError) as error:
+                log.warning("Hotkey %s could not open %s: %s", combo, app, error)
+                press["error"] = str(error)
+        with self.lock:
+            self.seq += 1
+            self.presses = [*self.presses, {"seq": self.seq, **press}][-MAX_PRESSES:]
+            self.lock.notify_all()
+
+    def wait_presses(self, after: int | None, wait: float) -> dict:
+        """Presses after ``after``, waiting up to ``wait`` seconds (at most 25) for one."""
+        with self.lock:
+            if after is not None:
+                self.lock.wait_for(lambda: self.seq > after, timeout=max(0.0, min(wait, 25.0)))
+            newer = [press for press in self.presses if after is not None and press["seq"] > after]
+            return {"boot": self.boot, "seq": self.seq, "presses": newer}
+
+
 class BridgeServer(ThreadingHTTPServer):
     # On Windows, address reuse lets a second bridge share the port, and two bridges fight over the lights.
     allow_reuse_address = False
@@ -278,7 +516,9 @@ def parse_keys(body: bytes) -> tuple[tuple[int, int, int] | None, dict[str, tupl
     return (as_rgb(default) if default is not None else None), {key: as_rgb(rgb) for key, rgb in keys.items()}
 
 
-def make_handler(lights: ICueLights, token: str):
+def make_handler(lights: ICueLights, token: str, hotkeys: HotkeyListener | None = None):
+    hotkeys = hotkeys or HotkeyListener()
+
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -316,7 +556,18 @@ def make_handler(lights: ICueLights, token: str):
 
         def do_GET(self) -> None:
             parts = self.path.split("/")
-            if self.path == "/devices":
+            url = urlsplit(self.path)
+            if url.path == "/hotkeys/presses":
+                query = parse_qs(url.query)
+
+                def presses() -> dict:
+                    after = int(query["after"][0]) if "after" in query else None
+                    return hotkeys.wait_presses(after, float(query.get("wait", ["0"])[0]))
+
+                self.guarded(presses)
+            elif self.path == "/apps":
+                self.guarded(hotkeys.launcher.list)
+            elif self.path == "/devices":
                 self.guarded(lights.list)
             elif len(parts) == 4 and parts[1] == "devices" and parts[3] == "keys":
                 self.guarded(lambda: lights.keys(unquote(parts[2])))
@@ -325,7 +576,13 @@ def make_handler(lights: ICueLights, token: str):
 
         def do_PUT(self) -> None:
             parts = self.path.split("/")
-            if len(parts) == 4 and parts[1] == "devices" and parts[3] == "color":
+            if self.path == "/hotkeys":
+                def set_hotkeys() -> dict:
+                    body = json.loads(self.read_body(MAX_KEYS_BODY_BYTES))
+                    return hotkeys.set(body.get("combos"), body.get("open"))
+
+                self.guarded(set_hotkeys)
+            elif len(parts) == 4 and parts[1] == "devices" and parts[3] == "color":
                 name = unquote(parts[2])
 
                 def apply() -> dict:
@@ -336,6 +593,15 @@ def make_handler(lights: ICueLights, token: str):
             elif len(parts) == 4 and parts[1] == "devices" and parts[3] == "keys":
                 name = unquote(parts[2])
                 self.guarded(lambda: lights.set_keys(name, *parse_keys(self.read_body(MAX_KEYS_BODY_BYTES))))
+            else:
+                self.close_connection = True
+                self.reply(404, {"error": "Not found"})
+
+        def do_POST(self) -> None:
+            parts = self.path.split("/")
+            if len(parts) == 4 and parts[1] == "apps" and parts[3] == "open":
+                self.read_body()
+                self.guarded(lambda: hotkeys.launcher.open(unquote(parts[2])))
             else:
                 self.close_connection = True
                 self.reply(404, {"error": "Not found"})
@@ -362,11 +628,13 @@ def main() -> None:
     lights = ICueLights(cuesdk.CueSdk(), cuesdk, config.device_types)
     # Bind first: a bridge that is already running must not see a second iCUE session open.
     try:
-        server = BridgeServer((config.bind, config.port), make_handler(lights, token))
+        hotkeys = HotkeyListener(launcher=AppLauncher(config.apps))
+        server = BridgeServer((config.bind, config.port), make_handler(lights, token, hotkeys))
     except OSError as error:
         log.error("Port %s is taken, is another bridge running? %s", config.port, error)
         raise SystemExit(1) from error
     lights.start()
+    hotkeys.start()
     log.info("Listening on %s:%s for %s", config.bind, config.port, ", ".join(config.device_types))
     server.serve_forever()
 

@@ -11,6 +11,8 @@ from app.data.database import Database
 from app.core.models import (
     CollectionKind,
     GroupCreate,
+    HotkeyCreate,
+    KeyGroupCreate,
     LightCreate,
     LocationUpdate,
     SceneCreate,
@@ -295,6 +297,68 @@ class SceneRepository(Repository):
         return self.affects_row(
             "DELETE FROM scenes WHERE id=%s AND NOT is_preset RETURNING id", (scene_id,)
         )
+
+
+class KeyGroupRepository(Repository):
+    """Shortcut keys: your own named sets of keys."""
+
+    def list(self) -> list[Row]:
+        return self.fetch_all("SELECT * FROM key_groups ORDER BY lower(name)")
+
+    def get(self, group_id: int) -> Row | None:
+        return self.fetch_one("SELECT * FROM key_groups WHERE id=%s", (group_id,))
+
+    def add(self, entry: KeyGroupCreate) -> Row | None:
+        return self.fetch_one(
+            "INSERT INTO key_groups(name, keys, color) VALUES(%s,%s,%s) RETURNING *",
+            (entry.name, Jsonb(entry.keys), entry.color),
+        )
+
+    def update(self, group_id: int, entry: KeyGroupCreate) -> Row | None:
+        return self.fetch_one(
+            "UPDATE key_groups SET name=%s, keys=%s, color=%s WHERE id=%s RETURNING *",
+            (entry.name, Jsonb(entry.keys), entry.color, group_id),
+        )
+
+    def delete(self, group_id: int) -> bool:
+        return self.affects_row("DELETE FROM key_groups WHERE id=%s RETURNING id", (group_id,))
+
+
+class HotkeyRepository(Repository):
+    """Key combinations on the PC that play schemes."""
+
+    COLUMNS = "combo, action, scene_id, target_type, target_id, enabled, app"
+
+    @staticmethod
+    def values(entry: HotkeyCreate) -> tuple:
+        return (entry.combo, entry.action, entry.scene_id, entry.target_type, entry.target_id, entry.enabled, entry.app)
+
+    def list(self) -> list[Row]:
+        return self.fetch_all("SELECT * FROM hotkeys ORDER BY combo")
+
+    def get(self, hotkey_id: int) -> Row | None:
+        return self.fetch_one("SELECT * FROM hotkeys WHERE id=%s", (hotkey_id,))
+
+    def by_combo(self, combo: str) -> Row | None:
+        return self.fetch_one("SELECT * FROM hotkeys WHERE combo=%s", (combo,))
+
+    def add(self, entry: HotkeyCreate) -> Row | None:
+        return self.fetch_one(
+            f"INSERT INTO hotkeys({self.COLUMNS}) VALUES(%s,%s,%s,%s,%s,%s,%s) RETURNING *", self.values(entry)
+        )
+
+    def update(self, hotkey_id: int, entry: HotkeyCreate) -> Row | None:
+        return self.fetch_one(
+            """UPDATE hotkeys SET combo=%s, action=%s, scene_id=%s, target_type=%s, target_id=%s, enabled=%s, app=%s
+            WHERE id=%s RETURNING *""",
+            (*self.values(entry), hotkey_id),
+        )
+
+    def mark_pressed(self, hotkey_id: int) -> None:
+        self.affects_row("UPDATE hotkeys SET last_pressed=NOW() WHERE id=%s RETURNING id", (hotkey_id,))
+
+    def delete(self, hotkey_id: int) -> bool:
+        return self.affects_row("DELETE FROM hotkeys WHERE id=%s RETURNING id", (hotkey_id,))
 
 
 class TransitionRepository(Repository):
